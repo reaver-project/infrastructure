@@ -34,6 +34,15 @@ organization_validator.validate(organization)
 invalid_organization = copy.deepcopy(organization)
 invalid_organization["actions"]["unknown_setting"] = True
 require_rejection(organization_validator, invalid_organization, "organization setting")
+invalid_code_security = copy.deepcopy(organization)
+invalid_code_security["code_security"]["configuration"]["secret_scanning"] = (
+    "sometimes"
+)
+require_rejection(
+    organization_validator,
+    invalid_code_security,
+    "code security feature status",
+)
 
 repository_validator = validator("schemas/github-repository.schema.json")
 for repository_path in (

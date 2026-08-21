@@ -4,6 +4,22 @@ set -euo pipefail
 
 if [[ $(basename -- "$0") == gh ]]
 then
+    method=GET
+    endpoint=
+    body=
+    previous=
+    for argument in "$@"
+    do
+        if [[ ${previous} == --method ]]
+        then
+            method=${argument}
+        elif [[ ${argument} == orgs/* ]]
+        then
+            endpoint=${argument}
+        fi
+        previous=${argument}
+    done
+
     {
         printf 'CALL'
         printf '\t%s' "$@"
@@ -14,11 +30,21 @@ then
     do
         if [[ ${previous} == --input && ${argument} == - ]]
         then
-            printf 'BODY\t%s\n' "$(jq --compact-output .)" >> "${GH_TEST_LOG}"
+            body=$(jq --compact-output .)
+            printf 'BODY\t%s\n' "${body}" >> "${GH_TEST_LOG}"
             break
         fi
         previous=${argument}
     done
+
+    if [[ ${endpoint} == 'orgs/reaver-project/code-security/configurations?per_page=100' ]]
+    then
+        cat "${GH_TEST_CONFIGURATIONS}"
+    elif [[ ${method} == POST \
+        && ${endpoint} == 'orgs/reaver-project/code-security/configurations' ]]
+    then
+        printf '{"id":99}\n'
+    fi
     exit
 fi
 
@@ -28,7 +54,11 @@ mkdir "${test_directory}/bin"
 ln -s "${self_dir}/test-configure-organization" "${test_directory}/bin/gh"
 export PATH="${test_directory}/bin:${PATH}"
 export GH_TEST_LOG="${test_directory}/calls"
+export GH_TEST_CONFIGURATIONS="${test_directory}/code-security-configurations.json"
 : > "${GH_TEST_LOG}"
+jq --null-input \
+    '[[{id: 42, target_type: "organization", name: "Reaver Project security baseline"}]]' \
+    > "${GH_TEST_CONFIGURATIONS}"
 
 cleanup()
 {
@@ -56,5 +86,22 @@ assert_log_contains $'BODY\t{"enabled_repositories":"all","allowed_actions":"sel
 assert_log_contains $'BODY\t{"github_owned_allowed":true,"verified_allowed":false,"patterns_allowed":["aws-actions/configure-aws-credentials@*","astral-sh/setup-uv@*","reaver-project/infrastructure/actions/*@*"]}'
 assert_log_contains $'BODY\t{"default_workflow_permissions":"read","can_approve_pull_request_reviews":false}'
 assert_log_contains $'BODY\t{"days":30}'
+assert_log_contains 'X-GitHub-Api-Version: 2026-03-10'
+assert_log_contains $'PATCH\torgs/reaver-project/code-security/configurations/42'
+assert_log_contains '"dependabot_alerts":"enabled","dependabot_security_updates":"disabled"'
+assert_log_contains '"secret_scanning_push_protection":"enabled"'
+assert_log_contains $'BODY\t{"scope":"all"}'
+assert_log_contains $'PUT\torgs/reaver-project/code-security/configurations/42/defaults'
+assert_log_contains $'BODY\t{"default_for_new_repos":"all"}'
+
+: > "${GH_TEST_LOG}"
+printf '[[]]\n' > "${GH_TEST_CONFIGURATIONS}"
+"${self_dir}/configure-organization" \
+    "${self_dir}/organizations/reaver-project.json" \
+    >/dev/null
+
+assert_log_contains $'POST\torgs/reaver-project/code-security/configurations\t--input\t-'
+assert_log_contains $'POST\torgs/reaver-project/code-security/configurations/99/attach'
+assert_log_contains $'PUT\torgs/reaver-project/code-security/configurations/99/defaults'
 
 printf 'GitHub organization configuration tests passed.\n'

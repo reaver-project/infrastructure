@@ -8,6 +8,7 @@
         "organization",
         "profile",
         "actions",
+        "code_security",
         "manual_controls"
     ],
     "properties": {
@@ -53,6 +54,9 @@
         },
         "actions": {
             "$ref": "#/$defs/actions"
+        },
+        "code_security": {
+            "$ref": "#/$defs/code_security"
         },
         "manual_controls": {
             "type": "array",
@@ -130,6 +134,190 @@
                     "type": "boolean"
                 }
             }
+        },
+        "code_security": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": [
+                "attachment_scope",
+                "default_for_new_repositories",
+                "configuration"
+            ],
+            "properties": {
+                "attachment_scope": {
+                    "enum": [
+                        "all",
+                        "all_without_configurations",
+                        "public",
+                        "private_or_internal"
+                    ]
+                },
+                "default_for_new_repositories": {
+                    "enum": [
+                        "all",
+                        "none",
+                        "private_and_internal",
+                        "public"
+                    ]
+                },
+                "configuration": {
+                    "$ref": "#/$defs/code_security_configuration"
+                }
+            }
+        },
+        "code_security_configuration": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": [
+                "name",
+                "description",
+                "code_security",
+                "dependency_graph",
+                "dependency_graph_autosubmit_action",
+                "dependency_graph_autosubmit_action_options",
+                "dependabot_alerts",
+                "dependabot_security_updates",
+                "dependabot_delegated_alert_dismissal",
+                "code_scanning_default_setup",
+                "code_scanning_default_setup_options",
+                "code_scanning_options",
+                "code_scanning_delegated_alert_dismissal",
+                "secret_protection",
+                "secret_scanning",
+                "secret_scanning_push_protection",
+                "secret_scanning_delegated_bypass",
+                "secret_scanning_validity_checks",
+                "secret_scanning_non_provider_patterns",
+                "secret_scanning_generic_secrets",
+                "secret_scanning_delegated_alert_dismissal",
+                "secret_scanning_extended_metadata",
+                "private_vulnerability_reporting",
+                "enforcement"
+            ],
+            "properties": {
+                "name": {
+                    "type": "string",
+                    "minLength": 1
+                },
+                "description": {
+                    "type": "string",
+                    "minLength": 1
+                },
+                "code_security": {
+                    "$ref": "#/$defs/feature_status"
+                },
+                "dependency_graph": {
+                    "$ref": "#/$defs/feature_status"
+                },
+                "dependency_graph_autosubmit_action": {
+                    "$ref": "#/$defs/feature_status"
+                },
+                "dependency_graph_autosubmit_action_options": {
+                    "type": "object",
+                    "additionalProperties": false,
+                    "required": [
+                        "labeled_runners"
+                    ],
+                    "properties": {
+                        "labeled_runners": {
+                            "type": "boolean"
+                        }
+                    }
+                },
+                "dependabot_alerts": {
+                    "$ref": "#/$defs/feature_status"
+                },
+                "dependabot_security_updates": {
+                    "$ref": "#/$defs/feature_status"
+                },
+                "dependabot_delegated_alert_dismissal": {
+                    "$ref": "#/$defs/feature_status"
+                },
+                "code_scanning_default_setup": {
+                    "$ref": "#/$defs/feature_status"
+                },
+                "code_scanning_default_setup_options": {
+                    "type": "object",
+                    "additionalProperties": false,
+                    "required": [
+                        "runner_type",
+                        "runner_label"
+                    ],
+                    "properties": {
+                        "runner_type": {
+                            "enum": [
+                                "standard",
+                                "labeled",
+                                "not_set"
+                            ]
+                        },
+                        "runner_label": {
+                            "type": [
+                                "string",
+                                "null"
+                            ]
+                        }
+                    }
+                },
+                "code_scanning_options": {
+                    "type": "object",
+                    "additionalProperties": false,
+                    "required": [
+                        "allow_advanced"
+                    ],
+                    "properties": {
+                        "allow_advanced": {
+                            "type": "boolean"
+                        }
+                    }
+                },
+                "code_scanning_delegated_alert_dismissal": {
+                    "$ref": "#/$defs/feature_status"
+                },
+                "secret_protection": {
+                    "$ref": "#/$defs/feature_status"
+                },
+                "secret_scanning": {
+                    "$ref": "#/$defs/feature_status"
+                },
+                "secret_scanning_push_protection": {
+                    "$ref": "#/$defs/feature_status"
+                },
+                "secret_scanning_delegated_bypass": {
+                    "$ref": "#/$defs/feature_status"
+                },
+                "secret_scanning_validity_checks": {
+                    "$ref": "#/$defs/feature_status"
+                },
+                "secret_scanning_non_provider_patterns": {
+                    "$ref": "#/$defs/feature_status"
+                },
+                "secret_scanning_generic_secrets": {
+                    "$ref": "#/$defs/feature_status"
+                },
+                "secret_scanning_delegated_alert_dismissal": {
+                    "$ref": "#/$defs/feature_status"
+                },
+                "secret_scanning_extended_metadata": {
+                    "$ref": "#/$defs/feature_status"
+                },
+                "private_vulnerability_reporting": {
+                    "$ref": "#/$defs/feature_status"
+                },
+                "enforcement": {
+                    "enum": [
+                        "enforced",
+                        "unenforced"
+                    ]
+                }
+            }
+        },
+        "feature_status": {
+            "enum": [
+                "enabled",
+                "disabled",
+                "not_set"
+            ]
         }
     }
 }

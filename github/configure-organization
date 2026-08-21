@@ -15,8 +15,62 @@ github_api()
 {
     gh api \
         --header 'Accept: application/vnd.github+json' \
-        --header 'X-GitHub-Api-Version: 2022-11-28' \
+        --header 'X-GitHub-Api-Version: 2026-03-10' \
         "$@"
+}
+
+converge_code_security()
+{
+    local configuration_body configuration_id configuration_name
+    local configuration_pages configuration_ids match_count
+
+    configuration_body=$(jq --compact-output \
+        '.code_security.configuration' "${configuration}")
+    configuration_name=$(jq --exit-status --raw-output \
+        '.code_security.configuration.name' "${configuration}")
+    configuration_pages=$(github_api --paginate --slurp \
+        "orgs/${organization}/code-security/configurations?per_page=100")
+    configuration_ids=$(jq --compact-output --arg name "${configuration_name}" \
+        '[.[][] | select(.target_type == "organization" and .name == $name) | .id]' \
+        <<<"${configuration_pages}")
+    match_count=$(jq 'length' <<<"${configuration_ids}")
+
+    if (( match_count > 1 ))
+    then
+        printf 'Multiple code security configurations are named %s.\n' \
+            "${configuration_name}" >&2
+        exit 1
+    elif (( match_count == 1 ))
+    then
+        configuration_id=$(jq --exit-status --raw-output '.[0]' \
+            <<<"${configuration_ids}")
+        printf '%s\n' "${configuration_body}" \
+            | github_api --method PATCH \
+                "orgs/${organization}/code-security/configurations/${configuration_id}" \
+                --input - \
+                >/dev/null
+    else
+        configuration_id=$(printf '%s\n' "${configuration_body}" \
+            | github_api --method POST \
+                "orgs/${organization}/code-security/configurations" \
+                --input - \
+            | jq --exit-status --raw-output '.id | select(type == "number")')
+    fi
+
+    jq --compact-output '.code_security | {scope: .attachment_scope}' \
+        "${configuration}" \
+        | github_api --method POST \
+            "orgs/${organization}/code-security/configurations/${configuration_id}/attach" \
+            --input - \
+            >/dev/null
+
+    jq --compact-output \
+        '.code_security | {default_for_new_repos: .default_for_new_repositories}' \
+        "${configuration}" \
+        | github_api --method PUT \
+            "orgs/${organization}/code-security/configurations/${configuration_id}/defaults" \
+            --input - \
+            >/dev/null
 }
 
 jq --compact-output '.profile' "${configuration}" \
@@ -57,6 +111,8 @@ jq --compact-output '.actions | {days: .artifact_and_log_retention_days}' \
         "orgs/${organization}/actions/permissions/artifact-and-log-retention" \
         --input - \
         >/dev/null
+
+converge_code_security
 
 printf 'Converged API-manageable organization settings for %s.\n' "${organization}"
 printf 'Owner-managed controls that cannot be converged through this API:\n'
