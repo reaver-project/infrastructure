@@ -1,0 +1,119 @@
+#!/usr/bin/env bash
+
+set -euo pipefail
+
+for required_variable in \
+    AWS_REGION \
+    CONTROL_FUNCTION \
+    GITHUB_OUTPUT \
+    GITHUB_REPOSITORY \
+    GITHUB_RUN_ATTEMPT \
+    GITHUB_RUN_ID \
+    RUNNER_KEY \
+    RUNNER_PROFILE \
+    RUNNER_SIZE
+do
+    if [[ -z ${!required_variable:-} ]]
+    then
+        printf '%s must be set.\n' "${required_variable}" >&2
+        exit 2
+    fi
+done
+
+if [[ ! ${RUNNER_KEY} =~ ^[a-z0-9-]{1,48}$ \
+    || ! ${RUNNER_SIZE} =~ ^(medium|large)$ \
+    || ! ${RUNNER_PROFILE} =~ ^(builder|validation)$ ]]
+then
+    printf 'Invalid runner request: key=%s size=%s profile=%s\n' \
+        "${RUNNER_KEY}" "${RUNNER_SIZE}" "${RUNNER_PROFILE}" >&2
+    exit 2
+fi
+
+invocation_result=$(mktemp)
+instance_id=
+
+invoke_controller()
+{
+    local payload=$1
+    local invocation
+    if ! invocation=$(aws lambda invoke \
+        --region "${AWS_REGION}" \
+        --function-name "${CONTROL_FUNCTION}" \
+        --cli-binary-format raw-in-base64-out \
+        --payload "${payload}" \
+        "${invocation_result}" \
+        --output json)
+    then
+        return 1
+    fi
+    if jq --exit-status '.FunctionError' <<<"${invocation}" >/dev/null
+    then
+        jq . "${invocation_result}" >&2
+        return 1
+    fi
+}
+
+cleanup()
+{
+    local status=$?
+    if [[ ${status} -ne 0 && -n ${instance_id} ]]
+    then
+        invoke_controller "$(jq --null-input --compact-output \
+            --arg instance_id "${instance_id}" \
+            '{
+                action: "terminate",
+                instance_id: $instance_id
+            }')" || true
+    fi
+    rm -f "${invocation_result}"
+    return "${status}"
+}
+trap cleanup EXIT
+
+launch_payload=$(jq --null-input --compact-output \
+    --arg github_run_attempt "${GITHUB_RUN_ATTEMPT}" \
+    --arg github_run_id "${GITHUB_RUN_ID}" \
+    --arg repository "${GITHUB_REPOSITORY}" \
+    --arg runner_key "${RUNNER_KEY}" \
+    --arg runner_profile "${RUNNER_PROFILE}" \
+    --arg runner_size "${RUNNER_SIZE}" \
+    '{
+        action: "launch",
+        github_run_attempt: $github_run_attempt,
+        github_run_id: $github_run_id,
+        repository: $repository,
+        runner_key: $runner_key,
+        runner_profile: $runner_profile,
+        runner_size: $runner_size
+    }')
+invoke_controller "${launch_payload}"
+
+instance_id=$(jq --exit-status --raw-output '.instance_id' "${invocation_result}")
+labels=$(jq --exit-status --compact-output '.labels' "${invocation_result}")
+runner_name=$(jq --exit-status --raw-output '.runner_name' "${invocation_result}")
+
+deadline=$((SECONDS + 1200))
+while (( SECONDS < deadline ))
+do
+    status_payload=$(jq --null-input --compact-output \
+        --arg runner_name "${runner_name}" \
+        '{action: "status", runner_name: $runner_name}')
+    if invoke_controller "${status_payload}" \
+        && jq --exit-status '.online == true' "${invocation_result}" >/dev/null
+    then
+        break
+    fi
+    sleep 10
+done
+
+if (( SECONDS >= deadline ))
+then
+    printf 'Runner %s did not come online within 20 minutes.\n' "${runner_name}" >&2
+    exit 1
+fi
+
+{
+    printf 'instance_id=%s\n' "${instance_id}"
+    printf 'labels=%s\n' "${labels}"
+    printf 'runner_name=%s\n' "${runner_name}"
+} >> "${GITHUB_OUTPUT}"

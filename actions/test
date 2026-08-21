@@ -13,6 +13,48 @@ mock_aws()
         return
     fi
 
+    if [[ $1 == lambda && $2 == invoke ]]
+    then
+        payload=
+        output_file=
+        previous=
+        for argument in "$@"
+        do
+            if [[ ${previous} == --payload ]]
+            then
+                payload=${argument}
+            elif [[ ${argument} == --output ]]
+            then
+                break
+            elif [[ ${previous} != --payload && ${argument} != -* ]]
+            then
+                output_file=${argument}
+            fi
+            previous=${argument}
+        done
+
+        case $(jq --exit-status --raw-output '.action' <<<"${payload}") in
+            launch)
+                jq --null-input '{
+                    instance_id: "i-123abc",
+                    labels: ["self-hosted", "reaveros-aws", "reaveros-101-2-unit-tests-amd64"],
+                    runner_name: "reaveros-101-2-unit-tests-amd64"
+                }' > "${output_file}"
+                ;;
+            status)
+                printf '{"online":true}\n' > "${output_file}"
+                ;;
+            terminate)
+                jq --exit-status \
+                    'keys == ["action", "instance_id"]' \
+                    <<<"${payload}" >/dev/null
+                printf '{"console_output":"runner stopped"}\n' > "${output_file}"
+                ;;
+        esac
+        printf '{}\n'
+        return
+    fi
+
     printf 'Unexpected AWS call: %s\n' "$*" >&2
     exit 2
 }
@@ -51,4 +93,19 @@ then
     exit 1
 fi
 
-printf 'AWS stack contract action tests passed.\n'
+export CONTROL_FUNCTION=runner-control
+export GITHUB_OUTPUT="${test_directory}/launch.output"
+export GITHUB_REPOSITORY=reaver-project/reaveros
+export GITHUB_RUN_ATTEMPT=2
+export GITHUB_RUN_ID=101
+export RUNNER_KEY=unit-tests-amd64
+export RUNNER_PROFILE=validation
+export RUNNER_SIZE=medium
+: > "${GITHUB_OUTPUT}"
+"${self_dir}/ephemeral-runner/launch"
+grep --fixed-strings --line-regexp 'instance_id=i-123abc' "${GITHUB_OUTPUT}" >/dev/null
+
+export INSTANCE_ID=i-123abc
+[[ $("${self_dir}/ephemeral-runner/terminate") == 'runner stopped' ]]
+
+printf 'Shared action tests passed.\n'

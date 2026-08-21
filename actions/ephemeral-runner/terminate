@@ -1,0 +1,47 @@
+#!/usr/bin/env bash
+
+set -euo pipefail
+
+for required_variable in AWS_REGION CONTROL_FUNCTION INSTANCE_ID
+do
+    if [[ -z ${!required_variable:-} ]]
+    then
+        printf '%s must be set.\n' "${required_variable}" >&2
+        exit 2
+    fi
+done
+
+if [[ ! ${INSTANCE_ID} =~ ^i-[0-9a-f]+$ ]]
+then
+    printf 'Invalid runner cleanup request.\n' >&2
+    exit 2
+fi
+
+invocation_result=$(mktemp)
+cleanup()
+{
+    rm -f "${invocation_result}"
+}
+trap cleanup EXIT
+
+payload=$(jq --null-input --compact-output \
+    --arg instance_id "${INSTANCE_ID}" \
+    '{
+        action: "terminate",
+        instance_id: $instance_id
+    }')
+
+invocation=$(aws lambda invoke \
+    --region "${AWS_REGION}" \
+    --function-name "${CONTROL_FUNCTION}" \
+    --cli-binary-format raw-in-base64-out \
+    --payload "${payload}" \
+    "${invocation_result}" \
+    --output json)
+if jq --exit-status '.FunctionError' <<<"${invocation}" >/dev/null
+then
+    jq . "${invocation_result}" >&2
+    exit 1
+fi
+
+jq --raw-output '.console_output // empty' "${invocation_result}"

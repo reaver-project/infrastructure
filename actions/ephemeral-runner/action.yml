@@ -1,0 +1,110 @@
+name: Manage an ephemeral AWS runner
+description: Launch, await, or terminate an ephemeral GitHub Actions runner through its AWS controller.
+
+inputs:
+    aws-region:
+        description: AWS region containing the runner stack
+        required: true
+    expected-contract-version:
+        description: Required contract version for launch; leave empty for cleanup
+        required: false
+        default: ''
+    instance-id:
+        description: EC2 instance to terminate
+        required: false
+        default: ''
+    operation:
+        description: Operation to perform, either launch or terminate
+        required: true
+    role-arn:
+        description: AWS role assumed through GitHub OIDC
+        required: true
+    runner-key:
+        description: Unique task key within the workflow run
+        required: false
+        default: ''
+    runner-profile:
+        description: Runner IAM profile, either builder or validation
+        required: false
+        default: ''
+    runner-size:
+        description: Runner instance class, either medium or large
+        required: false
+        default: ''
+    stack-name:
+        description: CloudFormation runner stack
+        required: true
+
+outputs:
+    instance-id:
+        description: Launched EC2 instance ID
+        value: ${{ steps.launch.outputs.instance_id }}
+    labels:
+        description: JSON runner-label array suitable for runs-on
+        value: ${{ steps.launch.outputs.labels }}
+    runner-name:
+        description: Unique organization runner name
+        value: ${{ steps.launch.outputs.runner_name }}
+    stack-outputs:
+        description: CloudFormation outputs encoded as one JSON object
+        value: ${{ steps.stack.outputs.outputs }}
+
+runs:
+    using: composite
+    steps:
+      - name: Validate the operation
+        shell: bash
+        env:
+            OPERATION: ${{ inputs.operation }}
+        run: |
+            set -euo pipefail
+            if [[ ! ${OPERATION} =~ ^(launch|terminate)$ ]]
+            then
+                printf 'Invalid ephemeral-runner operation: %s\n' "${OPERATION}" >&2
+                exit 2
+            fi
+
+      - name: Authenticate to AWS
+        uses: aws-actions/configure-aws-credentials@e6de054238d6b7531b4efff3b6587d9aade6a06c # v6.2.3
+        with:
+            aws-region: ${{ inputs.aws-region }}
+            mask-aws-account-id: true
+            role-session-name: reaver-project-runner-${{ github.run_id }}-${{ inputs.operation }}
+            role-to-assume: ${{ inputs.role-arn }}
+            unset-current-credentials: true
+
+      - name: Read and verify the stack contract
+        id: stack
+        shell: bash
+        env:
+            AWS_MAX_ATTEMPTS: '10'
+            AWS_REGION: ${{ inputs.aws-region }}
+            AWS_RETRY_MODE: standard
+            EXPECTED_CONTRACT_VERSION: ${{ inputs.expected-contract-version }}
+            STACK_NAME: ${{ inputs.stack-name }}
+        run: "${GITHUB_ACTION_PATH}/../aws-stack-contract/read"
+
+      - name: Launch the runner
+        id: launch
+        if: inputs.operation == 'launch'
+        shell: bash
+        env:
+            AWS_MAX_ATTEMPTS: '10'
+            AWS_REGION: ${{ inputs.aws-region }}
+            AWS_RETRY_MODE: standard
+            CONTROL_FUNCTION: ${{ fromJSON(steps.stack.outputs.outputs).RunnerControlFunctionName }}
+            RUNNER_KEY: ${{ inputs.runner-key }}
+            RUNNER_PROFILE: ${{ inputs.runner-profile }}
+            RUNNER_SIZE: ${{ inputs.runner-size }}
+        run: "${GITHUB_ACTION_PATH}/launch"
+
+      - name: Terminate the runner
+        if: inputs.operation == 'terminate'
+        shell: bash
+        env:
+            AWS_MAX_ATTEMPTS: '10'
+            AWS_REGION: ${{ inputs.aws-region }}
+            AWS_RETRY_MODE: standard
+            CONTROL_FUNCTION: ${{ fromJSON(steps.stack.outputs.outputs).RunnerControlFunctionName }}
+            INSTANCE_ID: ${{ inputs.instance-id }}
+        run: "${GITHUB_ACTION_PATH}/terminate"
