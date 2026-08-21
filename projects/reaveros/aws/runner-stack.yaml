@@ -1,0 +1,762 @@
+AWSTemplateFormatVersion: '2010-09-09'
+Description: Ephemeral AWS runners for ReaverOS GitHub Actions
+
+Parameters:
+    GitHubOidcCallerWorkflowReferencePattern:
+        Type: String
+        Default: reaver-project/reaveros/.github/workflows/ci.yml@refs/heads/main
+    GitHubOidcWorkflowReference:
+        Type: String
+        Default: reaver-project/reaveros/.github/workflows/aws-*.yml@refs/heads/main
+    GitHubOidcProviderArn:
+        Type: String
+        Description: ARN of the account-wide GitHub Actions OIDC provider from the bootstrap stack.
+    GitHubOrganization:
+        Type: String
+        Default: reaver-project
+        AllowedPattern: '[A-Za-z0-9](?:[A-Za-z0-9-]{0,37}[A-Za-z0-9])?'
+    GitHubRunnerGroupId:
+        Type: Number
+        MinValue: 1
+    GitHubAllowedRepositories:
+        Type: CommaDelimitedList
+        Default: reaver-project/reaveros
+    RunnerRolePermissionsBoundaryArn:
+        Type: String
+        Description: ARN of the permissions boundary owned by the bootstrap stack.
+    RunnerAmiParameter:
+        Type: AWS::SSM::Parameter::Value<AWS::EC2::Image::Id>
+        Default: /aws/service/debian/release/13/latest/amd64
+    MediumRunnerInstanceType:
+        Type: String
+        Default: c8i.4xlarge
+        AllowedValues:
+          - c8i.4xlarge
+          - c8i.8xlarge
+          - c8i.12xlarge
+    LargeRunnerInstanceType:
+        Type: String
+        Default: c8i.8xlarge
+        AllowedValues:
+          - c8i.4xlarge
+          - c8i.8xlarge
+          - c8i.12xlarge
+    MaximumConcurrentRunners:
+        Type: Number
+        Default: 4
+        MinValue: 1
+        MaxValue: 16
+    RunnerRootVolumeSize:
+        Type: Number
+        Default: 200
+        MinValue: 100
+        MaxValue: 500
+    RunnerVersion:
+        Type: String
+        Default: 2.336.0
+        AllowedPattern: '[0-9]+\.[0-9]+\.[0-9]+'
+    RunnerArchiveSha256:
+        Type: String
+        Default: 04cf0be1aff4c3ec3554466c39124ca250e3effd8873bb7e8d68535aa9505d5d
+        AllowedPattern: '[0-9a-f]{64}'
+    RunnerMaximumAgeMinutes:
+        Type: Number
+        Default: 180
+        MinValue: 60
+        MaxValue: 360
+    BuildEnvironmentRepositoryName:
+        Type: String
+        Default: reaveros-build-env
+        AllowedPattern: '[a-z0-9]+(?:[._/-][a-z0-9]+)*'
+    MonthlyBudget:
+        Type: Number
+        Default: 100
+        MinValue: 10
+    BudgetNotificationEmail:
+        Type: String
+        AllowedPattern: '[^@\s]+@[^@\s]+\.[^@\s]+'
+
+Resources:
+    RunnerVpc:
+        Type: AWS::EC2::VPC
+        Properties:
+            CidrBlock: 10.87.0.0/24
+            EnableDnsHostnames: true
+            EnableDnsSupport: true
+            Tags:
+              - Key: Name
+                Value: !Sub ${AWS::StackName}-vpc
+              - Key: Project
+                Value: ReaverOS
+
+    RunnerInternetGateway:
+        Type: AWS::EC2::InternetGateway
+        Properties:
+            Tags:
+              - Key: Name
+                Value: !Sub ${AWS::StackName}-igw
+              - Key: Project
+                Value: ReaverOS
+
+    RunnerInternetGatewayAttachment:
+        Type: AWS::EC2::VPCGatewayAttachment
+        Properties:
+            InternetGatewayId: !Ref RunnerInternetGateway
+            VpcId: !Ref RunnerVpc
+
+    RunnerSubnet:
+        Type: AWS::EC2::Subnet
+        Properties:
+            VpcId: !Ref RunnerVpc
+            CidrBlock: 10.87.0.0/25
+            MapPublicIpOnLaunch: true
+            Tags:
+              - Key: Name
+                Value: !Sub ${AWS::StackName}-public
+              - Key: Project
+                Value: ReaverOS
+
+    RunnerRouteTable:
+        Type: AWS::EC2::RouteTable
+        Properties:
+            VpcId: !Ref RunnerVpc
+            Tags:
+              - Key: Name
+                Value: !Sub ${AWS::StackName}-public
+              - Key: Project
+                Value: ReaverOS
+
+    RunnerDefaultRoute:
+        Type: AWS::EC2::Route
+        DependsOn: RunnerInternetGatewayAttachment
+        Properties:
+            RouteTableId: !Ref RunnerRouteTable
+            DestinationCidrBlock: 0.0.0.0/0
+            GatewayId: !Ref RunnerInternetGateway
+
+    RunnerSubnetRouteTableAssociation:
+        Type: AWS::EC2::SubnetRouteTableAssociation
+        Properties:
+            RouteTableId: !Ref RunnerRouteTable
+            SubnetId: !Ref RunnerSubnet
+
+    RunnerSecurityGroup:
+        Type: AWS::EC2::SecurityGroup
+        Properties:
+            GroupDescription: Outbound-only access for ephemeral GitHub Actions runners
+            VpcId: !Ref RunnerVpc
+            SecurityGroupEgress:
+              - IpProtocol: '-1'
+                CidrIp: 0.0.0.0/0
+            Tags:
+              - Key: Name
+                Value: !Sub ${AWS::StackName}-runner
+              - Key: Project
+                Value: ReaverOS
+
+    BuildEnvironmentRepository:
+        Type: AWS::ECR::Repository
+        DeletionPolicy: Retain
+        UpdateReplacePolicy: Retain
+        Properties:
+            RepositoryName: !Ref BuildEnvironmentRepositoryName
+            ImageScanningConfiguration:
+                ScanOnPush: true
+            ImageTagMutability: MUTABLE
+            EncryptionConfiguration:
+                EncryptionType: AES256
+            LifecyclePolicy:
+                LifecyclePolicyText: |
+                    {
+                        "rules": [{
+                            "rulePriority": 1,
+                            "description": "Keep the twelve most recent build environments",
+                            "selection": {
+                                "tagStatus": "any",
+                                "countType": "imageCountMoreThan",
+                                "countNumber": 12
+                            },
+                            "action": {"type": "expire"}
+                        }]
+                    }
+
+    UnprunedBuildEnvironmentRepository:
+        Type: AWS::ECR::Repository
+        DeletionPolicy: Retain
+        UpdateReplacePolicy: Retain
+        Properties:
+            RepositoryName: !Sub ${BuildEnvironmentRepositoryName}-unpruned
+            ImageScanningConfiguration:
+                ScanOnPush: true
+            ImageTagMutability: MUTABLE
+            EncryptionConfiguration:
+                EncryptionType: AES256
+            LifecyclePolicy:
+                LifecyclePolicyText: |
+                    {
+                        "rules": [{
+                            "rulePriority": 1,
+                            "description": "Keep the six most recent incremental build environments",
+                            "selection": {
+                                "tagStatus": "any",
+                                "countType": "imageCountMoreThan",
+                                "countNumber": 6
+                            },
+                            "action": {"type": "expire"}
+                        }]
+                    }
+
+    StagingBuildEnvironmentRepository:
+        Type: AWS::ECR::Repository
+        DeletionPolicy: Retain
+        UpdateReplacePolicy: Retain
+        Properties:
+            RepositoryName: !Sub ${BuildEnvironmentRepositoryName}-staging
+            ImageScanningConfiguration:
+                ScanOnPush: true
+            ImageTagMutability: IMMUTABLE
+            EncryptionConfiguration:
+                EncryptionType: AES256
+            LifecyclePolicy:
+                LifecyclePolicyText: |
+                    {
+                        "rules": [{
+                            "rulePriority": 1,
+                            "description": "Expire per-run build environments after three days",
+                            "selection": {
+                                "tagStatus": "any",
+                                "countType": "sinceImagePushed",
+                                "countUnit": "days",
+                                "countNumber": 3
+                            },
+                            "action": {"type": "expire"}
+                        }]
+                    }
+
+    StagingUnprunedBuildEnvironmentRepository:
+        Type: AWS::ECR::Repository
+        DeletionPolicy: Retain
+        UpdateReplacePolicy: Retain
+        Properties:
+            RepositoryName: !Sub ${BuildEnvironmentRepositoryName}-unpruned-staging
+            ImageScanningConfiguration:
+                ScanOnPush: true
+            ImageTagMutability: IMMUTABLE
+            EncryptionConfiguration:
+                EncryptionType: AES256
+            LifecyclePolicy:
+                LifecyclePolicyText: |
+                    {
+                        "rules": [{
+                            "rulePriority": 1,
+                            "description": "Expire per-run build environments after three days",
+                            "selection": {
+                                "tagStatus": "any",
+                                "countType": "sinceImagePushed",
+                                "countUnit": "days",
+                                "countNumber": 3
+                            },
+                            "action": {"type": "expire"}
+                        }]
+                    }
+
+    CandidateBuildEnvironmentRepository:
+        Type: AWS::ECR::Repository
+        DeletionPolicy: Retain
+        UpdateReplacePolicy: Retain
+        Properties:
+            RepositoryName: !Sub ${BuildEnvironmentRepositoryName}-candidate
+            ImageScanningConfiguration:
+                ScanOnPush: true
+            ImageTagMutability: IMMUTABLE
+            EncryptionConfiguration:
+                EncryptionType: AES256
+            LifecyclePolicy:
+                LifecyclePolicyText: |
+                    {
+                        "rules": [{
+                            "rulePriority": 1,
+                            "description": "Expire validated candidate build environments after seven days",
+                            "selection": {
+                                "tagStatus": "any",
+                                "countType": "sinceImagePushed",
+                                "countUnit": "days",
+                                "countNumber": 7
+                            },
+                            "action": {"type": "expire"}
+                        }]
+                    }
+
+    CandidateUnprunedBuildEnvironmentRepository:
+        Type: AWS::ECR::Repository
+        DeletionPolicy: Retain
+        UpdateReplacePolicy: Retain
+        Properties:
+            RepositoryName: !Sub ${BuildEnvironmentRepositoryName}-unpruned-candidate
+            ImageScanningConfiguration:
+                ScanOnPush: true
+            ImageTagMutability: IMMUTABLE
+            EncryptionConfiguration:
+                EncryptionType: AES256
+            LifecyclePolicy:
+                LifecyclePolicyText: |
+                    {
+                        "rules": [{
+                            "rulePriority": 1,
+                            "description": "Expire validated candidate build environments after seven days",
+                            "selection": {
+                                "tagStatus": "any",
+                                "countType": "sinceImagePushed",
+                                "countUnit": "days",
+                                "countNumber": 7
+                            },
+                            "action": {"type": "expire"}
+                        }]
+                    }
+
+    RunnerAppSecret:
+        Type: AWS::SecretsManager::Secret
+        DeletionPolicy: Retain
+        UpdateReplacePolicy: Retain
+        Properties:
+            Name: !Sub ${AWS::StackName}/github-runner-app
+            Description: GitHub App credentials used only to register ephemeral runners
+            GenerateSecretString:
+                PasswordLength: 32
+                ExcludePunctuation: true
+            Tags:
+              - Key: Project
+                Value: ReaverOS
+
+    RunnerRole:
+        Type: AWS::IAM::Role
+        Properties:
+            PermissionsBoundary: !Ref RunnerRolePermissionsBoundaryArn
+            AssumeRolePolicyDocument:
+                Version: '2012-10-17'
+                Statement:
+                  - Effect: Allow
+                    Principal:
+                        Service: ec2.amazonaws.com
+                    Action: sts:AssumeRole
+            Policies:
+              - PolicyName: ConsumeJitConfiguration
+                PolicyDocument:
+                    Version: '2012-10-17'
+                    Statement:
+                      - Effect: Allow
+                        Action:
+                          - ssm:GetParameter
+                          - ssm:DeleteParameter
+                        Resource: !Sub arn:${AWS::Partition}:ssm:${AWS::Region}:${AWS::AccountId}:parameter/reaveros/github-runners/jit/*
+              - PolicyName: UseBuildEnvironmentCache
+                PolicyDocument:
+                    Version: '2012-10-17'
+                    Statement:
+                      - Effect: Allow
+                        Action: ecr:GetAuthorizationToken
+                        Resource: '*'
+                      - Effect: Allow
+                        Action:
+                          - ecr:BatchCheckLayerAvailability
+                          - ecr:BatchGetImage
+                          - ecr:DescribeImages
+                          - ecr:GetDownloadUrlForLayer
+                        Resource:
+                          - !GetAtt BuildEnvironmentRepository.Arn
+                          - !GetAtt UnprunedBuildEnvironmentRepository.Arn
+                          - !GetAtt CandidateBuildEnvironmentRepository.Arn
+                          - !GetAtt CandidateUnprunedBuildEnvironmentRepository.Arn
+                          - !GetAtt StagingBuildEnvironmentRepository.Arn
+                          - !GetAtt StagingUnprunedBuildEnvironmentRepository.Arn
+            Tags:
+              - Key: Project
+                Value: ReaverOS
+
+    BuilderRunnerRole:
+        Type: AWS::IAM::Role
+        Properties:
+            PermissionsBoundary: !Ref RunnerRolePermissionsBoundaryArn
+            AssumeRolePolicyDocument:
+                Version: '2012-10-17'
+                Statement:
+                  - Effect: Allow
+                    Principal:
+                        Service: ec2.amazonaws.com
+                    Action: sts:AssumeRole
+            Policies:
+              - PolicyName: ConsumeJitConfiguration
+                PolicyDocument:
+                    Version: '2012-10-17'
+                    Statement:
+                      - Effect: Allow
+                        Action:
+                          - ssm:GetParameter
+                          - ssm:DeleteParameter
+                        Resource: !Sub arn:${AWS::Partition}:ssm:${AWS::Region}:${AWS::AccountId}:parameter/reaveros/github-runners/jit/*
+              - PolicyName: PrepareBuildEnvironmentCache
+                PolicyDocument:
+                    Version: '2012-10-17'
+                    Statement:
+                      - Effect: Allow
+                        Action: ecr:GetAuthorizationToken
+                        Resource: '*'
+                      - Effect: Allow
+                        Action:
+                          - ecr:BatchCheckLayerAvailability
+                          - ecr:BatchGetImage
+                          - ecr:DescribeImages
+                          - ecr:GetDownloadUrlForLayer
+                        Resource:
+                          - !GetAtt BuildEnvironmentRepository.Arn
+                          - !GetAtt UnprunedBuildEnvironmentRepository.Arn
+                          - !GetAtt CandidateBuildEnvironmentRepository.Arn
+                          - !GetAtt CandidateUnprunedBuildEnvironmentRepository.Arn
+                          - !GetAtt StagingBuildEnvironmentRepository.Arn
+                          - !GetAtt StagingUnprunedBuildEnvironmentRepository.Arn
+                      - Effect: Allow
+                        Action:
+                          - ecr:BatchCheckLayerAvailability
+                          - ecr:CompleteLayerUpload
+                          - ecr:InitiateLayerUpload
+                          - ecr:PutImage
+                          - ecr:UploadLayerPart
+                        Resource:
+                          - !GetAtt StagingBuildEnvironmentRepository.Arn
+                          - !GetAtt StagingUnprunedBuildEnvironmentRepository.Arn
+            Tags:
+              - Key: Project
+                Value: ReaverOS
+
+    RunnerInstanceProfile:
+        Type: AWS::IAM::InstanceProfile
+        Properties:
+            Roles:
+              - !Ref RunnerRole
+
+    BuilderRunnerInstanceProfile:
+        Type: AWS::IAM::InstanceProfile
+        Properties:
+            Roles:
+              - !Ref BuilderRunnerRole
+
+    RunnerLaunchTemplate:
+        Type: AWS::EC2::LaunchTemplate
+        Properties:
+            LaunchTemplateData:
+                BlockDeviceMappings:
+                  - DeviceName: /dev/xvda
+                    Ebs:
+                        DeleteOnTermination: true
+                        Encrypted: true
+                        VolumeSize: !Ref RunnerRootVolumeSize
+                        VolumeType: gp3
+                CpuOptions:
+                    NestedVirtualization: enabled
+                IamInstanceProfile:
+                    Arn: !GetAtt RunnerInstanceProfile.Arn
+                ImageId: !Ref RunnerAmiParameter
+                InstanceInitiatedShutdownBehavior: terminate
+                InstanceType: !Ref MediumRunnerInstanceType
+                MetadataOptions:
+                    HttpEndpoint: enabled
+                    HttpPutResponseHopLimit: 1
+                    HttpTokens: required
+                    InstanceMetadataTags: enabled
+                NetworkInterfaces:
+                  - AssociatePublicIpAddress: true
+                    DeleteOnTermination: true
+                    DeviceIndex: 0
+                    Groups:
+                      - !Ref RunnerSecurityGroup
+                    SubnetId: !Ref RunnerSubnet
+                UserData:
+                    Fn::Base64: !Sub |
+                        #!/usr/bin/env bash
+                        set -euo pipefail
+                        exec > >(tee /var/log/reaveros-actions-runner.log | logger -t reaveros-actions-runner -s 2>/dev/console) 2>&1
+
+                        shutdown -P +${RunnerMaximumAgeMinutes}
+                        trap 'shutdown -P now' EXIT
+
+                        export DEBIAN_FRONTEND=noninteractive
+                        apt-get update
+                        apt-get install --yes awscli ca-certificates curl docker.io git jq ovmf qemu-system-x86
+                        systemctl enable --now docker
+
+                        useradd --create-home --shell /bin/bash actions-runner
+                        usermod --append --groups docker,kvm actions-runner
+
+                        metadata_token=$(curl --fail --silent --show-error \
+                            --request PUT \
+                            --header 'X-aws-ec2-metadata-token-ttl-seconds: 21600' \
+                            http://169.254.169.254/latest/api/token)
+                        jit_parameter=$(curl --fail --silent --show-error \
+                            --header "X-aws-ec2-metadata-token: $metadata_token" \
+                            http://169.254.169.254/latest/meta-data/tags/instance/ReaverOSRunnerParameter)
+                        jit_config=$(aws ssm get-parameter \
+                            --region ${AWS::Region} \
+                            --name "$jit_parameter" \
+                            --with-decryption \
+                            --query Parameter.Value \
+                            --output text)
+                        aws ssm delete-parameter --region ${AWS::Region} --name "$jit_parameter"
+
+                        install --directory --owner actions-runner --group actions-runner /opt/actions-runner
+                        cd /opt/actions-runner
+                        curl --fail --location --retry 5 \
+                            --output actions-runner.tar.gz \
+                            https://github.com/actions/runner/releases/download/v${RunnerVersion}/actions-runner-linux-x64-${RunnerVersion}.tar.gz
+                        printf '%s  %s\n' '${RunnerArchiveSha256}' actions-runner.tar.gz | sha256sum --check
+                        tar --extract --gzip --file actions-runner.tar.gz
+                        rm actions-runner.tar.gz
+                        ./bin/installdependencies.sh
+                        chown --recursive actions-runner:actions-runner /opt/actions-runner
+
+                        runuser --user actions-runner -- ./run.sh --jitconfig "$jit_config"
+
+    RunnerControlRole:
+        Type: AWS::IAM::Role
+        Properties:
+            PermissionsBoundary: !Ref RunnerRolePermissionsBoundaryArn
+            AssumeRolePolicyDocument:
+                Version: '2012-10-17'
+                Statement:
+                  - Effect: Allow
+                    Principal:
+                        Service: lambda.amazonaws.com
+                    Action: sts:AssumeRole
+            ManagedPolicyArns:
+              - !Sub arn:${AWS::Partition}:iam::aws:policy/service-role/AWSLambdaBasicExecutionRole
+            Policies:
+              - PolicyName: ControlEphemeralRunners
+                PolicyDocument:
+                    Version: '2012-10-17'
+                    Statement:
+                      - Effect: Allow
+                        Action:
+                          - ec2:DescribeInstances
+                          - ec2:GetConsoleOutput
+                        Resource: '*'
+                      - Effect: Allow
+                        Action: ec2:RunInstances
+                        Resource: '*'
+                        Condition:
+                            ArnEquals:
+                                ec2:LaunchTemplate: !Sub arn:${AWS::Partition}:ec2:${AWS::Region}:${AWS::AccountId}:launch-template/${RunnerLaunchTemplate}
+                      - Effect: Allow
+                        Action: ec2:CreateTags
+                        Resource:
+                          - !Sub arn:${AWS::Partition}:ec2:${AWS::Region}:${AWS::AccountId}:instance/*
+                          - !Sub arn:${AWS::Partition}:ec2:${AWS::Region}:${AWS::AccountId}:volume/*
+                        Condition:
+                            StringEquals:
+                                ec2:CreateAction: RunInstances
+                      - Effect: Allow
+                        Action: ec2:TerminateInstances
+                        Resource: !Sub arn:${AWS::Partition}:ec2:${AWS::Region}:${AWS::AccountId}:instance/*
+                        Condition:
+                            StringEquals:
+                                ec2:ResourceTag/ReaverOSPurpose: GitHubActionsRunner
+                      - Effect: Allow
+                        Action: iam:PassRole
+                        Resource:
+                          - !GetAtt BuilderRunnerRole.Arn
+                          - !GetAtt RunnerRole.Arn
+                        Condition:
+                            StringEquals:
+                                iam:PassedToService: ec2.amazonaws.com
+                      - Effect: Allow
+                        Action: secretsmanager:GetSecretValue
+                        Resource: !Ref RunnerAppSecret
+                      - Effect: Allow
+                        Action:
+                          - ssm:DeleteParameter
+                          - ssm:PutParameter
+                        Resource: !Sub arn:${AWS::Partition}:ssm:${AWS::Region}:${AWS::AccountId}:parameter/reaveros/github-runners/jit/*
+            Tags:
+              - Key: Project
+                Value: ReaverOS
+
+    RunnerControlFunction:
+        Type: AWS::Lambda::Function
+        Properties:
+            Runtime: python3.13
+            Handler: index.handler
+            Role: !GetAtt RunnerControlRole.Arn
+            Timeout: 300
+            ReservedConcurrentExecutions: 1
+            Environment:
+                Variables:
+                    ALLOWED_REPOSITORIES: !Join [',', !Ref GitHubAllowedRepositories]
+                    BUILDER_PROFILE_ARN: !GetAtt BuilderRunnerInstanceProfile.Arn
+                    GITHUB_APP_SECRET_ID: !Ref RunnerAppSecret
+                    GITHUB_ORGANIZATION: !Ref GitHubOrganization
+                    GITHUB_RUNNER_GROUP_ID: !Ref GitHubRunnerGroupId
+                    JIT_PARAMETER_PREFIX: /reaveros/github-runners/jit/
+                    LARGE_INSTANCE_TYPE: !Ref LargeRunnerInstanceType
+                    LAUNCH_TEMPLATE_ID: !Ref RunnerLaunchTemplate
+                    MAXIMUM_CONCURRENT_RUNNERS: !Ref MaximumConcurrentRunners
+                    MAXIMUM_AGE_MINUTES: !Ref RunnerMaximumAgeMinutes
+                    MEDIUM_INSTANCE_TYPE: !Ref MediumRunnerInstanceType
+                    RUNNER_INSTANCE_NAME: !Sub ${AWS::StackName}-runner
+                    VALIDATION_PROFILE_ARN: !GetAtt RunnerInstanceProfile.Arn
+            Code: ../../../build/reaveros-lambda/runner-control.zip
+
+    RunnerControlLogGroup:
+        Type: AWS::Logs::LogGroup
+        Properties:
+            LogGroupName: !Sub /aws/lambda/${RunnerControlFunction}
+            RetentionInDays: 30
+            Tags:
+              - Key: Project
+                Value: ReaverOS
+
+    RunnerReaperSchedule:
+        Type: AWS::Events::Rule
+        Properties:
+            Description: Terminate orphaned ReaverOS GitHub Actions runners
+            ScheduleExpression: rate(15 minutes)
+            State: ENABLED
+            Targets:
+              - Arn: !GetAtt RunnerControlFunction.Arn
+                Id: RunnerReaper
+                Input: '{"action":"reap"}'
+
+    RunnerReaperPermission:
+        Type: AWS::Lambda::Permission
+        Properties:
+            Action: lambda:InvokeFunction
+            FunctionName: !Ref RunnerControlFunction
+            Principal: events.amazonaws.com
+            SourceArn: !GetAtt RunnerReaperSchedule.Arn
+
+    GitHubActionsRole:
+        Type: AWS::IAM::Role
+        Properties:
+            PermissionsBoundary: !Ref RunnerRolePermissionsBoundaryArn
+            AssumeRolePolicyDocument:
+                Version: '2012-10-17'
+                Statement:
+                  - Effect: Allow
+                    Principal:
+                        Federated: !Ref GitHubOidcProviderArn
+                    Action: sts:AssumeRoleWithWebIdentity
+                    Condition:
+                        StringEquals:
+                            token.actions.githubusercontent.com:aud: sts.amazonaws.com
+                        StringLike:
+                            token.actions.githubusercontent.com:sub: !Sub workflow_ref:${GitHubOidcCallerWorkflowReferencePattern}:*:job_workflow_ref:${GitHubOidcWorkflowReference}
+            Policies:
+              - PolicyName: ProvisionEphemeralRunner
+                PolicyDocument:
+                    Version: '2012-10-17'
+                    Statement:
+                      - Effect: Allow
+                        Action: lambda:InvokeFunction
+                        Resource: !GetAtt RunnerControlFunction.Arn
+                      - Effect: Allow
+                        Action: cloudformation:DescribeStacks
+                        Resource: !Sub arn:${AWS::Partition}:cloudformation:${AWS::Region}:${AWS::AccountId}:stack/${AWS::StackName}/*
+                      - Effect: Allow
+                        Action: ecr:GetAuthorizationToken
+                        Resource: '*'
+                      - Effect: Allow
+                        Action:
+                          - ecr:BatchCheckLayerAvailability
+                          - ecr:BatchGetImage
+                          - ecr:DescribeImages
+                          - ecr:GetDownloadUrlForLayer
+                        Resource:
+                          - !GetAtt BuildEnvironmentRepository.Arn
+                          - !GetAtt UnprunedBuildEnvironmentRepository.Arn
+                          - !GetAtt CandidateBuildEnvironmentRepository.Arn
+                          - !GetAtt CandidateUnprunedBuildEnvironmentRepository.Arn
+                          - !GetAtt StagingBuildEnvironmentRepository.Arn
+                          - !GetAtt StagingUnprunedBuildEnvironmentRepository.Arn
+                      - Effect: Allow
+                        Action:
+                          - ecr:BatchCheckLayerAvailability
+                          - ecr:CompleteLayerUpload
+                          - ecr:InitiateLayerUpload
+                          - ecr:PutImage
+                          - ecr:UploadLayerPart
+                        Resource:
+                          - !GetAtt BuildEnvironmentRepository.Arn
+                          - !GetAtt UnprunedBuildEnvironmentRepository.Arn
+                          - !GetAtt CandidateBuildEnvironmentRepository.Arn
+                          - !GetAtt CandidateUnprunedBuildEnvironmentRepository.Arn
+            Tags:
+              - Key: Project
+                Value: ReaverOS
+
+    RunnerBudget:
+        Type: AWS::Budgets::Budget
+        Properties:
+            Budget:
+                BudgetName: !Sub ${AWS::StackName}-monthly
+                BudgetLimit:
+                    Amount: !Ref MonthlyBudget
+                    Unit: USD
+                BudgetType: COST
+                TimeUnit: MONTHLY
+            NotificationsWithSubscribers:
+              - Notification:
+                    ComparisonOperator: GREATER_THAN
+                    NotificationType: ACTUAL
+                    Threshold: 50
+                    ThresholdType: PERCENTAGE
+                Subscribers:
+                  - Address: !Ref BudgetNotificationEmail
+                    SubscriptionType: EMAIL
+              - Notification:
+                    ComparisonOperator: GREATER_THAN
+                    NotificationType: ACTUAL
+                    Threshold: 80
+                    ThresholdType: PERCENTAGE
+                Subscribers:
+                  - Address: !Ref BudgetNotificationEmail
+                    SubscriptionType: EMAIL
+              - Notification:
+                    ComparisonOperator: GREATER_THAN
+                    NotificationType: ACTUAL
+                    Threshold: 100
+                    ThresholdType: PERCENTAGE
+                Subscribers:
+                  - Address: !Ref BudgetNotificationEmail
+                    SubscriptionType: EMAIL
+              - Notification:
+                    ComparisonOperator: GREATER_THAN
+                    NotificationType: FORECASTED
+                    Threshold: 100
+                    ThresholdType: PERCENTAGE
+                Subscribers:
+                  - Address: !Ref BudgetNotificationEmail
+                    SubscriptionType: EMAIL
+            ResourceTags:
+              - Key: Project
+                Value: ReaverOS
+
+Outputs:
+    InfrastructureContractVersion:
+        Value: '1'
+    GitHubActionsRoleArn:
+        Value: !GetAtt GitHubActionsRole.Arn
+    RunnerAppSecretId:
+        Value: !Ref RunnerAppSecret
+    RunnerControlFunctionName:
+        Value: !Ref RunnerControlFunction
+    BuildEnvironmentRepositoryUri:
+        Value: !GetAtt BuildEnvironmentRepository.RepositoryUri
+    UnprunedBuildEnvironmentRepositoryUri:
+        Value: !GetAtt UnprunedBuildEnvironmentRepository.RepositoryUri
+    CandidateBuildEnvironmentRepositoryUri:
+        Value: !GetAtt CandidateBuildEnvironmentRepository.RepositoryUri
+    CandidateUnprunedBuildEnvironmentRepositoryUri:
+        Value: !GetAtt CandidateUnprunedBuildEnvironmentRepository.RepositoryUri
+    StagingBuildEnvironmentRepositoryUri:
+        Value: !GetAtt StagingBuildEnvironmentRepository.RepositoryUri
+    StagingUnprunedBuildEnvironmentRepositoryUri:
+        Value: !GetAtt StagingUnprunedBuildEnvironmentRepository.RepositoryUri
+    JitParameterPrefix:
+        Value: /reaveros/github-runners/jit/
