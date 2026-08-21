@@ -1,0 +1,117 @@
+#!/usr/bin/env bash
+
+set -euo pipefail
+
+if [[ $(basename -- "$0") == gh ]]
+then
+    {
+        printf 'CALL'
+        printf '\t%s' "$@"
+        printf '\n'
+    } >> "${GH_TEST_LOG}"
+    previous=
+    for argument in "$@"
+    do
+        if [[ ${previous} == --input && ${argument} == - ]]
+        then
+            printf 'BODY\t%s\n' "$(jq --compact-output .)" >> "${GH_TEST_LOG}"
+            break
+        fi
+        previous=${argument}
+    done
+    if [[ " $* " == *' orgs/reaver-project/teams/infrastructure-maintainers '* ]]
+    then
+        printf '314159\n'
+    elif [[ " $* " == *' repos/reaver-project/infrastructure/rulesets?includes_parents=false '* ]]
+    then
+        printf '17\tprotect-default-branch\n'
+    elif [[ " $* " == *'/deployment-branch-policies '* ]]
+    then
+        printf '21\tmain\tbranch\n'
+        printf '22\tstale\tbranch\n'
+    fi
+    exit
+fi
+
+self_dir=$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)
+test_directory=$(mktemp -d)
+mkdir "${test_directory}/bin"
+ln -s "${self_dir}/test-configure-repository" "${test_directory}/bin/gh"
+export PATH="${test_directory}/bin:${PATH}"
+export GH_TEST_LOG="${test_directory}/calls"
+: > "${GH_TEST_LOG}"
+
+cleanup()
+{
+    rm -rf "${test_directory}"
+}
+trap cleanup EXIT
+
+"${self_dir}/configure-repository" \
+    "${self_dir}/repositories/infrastructure.json"
+"${self_dir}/configure-repository" \
+    "${self_dir}/repositories/reaveros.json"
+
+assert_log_contains()
+{
+    if ! grep --fixed-strings --quiet "$1" "${GH_TEST_LOG}"
+    then
+        printf 'Expected GitHub call log to contain: %s\n' "$1" >&2
+        cat "${GH_TEST_LOG}" >&2
+        exit 1
+    fi
+}
+
+assert_log_contains $'PATCH\trepos/reaver-project/infrastructure'
+assert_log_contains $'BODY\t{"allow_auto_merge":true,"allow_merge_commit":false,"allow_rebase_merge":true,"allow_squash_merge":true,"allow_update_branch":true,"delete_branch_on_merge":true}'
+assert_log_contains $'BODY\t{"visibility":"public"}'
+assert_log_contains 'repos/reaver-project/infrastructure/environments/aws-production'
+assert_log_contains 'repos/reaver-project/infrastructure/environments/github-production'
+assert_log_contains 'orgs/reaver-project/teams/infrastructure-maintainers'
+assert_log_contains $'BODY\t{"can_admins_bypass":false,"prevent_self_review":false,"reviewers":[{"type":"Team","id":314159}]'
+assert_log_contains $'DELETE\trepos/reaver-project/infrastructure/environments/aws-production/deployment-branch-policies/22'
+assert_log_contains $'PUT\trepos/reaver-project/infrastructure/rulesets/17'
+assert_log_contains $'BODY\t{"name":"protect-default-branch","target":"branch","enforcement":"active"'
+assert_log_contains '"required_approving_review_count":0'
+assert_log_contains '"context":"Test infrastructure code and policy"'
+assert_log_contains $'POST\trepos/reaver-project/reaveros/rulesets'
+assert_log_contains '"context":"CI result"'
+assert_log_contains 'repos/reaver-project/reaveros/actions/permissions/fork-pr-contributor-approval'
+assert_log_contains $'BODY\t{"approval_policy":"all_external_contributors"}'
+assert_log_contains '"patterns_allowed":["aws-actions/configure-aws-credentials@*","astral-sh/setup-uv@*"]'
+assert_log_contains $'BODY\t{"use_default":false,"use_immutable_subject":false,"include_claim_keys":["workflow_ref","context"]}'
+assert_log_contains $'BODY\t{"use_default":false,"use_immutable_subject":false,"include_claim_keys":["workflow_ref","context","job_workflow_ref"]}'
+
+if grep --fixed-strings --quiet \
+    'repos/reaver-project/infrastructure/actions/permissions/access' \
+    "${GH_TEST_LOG}"
+then
+    printf 'Public repositories must not configure private action access.\n' >&2
+    exit 1
+fi
+
+if grep --extended-regexp --quiet \
+    $'CALL.*--method\t(POST|PUT|PATCH|DELETE).*orgs/reaver-project/teams' \
+    "${GH_TEST_LOG}"
+then
+    printf 'Repository convergence must not manage the external reviewer team.\n' >&2
+    exit 1
+fi
+
+first_infrastructure_profile=$(grep --line-number --fixed-strings \
+    $'BODY\t{"allow_auto_merge":true,"allow_merge_commit":false,"allow_rebase_merge":true,"allow_squash_merge":true,"allow_update_branch":true,"delete_branch_on_merge":true}' \
+    "${GH_TEST_LOG}" | head -n 1 | cut -d: -f1)
+first_infrastructure_ruleset=$(grep --line-number --fixed-strings \
+    $'PUT\trepos/reaver-project/infrastructure/rulesets/17' \
+    "${GH_TEST_LOG}" | head -n 1 | cut -d: -f1)
+first_publication=$(grep --line-number --fixed-strings \
+    $'BODY\t{"visibility":"public"}' \
+    "${GH_TEST_LOG}" | head -n 1 | cut -d: -f1)
+if (( first_infrastructure_profile >= first_infrastructure_ruleset \
+    || first_infrastructure_ruleset >= first_publication ))
+then
+    printf 'Repository publication must follow protection configuration.\n' >&2
+    exit 1
+fi
+
+printf 'GitHub repository configuration tests passed.\n'
