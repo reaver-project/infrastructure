@@ -82,5 +82,11 @@
             "bypass_actors": []
         }
     ],
-    "environments": []
+    "environments": [
+        {
+            "name": "maintenance",
+            "branch": "main",
+            "required_reviewer": false
+        }
+    ]
 }
