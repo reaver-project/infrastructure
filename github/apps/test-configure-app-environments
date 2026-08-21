@@ -24,7 +24,7 @@ fi
 self_dir=$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)
 test_directory=$(mktemp -d)
 mkdir "${test_directory}/bin"
-ln -s "${self_dir}/test-configure-infrastructure-app" \
+ln -s "${self_dir}/test-configure-app-environments" \
     "${test_directory}/bin/gh"
 export PATH="${test_directory}/bin:${PATH}"
 export APP_TEST_LOG="${test_directory}/calls"
@@ -45,6 +45,10 @@ trap cleanup EXIT
     --credentials - \
     < "${credentials}" \
     >/dev/null
+"${self_dir}/configure-maintenance-app" \
+    --credentials - \
+    < "${credentials}" \
+    >/dev/null
 
 assert_log_contains()
 {
@@ -59,5 +63,8 @@ assert_log_contains()
 assert_log_contains $'gh\tapi\trepos/reaver-project/infrastructure/environments/github-production'
 assert_log_contains $'gh\tvariable\tset\tINFRASTRUCTURE_APP_ID\t--repo\treaver-project/infrastructure\t--env\tgithub-production\t--body\t1234'
 assert_log_contains $'gh\tsecret\tset\tINFRASTRUCTURE_APP_PRIVATE_KEY\t--repo\treaver-project/infrastructure\t--env\tgithub-production'
+assert_log_contains $'gh\tapi\trepos/reaver-project/reaveros/environments/maintenance'
+assert_log_contains $'gh\tvariable\tset\tMAINTENANCE_APP_ID\t--repo\treaver-project/reaveros\t--env\tmaintenance\t--body\t1234'
+assert_log_contains $'gh\tsecret\tset\tMAINTENANCE_APP_PRIVATE_KEY\t--repo\treaver-project/reaveros\t--env\tmaintenance'
 
-printf 'Infrastructure App configuration tests passed.\n'
+printf 'App environment configuration tests passed.\n'

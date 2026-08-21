@@ -2,74 +2,10 @@
 
 set -euo pipefail
 
-credentials=
-environment=github-production
-repository=reaver-project/infrastructure
-
-usage()
-{
-    printf '%s\n' \
-        "usage: $0 --credentials -" \
-        '    [--repository <owner/repository>] [--environment <name>]'
-}
-
-while [[ $# -gt 0 ]]
-do
-    case $1 in
-        --credentials)
-            credentials=$2
-            shift 2
-            ;;
-        --environment)
-            environment=$2
-            shift 2
-            ;;
-        --repository)
-            repository=$2
-            shift 2
-            ;;
-        --help|-h)
-            usage
-            exit 0
-            ;;
-        *)
-            usage >&2
-            exit 2
-            ;;
-    esac
-done
-
-if [[ ${credentials} != - ]]
-then
-    printf 'Credentials must be decrypted into standard input.\n' >&2
-    usage >&2
-    exit 2
-fi
-
-credentials_json=$(cat)
-app_id=$(jq --exit-status --raw-output '.id | select(type == "number")' \
-    <<<"${credentials_json}")
-private_key=$(jq --exit-status --raw-output '.pem | select(type == "string")' \
-    <<<"${credentials_json}")
-
-if ! gh api "repos/${repository}/environments/${environment}" >/dev/null
-then
-    printf '%s\n' \
-        "Environment ${environment} does not exist in ${repository}." \
-        'Converge github/repositories/infrastructure.json locally first.' >&2
-    exit 1
-fi
-
-gh variable set INFRASTRUCTURE_APP_ID \
-    --repo "${repository}" \
-    --env "${environment}" \
-    --body "${app_id}"
-printf '%s' "${private_key}" \
-    | gh secret set INFRASTRUCTURE_APP_PRIVATE_KEY \
-        --repo "${repository}" \
-        --env "${environment}"
-
-printf 'Configured infrastructure App %s for %s environment %s.\n' \
-    "${app_id}" \
-    "${repository}" \
-    "${environment}"
+self_dir=$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)
+exec "${self_dir}/configure-app-environment" \
+    --app-id-variable INFRASTRUCTURE_APP_ID \
+    --environment github-production \
+    --private-key-secret INFRASTRUCTURE_APP_PRIVATE_KEY \
+    --repository reaver-project/infrastructure \
+    "$@"

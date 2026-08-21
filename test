@@ -14,8 +14,10 @@ shell_scripts=(
     aws/bootstrap/test
     github/configure-organization
     github/configure-repository
+    github/apps/configure-app-environment
     github/apps/configure-infrastructure-app
-    github/apps/test-configure-infrastructure-app
+    github/apps/configure-maintenance-app
+    github/apps/test-configure-app-environments
     github/test-configure-organization
     github/test-configure-repository
     projects/reaveros/aws/configure-runner-app
@@ -69,7 +71,7 @@ aws/bootstrap/test
 python3 aws/organization/test_configure.py
 github/test-configure-organization
 github/test-configure-repository
-github/apps/test-configure-infrastructure-app
+github/apps/test-configure-app-environments
 python3 github/apps/test-create.py
 node github/apps/test-configure-runner-group.js
 projects/reaveros/aws/test-infrastructure

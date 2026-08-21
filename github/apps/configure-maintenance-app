@@ -1,0 +1,11 @@
+#!/usr/bin/env bash
+
+set -euo pipefail
+
+self_dir=$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)
+exec "${self_dir}/configure-app-environment" \
+    --app-id-variable MAINTENANCE_APP_ID \
+    --environment maintenance \
+    --private-key-secret MAINTENANCE_APP_PRIVATE_KEY \
+    --repository reaver-project/reaveros \
+    "$@"
