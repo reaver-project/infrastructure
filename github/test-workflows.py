@@ -1,9 +1,11 @@
+import json
 import sys
 from pathlib import Path
 
 root = Path(__file__).resolve().parents[1]
 yaml_files = [
     *sorted((root / ".github" / "workflows").glob("*.yml")),
+    *sorted((root / ".github" / "actions").glob("*/action.yml")),
     *sorted((root / "actions").glob("*/action.yml")),
 ]
 if not yaml_files:
@@ -24,6 +26,28 @@ all_workflows = "\n".join(
     workflow.read_text(encoding="utf-8")
     for workflow in sorted((root / ".github" / "workflows").glob("*.yml"))
 )
+
+validate_workflow = (
+    root / ".github" / "workflows" / "validate.yml"
+).read_text(encoding="utf-8")
+infrastructure_configuration = (
+    root / "github" / "repositories" / "infrastructure.json"
+)
+repository = json.loads(
+    infrastructure_configuration.read_text(encoding="utf-8")
+)
+for ruleset in repository["rulesets"]:
+    for rule in ruleset["rules"]:
+        if rule["type"] != "required_status_checks":
+            continue
+        for status_check in rule["parameters"]["required_status_checks"]:
+            context = status_check["context"]
+            if f"name: {context}" not in validate_workflow:
+                sys.exit(
+                    f"{infrastructure_configuration}: required check is not emitted "
+                    f"by validate.yml: {context}"
+                )
+
 for public_artifact_action in ("actions/upload-artifact@", "actions/download-artifact@"):
     if public_artifact_action in all_workflows:
         sys.exit(f"AWS deployment plans must not use {public_artifact_action}")

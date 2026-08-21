@@ -36,7 +36,7 @@
             "customType": "regex",
             "managerFilePatterns": [
                 "/^\\.pre-commit-config\\.yaml$/",
-                "/^\\.github/workflows/validate\\.yml$/"
+                "/^\\.github/actions/setup-validation/action\\.yml$/"
             ],
             "matchStrings": [
                 "minimum_pre_commit_version:\\s*(?<currentValue>\\d+\\.\\d+\\.\\d+)",
