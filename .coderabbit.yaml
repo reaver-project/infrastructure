@@ -1,0 +1,117 @@
+# yaml-language-server: $schema=https://coderabbit.ai/integrations/schema.v2.json
+
+language: en-US
+early_access: false
+enable_free_tier: true
+
+reviews:
+  profile: chill
+  request_changes_workflow: false
+  high_level_summary: true
+  high_level_summary_in_walkthrough: true
+  high_level_summary_instructions: |
+    Summarize changes by affected trust boundary and operator-visible behavior.
+    Call out AWS resources, IAM or OIDC permissions, GitHub organization or
+    repository policy, shared-action or infrastructure-contract changes,
+    deployment and rollback behavior, and any required bootstrap or migration
+    step. Distinguish validation-only changes from changes that alter deployed
+    state. Treat the public GitHub repository and private AWS control plane as
+    separate disclosure boundaries; a public workflow should reveal no private
+    plan details beyond its opaque lookup key.
+  in_progress_fortune: false
+  poem: false
+  review_status: true
+  review_details: true
+  auto_review:
+    enabled: true
+    auto_incremental_review: true
+    drafts: false
+    labels:
+      - "!do-not-review"
+    ignore_title_keywords:
+      - "[skip review]"
+  path_filters:
+    - "!build/**"
+    - "!.ruff_cache/**"
+    - "!**/__pycache__/**"
+  path_instructions:
+    - path: ".github/workflows/**"
+      instructions: |
+        Treat workflow changes as security-sensitive. Check event and actor
+        trust, least-privilege job permissions, environment gates, OIDC subject
+        binding, untrusted expression interpolation, immutable action pins,
+        concurrency, and whether errors or summaries disclose private AWS state.
+        Validation must complete before any credential-bearing deployment job.
+    - path: "aws/bootstrap/**"
+      instructions: |
+        Treat this as the AWS root of trust. Review IAM and bucket policies for
+        least privilege and explicit deny behavior, OIDC conditions for exact
+        workflow and environment binding, retention and deletion policy, budget
+        safeguards, bootstrap idempotency, and outputs consumed as repository
+        variables. Do not weaken the separation between planning, deployment,
+        CloudFormation execution, and runner roles.
+    - path: "github/apps/**"
+      instructions: |
+        Check GitHub App manifests for the minimum repository and organization
+        permissions. Keep App creation an explicit local bootstrap operation;
+        private keys must exist only in ephemeral memory-backed storage and be
+        encrypted before leaving it. Workflow installation tokens must narrow
+        both repository selection and permissions below the App installation.
+    - path: "github/organizations/**"
+      instructions: |
+        Review organization desired state for the one-person operating model,
+        read-only workflow defaults, action allowlists, artifact retention, and
+        clearly documented controls that the API cannot converge. The external
+        infrastructure-maintainers team and its membership are out of scope.
+    - path: "github/repositories/**"
+      instructions: |
+        Review public-repository visibility, fork approval policy, rulesets,
+        status-check names, and protected deployment environments together.
+        Publication must happen only after rulesets and environment gates are
+        configured. Required deployment review comes from the externally managed
+        infrastructure-maintainers team with self-review allowed for one operator.
+    - path: "actions/**"
+      instructions: |
+        Treat these as a versioned interface consumed by ReaverOS. Check exact
+        revision and infrastructure-contract binding, input validation, shell
+        quoting, fail-closed behavior, cleanup of ephemeral runners, and backward
+        compatibility with the linked application repository.
+    - path: "projects/reaveros/aws/**"
+      instructions: |
+        Check runner lifecycle, IAM pass-role boundaries, Lambda idempotency,
+        launch and termination cleanup, TTL reaping, ECR retention, architecture
+        selection, and cost-bounding defaults. Plans must be immutable private S3
+        records addressed by a deterministic opaque key; public logs and outputs
+        must not expose change-set ARNs, resources, parameters, or stack events.
+    - path: "projects/reaveros/**"
+      instructions: |
+        Review changes as one side of the ReaverOS infrastructure contract.
+        Compatible additions retain the contract version; breaking output,
+        invocation, trust, or ownership changes require a coordinated version
+        increment and matching consumer change in reaver-project/reaveros.
+    - path: "**/*.py"
+      instructions: |
+        Prefer narrow data flow and explicit validation at trust boundaries.
+        Check exception paths for secret-bearing diagnostics, deterministic
+        packaging, race-safe state transitions, and tests for AWS and GitHub API
+        failures. Preserve the repository's snake_case identifier convention.
+
+chat:
+  art: false
+  allow_non_org_members: true
+  auto_reply: true
+
+knowledge_base:
+  learnings:
+    scope: local
+  issues:
+    scope: local
+  pull_requests:
+    scope: local
+  linked_repositories:
+    - repository: reaver-project/reaveros
+      instructions: |
+        ReaverOS owns CI authorization, build semantics, toolchain and image cache
+        identity, and consumption of the infrastructure contract. Use it to check
+        shared-action compatibility, contract-version coordination, runner labels,
+        AWS variables, and build-environment promotion behavior.
