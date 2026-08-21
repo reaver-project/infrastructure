@@ -1,0 +1,29 @@
+#!/usr/bin/env bash
+
+set -euo pipefail
+
+self_dir=$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)
+contract_version=$(<"${self_dir}/infrastructure-contract-version")
+
+if [[ ! ${contract_version} =~ ^[1-9][0-9]*$ ]]
+then
+    printf 'Invalid ReaverOS infrastructure contract version: %s\n' \
+        "${contract_version}" >&2
+    exit 1
+fi
+
+stack_version=$(awk '
+    $0 == "    InfrastructureContractVersion:" { in_output = 1; next }
+    in_output && $1 == "Value:" { gsub(/[\047\042]/, "", $2); print $2; exit }
+    in_output && /^    [A-Za-z]/ { exit 1 }
+' "${self_dir}/aws/runner-stack.yaml")
+
+if [[ ${stack_version} != "${contract_version}" ]]
+then
+    printf 'ReaverOS stack publishes contract %s, expected %s.\n' \
+        "${stack_version:-<missing>}" \
+        "${contract_version}" >&2
+    exit 1
+fi
+
+printf 'ReaverOS infrastructure contract tests passed.\n'

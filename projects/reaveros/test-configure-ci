@@ -1,0 +1,59 @@
+#!/usr/bin/env bash
+
+set -euo pipefail
+
+if [[ $(basename -- "$0") == gh ]]
+then
+    {
+        printf 'gh'
+        printf '\t%s' "$@"
+        printf '\n'
+    } >> "${CONFIGURE_CI_TEST_LOG}"
+    exit
+fi
+
+self_dir=$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)
+test_directory=$(mktemp -d)
+mkdir "${test_directory}/bin"
+ln -s "${self_dir}/test-configure-ci" "${test_directory}/bin/gh"
+export PATH="${test_directory}/bin:${PATH}"
+export CONFIGURE_CI_TEST_LOG="${test_directory}/calls"
+: > "${CONFIGURE_CI_TEST_LOG}"
+
+cleanup()
+{
+    rm -rf "${test_directory}"
+}
+trap cleanup EXIT
+
+"${self_dir}/configure-ci" \
+    --region us-west-2 \
+    --runner-role-arn arn:aws:iam::123456789012:role/reaveros-github-runners-actions \
+    --stack-name reaveros-github-runners \
+    >/dev/null
+
+assert_log_contains()
+{
+    if ! grep --fixed-strings --quiet "$1" "${CONFIGURE_CI_TEST_LOG}"
+    then
+        printf 'Expected ReaverOS configuration log to contain: %s\n' "$1" >&2
+        cat "${CONFIGURE_CI_TEST_LOG}" >&2
+        exit 1
+    fi
+}
+
+assert_log_contains $'gh\tvariable\tset\tAWS_REGION\t--repo\treaver-project/reaveros\t--body\tus-west-2'
+assert_log_contains $'gh\tvariable\tset\tAWS_RUNNER_STACK_NAME\t--repo\treaver-project/reaveros\t--body\treaveros-github-runners'
+assert_log_contains $'gh\tvariable\tset\tAWS_RUNNER_ROLE_ARN\t--repo\treaver-project/reaveros\t--body\tarn:aws:iam::123456789012:role/reaveros-github-runners-actions'
+
+if "${self_dir}/configure-ci" \
+    --region not-a-region \
+    --runner-role-arn arn:aws:iam::123456789012:role/reaveros \
+    --stack-name reaveros-github-runners \
+    >/dev/null 2>&1
+then
+    printf 'An invalid AWS region was accepted.\n' >&2
+    exit 1
+fi
+
+printf 'ReaverOS CI configuration tests passed.\n'

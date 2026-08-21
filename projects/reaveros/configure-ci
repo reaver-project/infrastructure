@@ -1,0 +1,65 @@
+#!/usr/bin/env bash
+
+set -euo pipefail
+
+region=
+repository=reaver-project/reaveros
+runner_role_arn=
+stack_name=
+
+usage()
+{
+    printf '%s\n' \
+        "usage: $0 --region <region> --runner-role-arn <arn> --stack-name <name>" \
+        '    [--repository <owner/repository>]'
+}
+
+while [[ $# -gt 0 ]]
+do
+    case $1 in
+        --region)
+            region=$2
+            shift 2
+            ;;
+        --repository)
+            repository=$2
+            shift 2
+            ;;
+        --runner-role-arn)
+            runner_role_arn=$2
+            shift 2
+            ;;
+        --stack-name)
+            stack_name=$2
+            shift 2
+            ;;
+        --help|-h)
+            usage
+            exit 0
+            ;;
+        *)
+            usage >&2
+            exit 2
+            ;;
+    esac
+done
+
+if [[ ! ${repository} =~ ^[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+$ \
+    || ! ${region} =~ ^[a-z]{2}(-[a-z]+)+-[0-9]+$ \
+    || ! ${stack_name} =~ ^[A-Za-z][-A-Za-z0-9]*$ \
+    || ! ${runner_role_arn} =~ ^arn:(aws|aws-us-gov|aws-cn):iam::[0-9]{12}:role/[A-Za-z0-9+=,.@_/-]+$ ]]
+then
+    usage >&2
+    exit 2
+fi
+
+set_variable()
+{
+    gh variable set "$1" --repo "${repository}" --body "$2"
+}
+
+set_variable AWS_REGION "${region}"
+set_variable AWS_RUNNER_ROLE_ARN "${runner_role_arn}"
+set_variable AWS_RUNNER_STACK_NAME "${stack_name}"
+
+printf 'Configured the ReaverOS AWS CI contract for %s.\n' "${repository}"
