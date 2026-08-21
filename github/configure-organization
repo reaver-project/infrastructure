@@ -1,0 +1,63 @@
+#!/usr/bin/env bash
+
+set -euo pipefail
+
+if [[ $# -ne 1 || ! -f $1 ]]
+then
+    printf 'usage: %s <organization-config.json>\n' "$0" >&2
+    exit 2
+fi
+
+configuration=$1
+organization=$(jq --exit-status --raw-output '.organization' "${configuration}")
+
+github_api()
+{
+    gh api \
+        --header 'Accept: application/vnd.github+json' \
+        --header 'X-GitHub-Api-Version: 2022-11-28' \
+        "$@"
+}
+
+jq --compact-output '.profile' "${configuration}" \
+    | github_api --method PATCH "orgs/${organization}" --input - >/dev/null
+
+jq --compact-output '.actions | {
+    enabled_repositories,
+    allowed_actions,
+    sha_pinning_required
+}' "${configuration}" \
+    | github_api --method PUT \
+        "orgs/${organization}/actions/permissions" \
+        --input - \
+        >/dev/null
+
+jq --compact-output '.actions | {
+    github_owned_allowed,
+    verified_allowed,
+    patterns_allowed
+}' "${configuration}" \
+    | github_api --method PUT \
+        "orgs/${organization}/actions/permissions/selected-actions" \
+        --input - \
+        >/dev/null
+
+jq --compact-output '.actions | {
+    default_workflow_permissions,
+    can_approve_pull_request_reviews
+}' "${configuration}" \
+    | github_api --method PUT \
+        "orgs/${organization}/actions/permissions/workflow" \
+        --input - \
+        >/dev/null
+
+jq --compact-output '.actions | {days: .artifact_and_log_retention_days}' \
+    "${configuration}" \
+    | github_api --method PUT \
+        "orgs/${organization}/actions/permissions/artifact-and-log-retention" \
+        --input - \
+        >/dev/null
+
+printf 'Converged API-manageable organization settings for %s.\n' "${organization}"
+printf 'Owner-managed controls that cannot be converged through this API:\n'
+jq --raw-output '.manual_controls[] | "- " + .' "${configuration}"

@@ -1,0 +1,60 @@
+#!/usr/bin/env bash
+
+set -euo pipefail
+
+if [[ $(basename -- "$0") == gh ]]
+then
+    {
+        printf 'CALL'
+        printf '\t%s' "$@"
+        printf '\n'
+    } >> "${GH_TEST_LOG}"
+    previous=
+    for argument in "$@"
+    do
+        if [[ ${previous} == --input && ${argument} == - ]]
+        then
+            printf 'BODY\t%s\n' "$(jq --compact-output .)" >> "${GH_TEST_LOG}"
+            break
+        fi
+        previous=${argument}
+    done
+    exit
+fi
+
+self_dir=$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)
+test_directory=$(mktemp -d)
+mkdir "${test_directory}/bin"
+ln -s "${self_dir}/test-configure-organization" "${test_directory}/bin/gh"
+export PATH="${test_directory}/bin:${PATH}"
+export GH_TEST_LOG="${test_directory}/calls"
+: > "${GH_TEST_LOG}"
+
+cleanup()
+{
+    rm -rf "${test_directory}"
+}
+trap cleanup EXIT
+
+"${self_dir}/configure-organization" \
+    "${self_dir}/organizations/reaver-project.json" \
+    >/dev/null
+
+assert_log_contains()
+{
+    if ! grep --fixed-strings --quiet "$1" "${GH_TEST_LOG}"
+    then
+        printf 'Expected GitHub call log to contain: %s\n' "$1" >&2
+        cat "${GH_TEST_LOG}" >&2
+        exit 1
+    fi
+}
+
+assert_log_contains $'PATCH\torgs/reaver-project'
+assert_log_contains $'BODY\t{"default_repository_permission":"read","deploy_keys_enabled_for_repositories":false'
+assert_log_contains $'BODY\t{"enabled_repositories":"all","allowed_actions":"selected","sha_pinning_required":true}'
+assert_log_contains $'BODY\t{"github_owned_allowed":true,"verified_allowed":false,"patterns_allowed":["aws-actions/configure-aws-credentials@*","astral-sh/setup-uv@*"]}'
+assert_log_contains $'BODY\t{"default_workflow_permissions":"read","can_approve_pull_request_reviews":false}'
+assert_log_contains $'BODY\t{"days":30}'
+
+printf 'GitHub organization configuration tests passed.\n'

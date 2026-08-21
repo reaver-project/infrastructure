@@ -1,0 +1,31 @@
+{
+    "organization": "reaver-project",
+    "profile": {
+        "default_repository_permission": "read",
+        "deploy_keys_enabled_for_repositories": false,
+        "members_can_create_private_repositories": false,
+        "members_can_create_public_repositories": false,
+        "members_can_create_repositories": false,
+        "web_commit_signoff_required": false
+    },
+    "actions": {
+        "allowed_actions": "selected",
+        "artifact_and_log_retention_days": 30,
+        "can_approve_pull_request_reviews": false,
+        "default_workflow_permissions": "read",
+        "enabled_repositories": "all",
+        "github_owned_allowed": true,
+        "patterns_allowed": [
+            "aws-actions/configure-aws-credentials@*",
+            "astral-sh/setup-uv@*"
+        ],
+        "sha_pinning_required": true,
+        "verified_allowed": false
+    },
+    "manual_controls": [
+        "Require two-factor authentication for every organization member.",
+        "Keep at least two independently stored owner recovery methods.",
+        "Restrict member repository deletion and visibility changes in the organization settings.",
+        "Retain break-glass AWS and GitHub credentials outside GitHub Actions."
+    ]
+}
