@@ -1,0 +1,81 @@
+#!/usr/bin/env bash
+
+set -euo pipefail
+
+if [[ $# -ne 1 || -z ${AWS_REGION:-} || -z ${AWS_RUNNER_STACK_NAME:-} \
+    || -z ${GITHUB_SHA:-} || -z ${GITHUB_STEP_SUMMARY:-} ]]
+then
+    printf 'usage: %s <change-set-arn>\n' "$0" >&2
+    exit 2
+fi
+
+change_set_arn=$1
+change_set=$(aws cloudformation describe-change-set \
+    --region "${AWS_REGION}" \
+    --change-set-name "${change_set_arn}" \
+    --output json)
+
+stack_name=$(jq --exit-status --raw-output '.StackName' <<<"${change_set}")
+change_set_name=$(jq --exit-status --raw-output '.ChangeSetName' <<<"${change_set}")
+on_stack_failure=$(jq --raw-output '.OnStackFailure // empty' <<<"${change_set}")
+case ${on_stack_failure} in
+    DELETE)
+        change_set_type=CREATE
+        ;;
+    '')
+        change_set_type=UPDATE
+        ;;
+    *)
+        printf 'Refusing a change set with unexpected failure behavior.\n' >&2
+        exit 1
+        ;;
+esac
+status=$(jq --exit-status --raw-output '.Status' <<<"${change_set}")
+execution_status=$(jq --exit-status --raw-output '.ExecutionStatus' <<<"${change_set}")
+description=$(jq --exit-status --raw-output '.Description' <<<"${change_set}")
+
+if [[ ${stack_name} != "${AWS_RUNNER_STACK_NAME}" \
+    || ${change_set_name} != "${AWS_RUNNER_STACK_NAME}-"* \
+    || ${status} != CREATE_COMPLETE \
+    || ${execution_status} != AVAILABLE \
+    || ${description} != "GitHub infrastructure revision ${GITHUB_SHA}; "* ]]
+then
+    printf 'Refusing unexpected CloudFormation change set:\n' >&2
+    jq . <<<"${change_set}" >&2
+    exit 1
+fi
+
+aws cloudformation execute-change-set \
+    --region "${AWS_REGION}" \
+    --stack-name "${AWS_RUNNER_STACK_NAME}" \
+    --change-set-name "${change_set_arn}" \
+    --client-request-token "github-${GITHUB_RUN_ID:-unknown}-${GITHUB_RUN_ATTEMPT:-unknown}"
+
+case ${change_set_type} in
+    CREATE)
+        waiter=stack-create-complete
+        ;;
+    UPDATE)
+        waiter=stack-update-complete
+        ;;
+esac
+
+if ! aws cloudformation wait "${waiter}" \
+    --region "${AWS_REGION}" \
+    --stack-name "${AWS_RUNNER_STACK_NAME}"
+then
+    aws cloudformation describe-stack-events \
+        --region "${AWS_REGION}" \
+        --stack-name "${AWS_RUNNER_STACK_NAME}" \
+        --max-items 30 \
+        --output table >&2 \
+        || true
+    exit 1
+fi
+
+{
+    printf '### AWS infrastructure deployment\n\n'
+    printf 'Executed `%s` change set `%s` successfully.\n' \
+        "${change_set_type}" \
+        "${change_set_name}"
+} >> "${GITHUB_STEP_SUMMARY}"

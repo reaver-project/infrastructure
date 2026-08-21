@@ -1,0 +1,335 @@
+#!/usr/bin/env bash
+
+set -euo pipefail
+
+mock_aws()
+{
+    {
+        printf 'CALL'
+        printf '\t%s' "$@"
+        printf '\n'
+    } >> "${AWS_TEST_LOG}"
+
+    if [[ $1 != cloudformation ]]
+    then
+        printf 'Unexpected AWS service: %s\n' "$1" >&2
+        exit 2
+    fi
+
+    case $2 in
+        package)
+            output_template=
+            previous=
+            for argument in "$@"
+            do
+                if [[ ${previous} == --output-template-file ]]
+                then
+                    output_template=${argument}
+                    break
+                fi
+                previous=${argument}
+            done
+            if [[ -z ${output_template} ]]
+            then
+                printf 'Mock package call omitted --output-template-file.\n' >&2
+                exit 2
+            fi
+            printf 'Resources: {}\n' > "${output_template}"
+            ;;
+        describe-stacks)
+            case ${AWS_TEST_CASE} in
+                plan-create)
+                    printf 'ValidationError: Stack with id %s does not exist\n' \
+                        "${AWS_RUNNER_STACK_NAME}" >&2
+                    exit 255
+                    ;;
+                plan-denied)
+                    printf 'AccessDenied: describe-stacks was denied\n' >&2
+                    exit 254
+                    ;;
+                *)
+                    stack_status=UPDATE_COMPLETE
+                    if [[ ${AWS_TEST_CASE} == plan-review ]]
+                    then
+                        stack_status=REVIEW_IN_PROGRESS
+                    fi
+                    jq --null-input --arg stack_status "${stack_status}" '{
+                        Stacks: [{StackStatus: $stack_status, Parameters: [
+                            {ParameterKey: "BudgetNotificationEmail"},
+                            {ParameterKey: "GitHubOidcProviderArn"},
+                            {ParameterKey: "GitHubRunnerGroupId"},
+                            {ParameterKey: "RunnerRolePermissionsBoundaryArn"},
+                            {ParameterKey: "GitHubOidcCallerWorkflowReferencePattern"},
+                            {ParameterKey: "GitHubOidcWorkflowReference"},
+                            {ParameterKey: "RunnerMediumInstanceType"}
+                        ]}]
+                    }'
+                    ;;
+            esac
+            ;;
+        create-change-set)
+            ;;
+        wait)
+            if [[ $3 == change-set-create-complete \
+                && ${AWS_TEST_CASE} == plan-no-changes ]]
+            then
+                exit 255
+            fi
+            ;;
+        describe-change-set)
+            case ${AWS_TEST_CASE} in
+                plan-no-changes)
+                    jq --null-input '{
+                        Status: "FAILED",
+                        StatusReason: "The submitted information did not contain changes."
+                    }'
+                    ;;
+                deploy-wrong-stack)
+                    jq --null-input '{
+                        ChangeSetId: "arn:aws:cloudformation:us-west-2:123456789012:changeSet/reaveros-github-runners-101-1/id",
+                        ChangeSetName: "reaveros-github-runners-101-1",
+                        ChangeSetType: "UPDATE",
+                        Description: "GitHub infrastructure revision 0123456789abcdef; run 101; attempt 1",
+                        ExecutionStatus: "AVAILABLE",
+                        StackName: "another-stack",
+                        Status: "CREATE_COMPLETE"
+                    }'
+                    ;;
+                *)
+                    change_set_type=UPDATE
+                    if [[ ${AWS_TEST_CASE} == plan-create \
+                        || ${AWS_TEST_CASE} == plan-review \
+                        || ${AWS_TEST_CASE} == deploy-create ]]
+                    then
+                        change_set_type=CREATE
+                    fi
+                    jq --null-input \
+                        --arg change_set_type "${change_set_type}" \
+                        --arg stack_name "${AWS_RUNNER_STACK_NAME}" \
+                        '{
+                            ChangeSetId: ("arn:aws:cloudformation:us-west-2:123456789012:changeSet/" + $stack_name + "-101-1/id"),
+                            ChangeSetName: ($stack_name + "-101-1"),
+                            ChangeSetType: $change_set_type,
+                            OnStackFailure: (if $change_set_type == "CREATE" then "DELETE" else null end),
+                            Description: "GitHub infrastructure revision 0123456789abcdef; run 101; attempt 1",
+                            ExecutionStatus: "AVAILABLE",
+                            StackName: $stack_name,
+                            Status: "CREATE_COMPLETE",
+                            Changes: [{ResourceChange: {
+                                Action: "Modify",
+                                LogicalResourceId: "RunnerLaunchTemplate",
+                                Replacement: "False",
+                                ResourceType: "AWS::EC2::LaunchTemplate"
+                            }}]
+                        }'
+                    ;;
+            esac
+            ;;
+        delete-change-set|execute-change-set|describe-stack-events)
+            ;;
+        *)
+            printf 'Unexpected AWS CloudFormation command: %s\n' "$2" >&2
+            exit 2
+            ;;
+    esac
+}
+
+if [[ $(basename -- "$0") == aws ]]
+then
+    mock_aws "$@"
+    exit
+fi
+
+self_dir=$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)
+repo_root=$(git -C "${self_dir}" rev-parse --show-toplevel)
+
+parameter_default()
+{
+    awk -v parameter="$2" '
+        $0 == "    " parameter ":" { in_parameter = 1; next }
+        in_parameter && $1 == "Default:" { print $2; exit }
+        in_parameter && /^[^ ]/ { exit 1 }
+    ' "$1"
+}
+
+bootstrap_repository_name=$(parameter_default \
+    "${repo_root}/aws/bootstrap/template.yaml" \
+    BuildEnvironmentRepositoryName)
+runner_repository_name=$(parameter_default \
+    "${self_dir}/runner-stack.yaml" \
+    BuildEnvironmentRepositoryName)
+if [[ -z ${bootstrap_repository_name} \
+    || ${bootstrap_repository_name} != "${runner_repository_name}" ]]
+then
+    printf 'Bootstrap and runner ECR repository names disagree: %s != %s\n' \
+        "${bootstrap_repository_name}" \
+        "${runner_repository_name}" >&2
+    exit 1
+fi
+
+if ! grep --fixed-strings --quiet \
+    -- '- !Sub arn:${AWS::Partition}:ec2:${AWS::Region}:${AWS::AccountId}:volume/*' \
+    "${self_dir}/runner-stack.yaml"
+then
+    printf 'Runner controller cannot tag launch-template EBS volumes.\n' >&2
+    exit 1
+fi
+
+if ! grep --fixed-strings --quiet \
+    'RetentionInDays: 30' \
+    "${self_dir}/runner-stack.yaml"
+then
+    printf 'Runner controller log retention is not bounded.\n' >&2
+    exit 1
+fi
+
+test_directory=$(mktemp -d)
+mkdir "${test_directory}/bin"
+ln -s "${self_dir}/test-infrastructure" "${test_directory}/bin/aws"
+export PATH="${test_directory}/bin:${PATH}"
+
+cleanup()
+{
+    rm -rf "${test_directory}"
+}
+trap cleanup EXIT
+
+export AWS_BUDGET_NOTIFICATION_EMAIL=ci-billing@example.com
+export AWS_CLOUDFORMATION_EXECUTION_ROLE_ARN=arn:aws:iam::123456789012:role/reaveros-cloudformation
+export AWS_DEPLOYMENT_ARTIFACT_BUCKET=reaver-project-deployment-artifacts
+export AWS_GITHUB_OIDC_PROVIDER_ARN=arn:aws:iam::123456789012:oidc-provider/token.actions.githubusercontent.com
+export AWS_GITHUB_RUNNER_GROUP_ID=7
+export AWS_REGION=us-west-2
+export AWS_RUNNER_ROLE_PERMISSIONS_BOUNDARY_ARN=arn:aws:iam::123456789012:policy/reaveros-boundary
+export AWS_RUNNER_STACK_NAME=reaveros-github-runners
+export GITHUB_RUN_ATTEMPT=1
+export GITHUB_RUN_ID=101
+export GITHUB_SHA=0123456789abcdef
+template=${test_directory}/template.yaml
+printf 'Resources: {}\n' > "${template}"
+
+reset_case()
+{
+    export AWS_TEST_CASE=$1
+    export AWS_TEST_LOG="${test_directory}/$1.log"
+    export GITHUB_OUTPUT="${test_directory}/$1.output"
+    export GITHUB_STEP_SUMMARY="${test_directory}/$1.summary"
+    : > "${AWS_TEST_LOG}"
+    : > "${GITHUB_OUTPUT}"
+    : > "${GITHUB_STEP_SUMMARY}"
+}
+
+assert_log_contains()
+{
+    if ! grep --fixed-strings --quiet "$1" "${AWS_TEST_LOG}"
+    then
+        printf 'Expected AWS call log to contain: %s\n' "$1" >&2
+        cat "${AWS_TEST_LOG}" >&2
+        exit 1
+    fi
+}
+
+assert_output()
+{
+    if ! grep --fixed-strings --line-regexp --quiet "$1" "${GITHUB_OUTPUT}"
+    then
+        printf 'Expected GitHub output to contain: %s\n' "$1" >&2
+        cat "${GITHUB_OUTPUT}" >&2
+        exit 1
+    fi
+}
+
+reset_case plan-update
+"${self_dir}/plan-infrastructure" \
+    "${template}" \
+    reaveros-github-runners-101-1
+assert_output has_changes=true
+assert_output change_set_type=UPDATE
+assert_log_contains $'\t--change-set-type\tUPDATE'
+assert_log_contains $'\tpackage\t--region\tus-west-2'
+assert_log_contains $'\t--s3-bucket\treaver-project-deployment-artifacts'
+assert_log_contains $'\tParameterKey=BudgetNotificationEmail,ParameterValue=ci-billing@example.com'
+assert_log_contains $'\tParameterKey=GitHubRunnerGroupId,ParameterValue=7'
+assert_log_contains $'\tParameterKey=RunnerMediumInstanceType,UsePreviousValue=true'
+assert_log_contains $'\t--role-arn\tarn:aws:iam::123456789012:role/reaveros-cloudformation'
+assert_log_contains $'\t--description\tGitHub infrastructure revision 0123456789abcdef; run 101; attempt 1'
+
+reset_case plan-create
+"${self_dir}/plan-infrastructure" \
+    "${template}" \
+    reaveros-github-runners-101-1
+assert_output has_changes=true
+assert_output change_set_type=CREATE
+assert_log_contains $'\t--change-set-type\tCREATE'
+assert_log_contains $'\t--on-stack-failure\tDELETE'
+
+reset_case plan-review
+"${self_dir}/plan-infrastructure" \
+    "${template}" \
+    reaveros-github-runners-101-1
+assert_output has_changes=true
+assert_output change_set_type=CREATE
+assert_log_contains $'\t--change-set-type\tCREATE'
+
+reset_case plan-no-changes
+"${self_dir}/plan-infrastructure" \
+    "${template}" \
+    reaveros-github-runners-101-1
+assert_output has_changes=false
+assert_log_contains $'\tdelete-change-set\t'
+
+reset_case plan-denied
+if "${self_dir}/plan-infrastructure" \
+    "${template}" \
+    reaveros-github-runners-101-1 >/dev/null 2>&1
+then
+    printf 'An authorization failure was incorrectly treated as a missing stack.\n' >&2
+    exit 1
+fi
+if grep --fixed-strings --quiet $'\tcreate-change-set\t' "${AWS_TEST_LOG}"
+then
+    printf 'A change set was created after an authorization failure.\n' >&2
+    exit 1
+fi
+
+reset_case deploy-update
+"${self_dir}/deploy-infrastructure" \
+    arn:aws:cloudformation:us-west-2:123456789012:changeSet/reaveros-github-runners-101-1/id
+assert_log_contains $'\texecute-change-set\t'
+assert_log_contains $'\twait\tstack-update-complete'
+
+reset_case deploy-create
+"${self_dir}/deploy-infrastructure" \
+    arn:aws:cloudformation:us-west-2:123456789012:changeSet/reaveros-github-runners-101-1/id
+assert_log_contains $'\twait\tstack-create-complete'
+
+reset_case deploy-wrong-stack
+if "${self_dir}/deploy-infrastructure" \
+    arn:aws:cloudformation:us-west-2:123456789012:changeSet/reaveros-github-runners-101-1/id \
+    >/dev/null 2>&1
+then
+    printf 'A change set for another stack was incorrectly accepted.\n' >&2
+    exit 1
+fi
+if grep --fixed-strings --quiet $'\texecute-change-set\t' "${AWS_TEST_LOG}"
+then
+    printf 'An unexpected change set was executed.\n' >&2
+    exit 1
+fi
+
+reset_case deploy-wrong-revision
+export GITHUB_SHA=fedcba9876543210
+if "${self_dir}/deploy-infrastructure" \
+    arn:aws:cloudformation:us-west-2:123456789012:changeSet/reaveros-github-runners-101-1/id \
+    >/dev/null 2>&1
+then
+    printf 'A change set for another revision was incorrectly accepted.\n' >&2
+    exit 1
+fi
+if grep --fixed-strings --quiet $'\texecute-change-set\t' "${AWS_TEST_LOG}"
+then
+    printf 'A change set for another revision was executed.\n' >&2
+    exit 1
+fi
+
+printf 'AWS infrastructure deployment tests passed.\n'
