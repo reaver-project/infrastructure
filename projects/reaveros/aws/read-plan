@@ -1,0 +1,92 @@
+#!/usr/bin/env bash
+
+set -euo pipefail
+
+if [[ $# -ne 1 || -z ${GITHUB_OUTPUT:-} ]]
+then
+    printf 'usage: %s <plan-key>\n' "$0" >&2
+    exit 2
+fi
+
+plan_key=$1
+self_dir=$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)
+required_environment=(
+    AWS_DEPLOYMENT_ARTIFACT_BUCKET
+    AWS_REGION
+    AWS_RUNNER_STACK_NAME
+    GITHUB_REPOSITORY
+    GITHUB_SHA
+)
+for environment_variable in "${required_environment[@]}"
+do
+    if [[ -z ${!environment_variable:-} ]]
+    then
+        printf 'Required environment variable is empty: %s\n' \
+            "${environment_variable}" >&2
+        exit 2
+    fi
+done
+
+if [[ ! ${plan_key} =~ ^plans/[0-9a-f]{64}\.json$ ]]
+then
+    printf 'Invalid deployment-plan lookup key.\n' >&2
+    exit 2
+fi
+
+metadata_directory=$(mktemp -d)
+metadata=${metadata_directory}/plan.json
+cleanup()
+{
+    rm -rf "${metadata_directory}"
+}
+trap cleanup EXIT
+
+if ! aws s3api get-object \
+    --region "${AWS_REGION}" \
+    --bucket "${AWS_DEPLOYMENT_ARTIFACT_BUCKET}" \
+    --key "${plan_key}" \
+    "${metadata}" \
+    >/dev/null 2>&1
+then
+    printf 'Could not read the private deployment plan.\n' >&2
+    exit 1
+fi
+
+contract_version=$(<"${self_dir}/../infrastructure-contract-version")
+if ! jq --exit-status \
+    --argjson contract_version "${contract_version}" \
+    --arg repository "${GITHUB_REPOSITORY}" \
+    --arg source_revision "${GITHUB_SHA}" \
+    --arg stack_name "${AWS_RUNNER_STACK_NAME}" \
+    '(.schema_version == 1)
+        and (.infrastructure_contract_version == $contract_version)
+        and (.repository == $repository)
+        and (.source_revision == $source_revision)
+        and (.stack_name == $stack_name)
+        and (.run_id | type == "string" and test("^[1-9][0-9]*$"))
+        and (.run_attempt | type == "string" and test("^[1-9][0-9]*$"))
+        and (.change_set_arn
+            | type == "string"
+            and test("^arn:(aws|aws-us-gov|aws-cn):cloudformation:[a-z0-9-]+:[0-9]{12}:changeSet/[A-Za-z][-A-Za-z0-9]*-[0-9]+-[0-9]+/[A-Za-z0-9-]+$"))' \
+    "${metadata}" >/dev/null
+then
+    printf 'The private deployment plan is invalid for this revision.\n' >&2
+    exit 1
+fi
+
+run_id=$(jq --exit-status --raw-output '.run_id' "${metadata}")
+run_attempt=$(jq --exit-status --raw-output '.run_attempt' "${metadata}")
+expected_key=$("${self_dir}/plan-key" \
+    "${GITHUB_REPOSITORY}" \
+    "${GITHUB_SHA}" \
+    "${run_id}" \
+    "${run_attempt}" \
+    "${AWS_RUNNER_STACK_NAME}")
+if [[ ${plan_key} != "${expected_key}" ]]
+then
+    printf 'The private deployment plan does not match its lookup key.\n' >&2
+    exit 1
+fi
+
+change_set_arn=$(jq --exit-status --raw-output '.change_set_arn' "${metadata}")
+printf 'change_set_arn=%s\n' "${change_set_arn}" >> "${GITHUB_OUTPUT}"

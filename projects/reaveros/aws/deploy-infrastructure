@@ -10,10 +10,15 @@ then
 fi
 
 change_set_arn=$1
-change_set=$(aws cloudformation describe-change-set \
+if ! change_set=$(aws cloudformation describe-change-set \
     --region "${AWS_REGION}" \
     --change-set-name "${change_set_arn}" \
-    --output json)
+    --output json \
+    2>/dev/null)
+then
+    printf 'Could not read the private CloudFormation change set.\n' >&2
+    exit 1
+fi
 
 stack_name=$(jq --exit-status --raw-output '.StackName' <<<"${change_set}")
 change_set_name=$(jq --exit-status --raw-output '.ChangeSetName' <<<"${change_set}")
@@ -40,8 +45,7 @@ if [[ ${stack_name} != "${AWS_RUNNER_STACK_NAME}" \
     || ${execution_status} != AVAILABLE \
     || ${description} != "GitHub infrastructure revision ${GITHUB_SHA}; "* ]]
 then
-    printf 'Refusing unexpected CloudFormation change set:\n' >&2
-    jq . <<<"${change_set}" >&2
+    printf 'Refusing an unexpected private CloudFormation change set.\n' >&2
     exit 1
 fi
 
@@ -49,7 +53,8 @@ aws cloudformation execute-change-set \
     --region "${AWS_REGION}" \
     --stack-name "${AWS_RUNNER_STACK_NAME}" \
     --change-set-name "${change_set_arn}" \
-    --client-request-token "github-${GITHUB_RUN_ID:-unknown}-${GITHUB_RUN_ATTEMPT:-unknown}"
+    --client-request-token "github-${GITHUB_RUN_ID:-unknown}-${GITHUB_RUN_ATTEMPT:-unknown}" \
+    >/dev/null
 
 case ${change_set_type} in
     CREATE)
@@ -64,18 +69,12 @@ if ! aws cloudformation wait "${waiter}" \
     --region "${AWS_REGION}" \
     --stack-name "${AWS_RUNNER_STACK_NAME}"
 then
-    aws cloudformation describe-stack-events \
-        --region "${AWS_REGION}" \
-        --stack-name "${AWS_RUNNER_STACK_NAME}" \
-        --max-items 30 \
-        --output table >&2 \
-        || true
+    printf 'CloudFormation deployment failed; inspect the private stack events in AWS.\n' \
+        >&2
     exit 1
 fi
 
 {
     printf '### AWS infrastructure deployment\n\n'
-    printf 'Executed `%s` change set `%s` successfully.\n' \
-        "${change_set_type}" \
-        "${change_set_name}"
+    printf 'Executed the reviewed private change set successfully.\n'
 } >> "${GITHUB_STEP_SUMMARY}"

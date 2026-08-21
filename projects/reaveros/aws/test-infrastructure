@@ -12,32 +12,43 @@ mock_aws()
 
     if [[ $1 == s3api ]]
     then
-        if [[ $2 != put-object ]]
-        then
-            printf 'Unexpected AWS S3 API command: %s\n' "$2" >&2
-            exit 2
-        fi
-        if [[ ${AWS_TEST_CASE} == plan-storage-conflict ]]
-        then
-            exit 254
-        fi
-        body=
-        previous=
-        for argument in "$@"
-        do
-            if [[ ${previous} == --body ]]
-            then
-                body=${argument}
-                break
-            fi
-            previous=${argument}
-        done
-        if [[ -z ${body} ]]
-        then
-            printf 'Mock put-object call omitted --body.\n' >&2
-            exit 2
-        fi
-        cp "${body}" "${AWS_TEST_PLAN_RECORD}"
+        case $2 in
+            put-object)
+                if [[ ${AWS_TEST_CASE} == plan-storage-conflict ]]
+                then
+                    exit 254
+                fi
+                body=
+                previous=
+                for argument in "$@"
+                do
+                    if [[ ${previous} == --body ]]
+                    then
+                        body=${argument}
+                        break
+                    fi
+                    previous=${argument}
+                done
+                if [[ -z ${body} ]]
+                then
+                    printf 'Mock put-object call omitted --body.\n' >&2
+                    exit 2
+                fi
+                cp "${body}" "${AWS_TEST_PLAN_RECORD}"
+                ;;
+            get-object)
+                if [[ ${AWS_TEST_CASE} == read-plan-missing ]]
+                then
+                    exit 254
+                fi
+                destination=${!#}
+                cp "${AWS_TEST_PRIVATE_PLAN}" "${destination}"
+                ;;
+            *)
+                printf 'Unexpected AWS S3 API command: %s\n' "$2" >&2
+                exit 2
+                ;;
+        esac
         return
     fi
 
@@ -239,6 +250,17 @@ export GITHUB_REPOSITORY=reaver-project/infrastructure
 export GITHUB_SHA=0123456789abcdef0123456789abcdef01234567
 template=${test_directory}/template.yaml
 printf 'Resources: {}\n' > "${template}"
+export AWS_TEST_PRIVATE_PLAN=${test_directory}/private-plan.json
+jq --null-input '{
+    schema_version: 1,
+    infrastructure_contract_version: 1,
+    change_set_arn: "arn:aws:cloudformation:us-west-2:123456789012:changeSet/reaveros-github-runners-101-1/id",
+    repository: "reaver-project/infrastructure",
+    run_attempt: "1",
+    run_id: "101",
+    source_revision: "0123456789abcdef0123456789abcdef01234567",
+    stack_name: "reaveros-github-runners"
+}' > "${AWS_TEST_PRIVATE_PLAN}"
 
 reset_case()
 {
@@ -364,6 +386,31 @@ then
     printf 'A change set was created after an authorization failure.\n' >&2
     exit 1
 fi
+
+plan_key=plans/3de70c5a97f405e494ad4c294a439fb5eff5ba2a024c853ad2613dbf3a96d7b5.json
+reset_case read-plan-valid
+"${self_dir}/read-plan" "${plan_key}"
+assert_output change_set_arn=arn:aws:cloudformation:us-west-2:123456789012:changeSet/reaveros-github-runners-101-1/id
+assert_log_contains $'s3api\tget-object\t--region\tus-west-2'
+assert_log_contains $'\t--key\tplans/3de70c5a97f405e494ad4c294a439fb5eff5ba2a024c853ad2613dbf3a96d7b5.json'
+
+reset_case read-plan-wrong-key
+if "${self_dir}/read-plan" \
+    plans/0000000000000000000000000000000000000000000000000000000000000000.json \
+    >/dev/null 2>&1
+then
+    printf 'Private plan metadata was accepted under the wrong lookup key.\n' >&2
+    exit 1
+fi
+assert_output_absent change_set_arn=
+
+reset_case read-plan-missing
+if "${self_dir}/read-plan" "${plan_key}" >/dev/null 2>&1
+then
+    printf 'A missing private plan was incorrectly accepted.\n' >&2
+    exit 1
+fi
+assert_output_absent change_set_arn=
 
 reset_case deploy-update
 "${self_dir}/deploy-infrastructure" \

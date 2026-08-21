@@ -1,0 +1,116 @@
+name: Deploy AWS infrastructure
+
+run-name: Deploy AWS plan ${{ inputs.plan_key }}
+
+on:
+    workflow_dispatch:
+        inputs:
+            plan_key:
+                description: Opaque lookup key from the reviewed private AWS plan
+                required: true
+                type: string
+
+permissions:
+    contents: read
+
+concurrency:
+    group: reaveros-aws-infrastructure
+    cancel-in-progress: false
+
+jobs:
+    validate:
+        name: Revalidate before deployment
+        uses: ./.github/workflows/validate.yml
+
+    deploy:
+        name: Apply the reviewed ReaverOS AWS change set
+        needs: validate
+        runs-on: ubuntu-latest
+        timeout-minutes: 30
+        environment: aws-production
+        permissions:
+            contents: read
+            id-token: write
+        env:
+            AWS_DEPLOYMENT_ARTIFACT_BUCKET: ${{ vars.AWS_DEPLOYMENT_ARTIFACT_BUCKET }}
+            AWS_REGION: ${{ vars.AWS_REGION }}
+            AWS_RUNNER_STACK_NAME: ${{ vars.AWS_RUNNER_STACK_NAME }}
+            PLAN_KEY: ${{ inputs.plan_key }}
+        outputs:
+            runner_role_arn: ${{ steps.stack.outputs.runner_role_arn }}
+
+        steps:
+          - name: Check out infrastructure
+            uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
+            with:
+                persist-credentials: false
+
+          - name: Authenticate to AWS for deployment
+            uses: aws-actions/configure-aws-credentials@e6de054238d6b7531b4efff3b6587d9aade6a06c # v6.2.3
+            with:
+                aws-region: ${{ env.AWS_REGION }}
+                role-to-assume: ${{ vars.AWS_INFRASTRUCTURE_DEPLOY_ROLE_ARN }}
+                role-session-name: infrastructure-deploy-${{ github.run_id }}
+
+          - name: Read and verify the private plan
+            id: plan
+            run: projects/reaveros/aws/read-plan "${PLAN_KEY}"
+
+          - name: Execute the reviewed change set
+            env:
+                CHANGE_SET_ARN: ${{ steps.plan.outputs.change_set_arn }}
+            run: projects/reaveros/aws/deploy-infrastructure "${CHANGE_SET_ARN}"
+
+          - name: Read the deployed ReaverOS role
+            id: stack
+            run: |
+                runner_role_arn=$(aws cloudformation describe-stacks \
+                    --region "${AWS_REGION}" \
+                    --stack-name "${AWS_RUNNER_STACK_NAME}" \
+                    --query 'Stacks[0].Outputs[?OutputKey==`GitHubActionsRoleArn`].OutputValue | [0]' \
+                    --output text)
+                if [[ ! ${runner_role_arn} =~ ^arn:(aws|aws-us-gov|aws-cn):iam::[0-9]{12}:role/[A-Za-z0-9+=,.@_/-]+$ ]]
+                then
+                    printf 'Invalid GitHubActionsRoleArn stack output: %s\n' \
+                        "${runner_role_arn}" >&2
+                    exit 1
+                fi
+                printf 'runner_role_arn=%s\n' "${runner_role_arn}" >> "${GITHUB_OUTPUT}"
+
+    configure-reaveros:
+        name: Publish the ReaverOS AWS CI contract
+        needs: deploy
+        runs-on: ubuntu-latest
+        timeout-minutes: 10
+        environment: github-production
+        permissions:
+            contents: read
+        env:
+            AWS_REGION: ${{ vars.AWS_REGION }}
+            AWS_RUNNER_STACK_NAME: ${{ vars.AWS_RUNNER_STACK_NAME }}
+
+        steps:
+          - name: Check out infrastructure
+            uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
+            with:
+                persist-credentials: false
+
+          - name: Create an infrastructure App token
+            id: app
+            uses: actions/create-github-app-token@bcd2ba49218906704ab6c1aa796996da409d3eb1 # v3.2.0
+            with:
+                app-id: ${{ vars.INFRASTRUCTURE_APP_ID }}
+                private-key: ${{ secrets.INFRASTRUCTURE_APP_PRIVATE_KEY }}
+                owner: reaver-project
+                repositories: reaveros
+                permission-actions-variables: write
+
+          - name: Configure the ReaverOS consumer
+            env:
+                GH_TOKEN: ${{ steps.app.outputs.token }}
+                RUNNER_ROLE_ARN: ${{ needs.deploy.outputs.runner_role_arn }}
+            run: |
+                projects/reaveros/configure-ci \
+                    --region "${AWS_REGION}" \
+                    --runner-role-arn "${RUNNER_ROLE_ARN}" \
+                    --stack-name "${AWS_RUNNER_STACK_NAME}"
