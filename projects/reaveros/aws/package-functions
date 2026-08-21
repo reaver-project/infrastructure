@@ -1,0 +1,44 @@
+#!/usr/bin/env bash
+
+set -euo pipefail
+
+if [[ $# -ne 1 ]]
+then
+    printf 'usage: %s <output-directory>\n' "$0" >&2
+    exit 2
+fi
+
+self_dir=$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)
+requested_output_directory=$1
+staging_directory=$(mktemp -d)
+
+cleanup()
+{
+    rm -rf "${staging_directory}"
+}
+trap cleanup EXIT
+
+install -d "${requested_output_directory}"
+output_directory=$(cd -- "${requested_output_directory}" && pwd)
+install -d "${staging_directory}/runner-control"
+install \
+    "${self_dir}/functions/runner-control/index.py" \
+    "${self_dir}/functions/runner-control/lib.py" \
+    "${staging_directory}/runner-control/"
+python3 -m pip install \
+    --disable-pip-version-check \
+    --implementation cp \
+    --no-compile \
+    --only-binary=:all: \
+    --platform manylinux_2_34_x86_64 \
+    --platform manylinux2014_x86_64 \
+    --python-version 3.13 \
+    --requirement "${self_dir}/functions/runner-control/requirements.txt" \
+    --target "${staging_directory}/runner-control" \
+    >/dev/null
+
+rm -f "${output_directory}/runner-reaper.zip"
+"${self_dir}/create-function-archive" \
+    "${staging_directory}/runner-control" \
+    "${output_directory}/runner-control.zip"
+printf 'Packaged ReaverOS Lambda functions in %s.\n' "${output_directory}"

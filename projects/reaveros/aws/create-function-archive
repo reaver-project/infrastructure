@@ -1,0 +1,60 @@
+#!/usr/bin/env python3
+
+import argparse
+import os
+import pathlib
+import tempfile
+import zipfile
+
+
+def parse_arguments():
+    parser = argparse.ArgumentParser(description="Create a reproducible Lambda ZIP archive.")
+    parser.add_argument("source", type=pathlib.Path)
+    parser.add_argument("output", type=pathlib.Path)
+    return parser.parse_args()
+
+
+def create_archive(source, output):
+    source = source.resolve(strict=True)
+    output = output.resolve()
+    output.parent.mkdir(parents=True, exist_ok=True)
+    descriptor, temporary_name = tempfile.mkstemp(
+        dir=output.parent,
+        prefix=f".{output.name}.",
+    )
+    os.close(descriptor)
+    temporary = pathlib.Path(temporary_name)
+    try:
+        with zipfile.ZipFile(
+            temporary,
+            "w",
+            compression=zipfile.ZIP_DEFLATED,
+            compresslevel=9,
+        ) as archive:
+            for path in sorted(source.rglob("*")):
+                if path.is_symlink():
+                    raise ValueError(f"Lambda archive contains a symbolic link: {path}")
+                if not path.is_file():
+                    continue
+                relative_path = path.relative_to(source).as_posix()
+                information = zipfile.ZipInfo(relative_path, date_time=(1980, 1, 1, 0, 0, 0))
+                information.create_system = 3
+                information.external_attr = 0o100644 << 16
+                archive.writestr(
+                    information,
+                    path.read_bytes(),
+                    compress_type=zipfile.ZIP_DEFLATED,
+                    compresslevel=9,
+                )
+        os.replace(temporary, output)
+    finally:
+        temporary.unlink(missing_ok=True)
+
+
+def main():
+    arguments = parse_arguments()
+    create_archive(arguments.source, arguments.output)
+
+
+if __name__ == "__main__":
+    main()
