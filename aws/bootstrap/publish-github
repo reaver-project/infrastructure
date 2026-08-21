@@ -1,0 +1,130 @@
+#!/usr/bin/env bash
+
+set -euo pipefail
+
+self_dir=$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)
+repository_root=$(git -C "${self_dir}" rev-parse --show-toplevel)
+# shellcheck source=aws/bootstrap/common
+source "${self_dir}/common"
+
+bootstrap_profile=
+bootstrap_stack_name=reaver-project-ci-deployment-trust
+budget_email=
+expected_account_id=
+organization_config="${repository_root}/aws/organization/reaver-project.json"
+region=us-west-2
+repository=reaver-project/infrastructure
+runner_group_id=
+
+usage()
+{
+    printf '%s\n' \
+        "usage: $0 --profile <profile>" \
+        '    --budget-email <email> --runner-group-id <id>' \
+        '    [--region <region>] [--bootstrap-stack-name <name>]' \
+        '    [--repository <owner/repository>]' \
+        '    [--organization-config <path>]'
+}
+
+while [[ $# -gt 0 ]]; do
+    case $1 in
+        --bootstrap-stack-name)
+            bootstrap_stack_name=$2
+            shift 2
+            ;;
+        --budget-email)
+            budget_email=$2
+            shift 2
+            ;;
+        --organization-config)
+            organization_config=$2
+            shift 2
+            ;;
+        --profile)
+            bootstrap_profile=$2
+            shift 2
+            ;;
+        --region)
+            region=$2
+            shift 2
+            ;;
+        --repository)
+            repository=$2
+            shift 2
+            ;;
+        --runner-group-id)
+            runner_group_id=$2
+            shift 2
+            ;;
+        --help | -h)
+            usage
+            exit 0
+            ;;
+        *)
+            usage >&2
+            exit 2
+            ;;
+    esac
+done
+
+if [[ -z ${budget_email} || ! ${runner_group_id} =~ ^[0-9]+$ ]]; then
+    usage >&2
+    exit 2
+fi
+expected_account_id=$(bootstrap_account_id "${organization_config}" reaver-project-ci)
+bootstrap_require_clean_repository
+bootstrap_require_account
+
+revision=$(bootstrap_repository_revision)
+template_sha256=$(bootstrap_template_sha256 "${self_dir}/template.yaml")
+
+bootstrap_stack=$(bootstrap_aws cloudformation describe-stacks \
+    --region "${region}" \
+    --stack-name "${bootstrap_stack_name}" \
+    --query 'Stacks[0]' \
+    --output json)
+stack_status=$(jq --exit-status --raw-output '.StackStatus' <<< "${bootstrap_stack}")
+if [[ ! ${stack_status} =~ ^(CREATE|UPDATE)_COMPLETE$ ]]; then
+    printf 'Refusing to publish outputs from incomplete bootstrap stack %s.\n' \
+        "${bootstrap_stack_name}" >&2
+    exit 1
+fi
+
+stack_output()
+{
+    jq --exit-status --raw-output \
+        --arg key "$1" \
+        '.Outputs[] | select(.OutputKey == $key) | .OutputValue' \
+        <<< "${bootstrap_stack}"
+}
+
+if [[ $(stack_output BootstrapRevision) != "${revision}" ||
+$(stack_output BootstrapTemplateSha256) != "${template_sha256}" ]]; then
+    printf 'Refusing outputs from a bootstrap stack built from another revision.\n' >&2
+    exit 1
+fi
+
+set_variable()
+{
+    gh variable set "$1" --repo "${repository}" --body "$2"
+}
+
+set_variable AWS_BUDGET_NOTIFICATION_EMAIL "${budget_email}"
+set_variable AWS_CLOUDFORMATION_EXECUTION_ROLE_ARN \
+    "$(stack_output CloudFormationExecutionRoleArn)"
+set_variable AWS_DEPLOYMENT_ARTIFACT_BUCKET \
+    "$(stack_output DeploymentArtifactBucketName)"
+set_variable AWS_GITHUB_OIDC_PROVIDER_ARN "$(stack_output GitHubOidcProviderArn)"
+set_variable AWS_GITHUB_RUNNER_GROUP_ID "${runner_group_id}"
+set_variable AWS_INFRASTRUCTURE_DEPLOY_ROLE_ARN \
+    "$(stack_output InfrastructureDeployRoleArn)"
+set_variable AWS_INFRASTRUCTURE_PLAN_ROLE_ARN \
+    "$(stack_output InfrastructurePlanRoleArn)"
+set_variable AWS_REGION "${region}"
+set_variable AWS_RUNNER_ROLE_PERMISSIONS_BOUNDARY_ARN \
+    "$(stack_output RunnerRolePermissionsBoundaryArn)"
+set_variable AWS_RUNNER_STACK_NAME "$(stack_output RunnerStackName)"
+
+printf 'Published CI bootstrap outputs from %s to %s.\n' \
+    "${bootstrap_stack_name}" \
+    "${repository}"
