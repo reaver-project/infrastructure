@@ -1,0 +1,6 @@
+ignore_checks:
+  # Function directories are deliberately transformed by `aws cloudformation package`.
+  - W3002
+templates:
+  - aws/bootstrap/template.yaml
+  - projects/reaveros/aws/runner-stack.yaml

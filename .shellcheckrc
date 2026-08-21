@@ -1,0 +1,3 @@
+# CloudFormation, jq, and AWS CLI expressions are intentionally single quoted
+# so the shell does not expand their dollar signs and backticks.
+disable=SC2016

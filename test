@@ -1,0 +1,81 @@
+#!/usr/bin/env bash
+
+set -euo pipefail
+
+shell_scripts=(
+    actions/aws-stack-contract/read
+    actions/ephemeral-runner/launch
+    actions/ephemeral-runner/terminate
+    actions/test
+    aws/bootstrap/apply
+    aws/bootstrap/common
+    aws/bootstrap/plan
+    aws/bootstrap/publish-github
+    aws/bootstrap/test
+    github/configure-organization
+    github/configure-repository
+    github/apps/configure-infrastructure-app
+    github/apps/test-configure-infrastructure-app
+    github/test-configure-organization
+    github/test-configure-repository
+    projects/reaveros/aws/configure-runner-app
+    projects/reaveros/aws/create-function-archive
+    projects/reaveros/aws/deploy-infrastructure
+    projects/reaveros/aws/package-functions
+    projects/reaveros/aws/plan-infrastructure
+    projects/reaveros/aws/test-infrastructure
+    projects/reaveros/aws/test-configure-runner-app
+    projects/reaveros/configure-ci
+    projects/reaveros/test-configure-ci
+    projects/reaveros/test-contract
+)
+bash -n "${shell_scripts[@]}"
+
+json_files=(
+    aws/organization/reaver-project.json
+    github/apps/infrastructure/manifest.json
+    github/apps/runner/manifest.json
+    github/organizations/reaver-project.json
+    github/repositories/infrastructure.json
+    github/repositories/reaveros.json
+)
+for json_file in "${json_files[@]}"
+do
+    jq --exit-status . "${json_file}" >/dev/null
+done
+
+python3 -m py_compile \
+    aws/organization/configure.py \
+    aws/organization/test_configure.py \
+    github/apps/create \
+    github/apps/test-create.py \
+    projects/reaveros/aws/create-function-archive \
+    projects/reaveros/aws/functions/runner-control/index.py \
+    projects/reaveros/aws/functions/runner-control/lib.py \
+    projects/reaveros/aws/functions/runner-control/test.py \
+    projects/reaveros/aws/functions/runner-control/test_index.py
+node --check github/apps/configure-runner-group
+node --check github/apps/test-configure-runner-group.js
+python3 github/test-workflows.py
+
+actions/test
+aws/bootstrap/test
+python3 aws/organization/test_configure.py
+github/test-configure-organization
+github/test-configure-repository
+github/apps/test-configure-infrastructure-app
+python3 github/apps/test-create.py
+node github/apps/test-configure-runner-group.js
+projects/reaveros/aws/test-infrastructure
+projects/reaveros/aws/test-configure-runner-app
+projects/reaveros/test-configure-ci
+projects/reaveros/test-contract
+python3 projects/reaveros/aws/functions/runner-control/test.py
+python3 projects/reaveros/aws/functions/runner-control/test_index.py
+projects/reaveros/aws/package-functions build/reaveros-lambda
+test -f build/reaveros-lambda/runner-control.zip
+test ! -e build/reaveros-lambda/runner-reaper.zip
+first_archive_hash=$(sha256sum build/reaveros-lambda/runner-control.zip)
+projects/reaveros/aws/package-functions build/reaveros-lambda
+test "${first_archive_hash}" = "$(sha256sum build/reaveros-lambda/runner-control.zip)"
+printf 'Infrastructure tests passed.\n'
