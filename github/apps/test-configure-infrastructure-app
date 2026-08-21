@@ -1,0 +1,63 @@
+#!/usr/bin/env bash
+
+set -euo pipefail
+
+if [[ $(basename -- "$0") == gh ]]
+then
+    {
+        printf 'gh'
+        printf '\t%s' "$@"
+        printf '\n'
+    } >> "${APP_TEST_LOG}"
+    if [[ $1 == secret && $2 == set ]]
+    then
+        secret=$(cat)
+        if [[ ${secret} != test-private-key ]]
+        then
+            printf 'Unexpected private key on standard input.\n' >&2
+            exit 1
+        fi
+    fi
+    exit
+fi
+
+self_dir=$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)
+test_directory=$(mktemp -d)
+mkdir "${test_directory}/bin"
+ln -s "${self_dir}/test-configure-infrastructure-app" \
+    "${test_directory}/bin/gh"
+export PATH="${test_directory}/bin:${PATH}"
+export APP_TEST_LOG="${test_directory}/calls"
+: > "${APP_TEST_LOG}"
+credentials="${test_directory}/credentials.json"
+jq --null-input \
+    --argjson id 1234 \
+    --arg pem test-private-key \
+    '{id: $id, pem: $pem}' > "${credentials}"
+
+cleanup()
+{
+    rm -rf "${test_directory}"
+}
+trap cleanup EXIT
+
+"${self_dir}/configure-infrastructure-app" \
+    --credentials - \
+    < "${credentials}" \
+    >/dev/null
+
+assert_log_contains()
+{
+    if ! grep --fixed-strings --quiet "$1" "${APP_TEST_LOG}"
+    then
+        printf 'Expected App configuration log to contain: %s\n' "$1" >&2
+        cat "${APP_TEST_LOG}" >&2
+        exit 1
+    fi
+}
+
+assert_log_contains $'gh\tapi\trepos/reaver-project/infrastructure/environments/github-production'
+assert_log_contains $'gh\tvariable\tset\tINFRASTRUCTURE_APP_ID\t--repo\treaver-project/infrastructure\t--env\tgithub-production\t--body\t1234'
+assert_log_contains $'gh\tsecret\tset\tINFRASTRUCTURE_APP_PRIVATE_KEY\t--repo\treaver-project/infrastructure\t--env\tgithub-production'
+
+printf 'Infrastructure App configuration tests passed.\n'
