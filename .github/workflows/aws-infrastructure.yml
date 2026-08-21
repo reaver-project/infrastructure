@@ -60,6 +60,7 @@ jobs:
           - name: Install the IAM policy validator
             run: |
                 python3 -m pip install \
+                    --only-binary=:all: \
                     --require-hashes \
                     --requirement aws/policy-validation-requirements.txt
 

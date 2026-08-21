@@ -85,6 +85,8 @@ if not (
     )
 if "--require-hashes" not in plan_workflow:
     sys.exit("The IAM policy validator is not installed from a hash-locked dependency set.")
+if "--only-binary=:all:" not in plan_workflow:
+    sys.exit("The IAM policy validator installation may execute source builds.")
 
 deploy_workflow = (
     root / ".github" / "workflows" / "aws-infrastructure-deploy.yml"
