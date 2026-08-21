@@ -1,0 +1,51 @@
+name: Read AWS infrastructure contract
+description: Authenticate with GitHub OIDC, read a CloudFormation stack, and verify its contract version.
+
+inputs:
+    aws-region:
+        description: AWS region containing the stack
+        required: true
+    expected-contract-version:
+        description: Required InfrastructureContractVersion, or empty to skip compatibility checking
+        required: false
+        default: ''
+    role-arn:
+        description: AWS role assumed through GitHub OIDC
+        required: true
+    role-session-name:
+        description: AWS role session name
+        required: true
+    stack-name:
+        description: CloudFormation stack to inspect
+        required: true
+
+outputs:
+    contract-version:
+        description: Deployed infrastructure contract version
+        value: ${{ steps.stack.outputs.contract_version }}
+    outputs:
+        description: CloudFormation outputs encoded as one JSON object
+        value: ${{ steps.stack.outputs.outputs }}
+
+runs:
+    using: composite
+    steps:
+      - name: Authenticate to AWS
+        uses: aws-actions/configure-aws-credentials@e6de054238d6b7531b4efff3b6587d9aade6a06c # v6.2.3
+        with:
+            aws-region: ${{ inputs.aws-region }}
+            mask-aws-account-id: true
+            role-session-name: ${{ inputs.role-session-name }}
+            role-to-assume: ${{ inputs.role-arn }}
+            unset-current-credentials: true
+
+      - name: Read and verify the stack contract
+        id: stack
+        shell: bash
+        env:
+            AWS_MAX_ATTEMPTS: '10'
+            AWS_REGION: ${{ inputs.aws-region }}
+            AWS_RETRY_MODE: standard
+            EXPECTED_CONTRACT_VERSION: ${{ inputs.expected-contract-version }}
+            STACK_NAME: ${{ inputs.stack-name }}
+        run: "${GITHUB_ACTION_PATH}/read"

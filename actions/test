@@ -1,0 +1,54 @@
+#!/usr/bin/env bash
+
+set -euo pipefail
+
+mock_aws()
+{
+    if [[ $1 == cloudformation && $2 == describe-stacks ]]
+    then
+        jq --null-input '[
+            {OutputKey: "InfrastructureContractVersion", OutputValue: "1"},
+            {OutputKey: "RunnerControlFunctionName", OutputValue: "runner-control"}
+        ]'
+        return
+    fi
+
+    printf 'Unexpected AWS call: %s\n' "$*" >&2
+    exit 2
+}
+
+if [[ $(basename -- "$0") == aws ]]
+then
+    mock_aws "$@"
+    exit
+fi
+
+self_dir=$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)
+test_directory=$(mktemp -d)
+mkdir "${test_directory}/bin"
+ln -s "${self_dir}/test" "${test_directory}/bin/aws"
+export PATH="${test_directory}/bin:${PATH}"
+
+cleanup()
+{
+    rm -rf "${test_directory}"
+}
+trap cleanup EXIT
+
+export AWS_REGION=us-west-2
+export STACK_NAME=reaveros-github-runners
+export GITHUB_OUTPUT="${test_directory}/stack.output"
+export EXPECTED_CONTRACT_VERSION=1
+: > "${GITHUB_OUTPUT}"
+"${self_dir}/aws-stack-contract/read"
+grep --fixed-strings --line-regexp 'contract_version=1' "${GITHUB_OUTPUT}" >/dev/null
+grep --fixed-strings 'RunnerControlFunctionName' "${GITHUB_OUTPUT}" >/dev/null
+
+export EXPECTED_CONTRACT_VERSION=2
+if "${self_dir}/aws-stack-contract/read" >/dev/null 2>&1
+then
+    printf 'A mismatched infrastructure contract was accepted.\n' >&2
+    exit 1
+fi
+
+printf 'AWS stack contract action tests passed.\n'

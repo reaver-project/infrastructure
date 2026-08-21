@@ -1,0 +1,44 @@
+#!/usr/bin/env bash
+
+set -euo pipefail
+
+for required_variable in AWS_REGION GITHUB_OUTPUT STACK_NAME
+do
+    if [[ -z ${!required_variable:-} ]]
+    then
+        printf '%s must be set.\n' "${required_variable}" >&2
+        exit 2
+    fi
+done
+
+stack_outputs=$(aws cloudformation describe-stacks \
+    --region "${AWS_REGION}" \
+    --stack-name "${STACK_NAME}" \
+    --query 'Stacks[0].Outputs' \
+    --output json)
+outputs=$(jq --compact-output \
+    'map({key: .OutputKey, value: .OutputValue}) | from_entries' \
+    <<<"${stack_outputs}")
+contract_version=$(jq --exit-status --raw-output \
+    '.InfrastructureContractVersion' \
+    <<<"${outputs}")
+
+if [[ ! ${contract_version} =~ ^[0-9]+$ ]]
+then
+    printf 'Invalid deployed infrastructure contract version: %s\n' \
+        "${contract_version}" >&2
+    exit 1
+fi
+if [[ -n ${EXPECTED_CONTRACT_VERSION:-} \
+    && ${contract_version} != "${EXPECTED_CONTRACT_VERSION}" ]]
+then
+    printf 'Infrastructure contract mismatch: expected %s, deployed %s.\n' \
+        "${EXPECTED_CONTRACT_VERSION}" \
+        "${contract_version}" >&2
+    exit 1
+fi
+
+{
+    printf 'contract_version=%s\n' "${contract_version}"
+    printf 'outputs=%s\n' "${outputs}"
+} >> "${GITHUB_OUTPUT}"
