@@ -83,7 +83,7 @@ assert_log_contains()
 assert_log_contains $'PATCH\torgs/reaver-project'
 assert_log_contains $'BODY\t{"default_repository_permission":"read","deploy_keys_enabled_for_repositories":false'
 assert_log_contains $'BODY\t{"enabled_repositories":"all","allowed_actions":"selected","sha_pinning_required":true}'
-assert_log_contains $'BODY\t{"github_owned_allowed":true,"verified_allowed":false,"patterns_allowed":["aws-actions/configure-aws-credentials@*","astral-sh/setup-uv@*","ossf/scorecard-action@*","zizmorcore/zizmor-action@*","reaver-project/infrastructure/actions/*@*"]}'
+assert_log_contains $'BODY\t{"github_owned_allowed":true,"verified_allowed":false,"patterns_allowed":["aws-actions/configure-aws-credentials@*","astral-sh/setup-uv@*","ossf/scorecard-action@*","step-security/harden-runner@*","zizmorcore/zizmor-action@*","reaver-project/infrastructure/actions/*@*"]}'
 assert_log_contains $'BODY\t{"default_workflow_permissions":"read","can_approve_pull_request_reviews":false}'
 assert_log_contains $'BODY\t{"days":30}'
 assert_log_contains 'X-GitHub-Api-Version: 2026-03-10'

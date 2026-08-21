@@ -25,6 +25,7 @@
             "aws-actions/configure-aws-credentials@*",
             "astral-sh/setup-uv@*",
             "ossf/scorecard-action@*",
+            "step-security/harden-runner@*",
             "zizmorcore/zizmor-action@*"
         ],
         "sha_pinning_required": true,

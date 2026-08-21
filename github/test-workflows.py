@@ -101,4 +101,44 @@ for workflow_name in [
     if "concurrency:" not in workflow or "cancel-in-progress: false" not in workflow:
         sys.exit(f"{workflow_name}: mutating workflow is not serialized")
 
+
+def job_contents(workflow_name: str, job_name: str) -> str:
+    lines = (
+        root / ".github" / "workflows" / workflow_name
+    ).read_text(encoding="utf-8").splitlines()
+    marker = f"    {job_name}:"
+    try:
+        start = lines.index(marker)
+    except ValueError:
+        sys.exit(f"{workflow_name}: missing expected job: {job_name}")
+    end = next(
+        (
+            index
+            for index, line in enumerate(lines[start + 1 :], start=start + 1)
+            if line.startswith("    ")
+            and not line.startswith("        ")
+            and line.endswith(":")
+        ),
+        len(lines),
+    )
+    return "\n".join(lines[start:end])
+
+
+credentialed_jobs = {
+    "aws-infrastructure.yml": ["plan"],
+    "aws-infrastructure-deploy.yml": ["deploy", "configure-reaveros"],
+    "github-configuration.yml": ["deploy"],
+    "security-analysis.yml": ["actions_security", "scorecard"],
+}
+for workflow_name, job_names in credentialed_jobs.items():
+    for job_name in job_names:
+        job = job_contents(workflow_name, job_name)
+        first_step = job.find("          - name:")
+        hardening = job.find("          - name: Harden the runner")
+        if first_step != hardening or "egress-policy: audit" not in job:
+            sys.exit(
+                f"{workflow_name}:{job_name}: credentialed job is not hardened "
+                "in audit mode before any other step"
+            )
+
 print("GitHub Actions workflow tests passed.")
