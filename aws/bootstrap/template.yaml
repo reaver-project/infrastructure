@@ -22,6 +22,10 @@ Parameters:
         Type: String
         Default: ''
         Description: Leave empty to create the account-wide GitHub Actions OIDC provider.
+    InfrastructureAccessAnalyzerArn:
+        Type: String
+        Default: ''
+        Description: Leave empty to create the regional account access analyzer.
     BuildEnvironmentRepositoryName:
         Type: String
         Default: reaveros-build-env
@@ -33,6 +37,7 @@ Parameters:
 
 Conditions:
     CreateGitHubOidcProvider: !Equals [!Ref GitHubOidcProviderArn, '']
+    CreateInfrastructureAccessAnalyzer: !Equals [!Ref InfrastructureAccessAnalyzerArn, '']
 
 Resources:
     DeploymentArtifactBucket:
@@ -106,6 +111,18 @@ Resources:
             Url: https://token.actions.githubusercontent.com
             ClientIdList:
               - sts.amazonaws.com
+            Tags:
+              - Key: Project
+                Value: ReaverProjectInfrastructure
+
+    InfrastructureAccessAnalyzer:
+        Type: AWS::AccessAnalyzer::Analyzer
+        Condition: CreateInfrastructureAccessAnalyzer
+        DeletionPolicy: Retain
+        UpdateReplacePolicy: Retain
+        Properties:
+            AnalyzerName: !Sub ${AWS::StackName}-external-access
+            Type: ACCOUNT
             Tags:
               - Key: Project
                 Value: ReaverProjectInfrastructure
@@ -449,6 +466,26 @@ Resources:
                         Resource: !Sub arn:${AWS::Partition}:ssm:${AWS::Region}::parameter/aws/service/debian/release/*
                       - Effect: Allow
                         Action:
+                          - iam:GetPolicy
+                          - iam:GetPolicyVersion
+                        Resource: !Sub arn:${AWS::Partition}:iam::aws:policy/service-role/AWSLambdaBasicExecutionRole
+                      - Effect: Allow
+                        Action:
+                          - access-analyzer:ListAnalyzers
+                          - access-analyzer:ValidatePolicy
+                          - s3:ListAllMyBuckets
+                        Resource: '*'
+                      - Effect: Allow
+                        Action:
+                          - access-analyzer:CreateAccessPreview
+                          - access-analyzer:GetAccessPreview
+                          - access-analyzer:ListAccessPreviewFindings
+                        Resource: !If
+                          - CreateInfrastructureAccessAnalyzer
+                          - !GetAtt InfrastructureAccessAnalyzer.Arn
+                          - !Ref InfrastructureAccessAnalyzerArn
+                      - Effect: Allow
+                        Action:
                           - s3:GetBucketLocation
                           - s3:ListBucket
                         Resource: !GetAtt DeploymentArtifactBucket.Arn
@@ -529,6 +566,11 @@ Outputs:
           - !Ref GitHubOidcProviderArn
     InfrastructureDeployRoleArn:
         Value: !GetAtt InfrastructureDeployRole.Arn
+    InfrastructureAccessAnalyzerArn:
+        Value: !If
+          - CreateInfrastructureAccessAnalyzer
+          - !GetAtt InfrastructureAccessAnalyzer.Arn
+          - !Ref InfrastructureAccessAnalyzerArn
     InfrastructurePlanRoleArn:
         Value: !GetAtt InfrastructurePlanRole.Arn
     RunnerRolePermissionsBoundaryArn:

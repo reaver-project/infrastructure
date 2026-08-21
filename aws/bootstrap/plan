@@ -11,6 +11,7 @@ bootstrap_profile=
 bootstrap_stack_name=reaver-project-ci-deployment-trust
 default_branch=main
 expected_account_id=
+access_analyzer_arn=
 oidc_provider_arn=
 region=us-west-2
 repository=reaver-project/infrastructure
@@ -24,11 +25,16 @@ usage()
         '    [--region <region>] [--bootstrap-stack-name <name>]' \
         '    [--runner-stack-name <name>] [--repository <owner/repository>]' \
         '    [--default-branch <branch>] [--oidc-provider-arn <arn>]' \
+        '    [--access-analyzer-arn <arn>]' \
         '    [--organization-config <path>]'
 }
 
 while [[ $# -gt 0 ]]; do
     case $1 in
+        --access-analyzer-arn)
+            access_analyzer_arn=$2
+            shift 2
+            ;;
         --bootstrap-stack-name)
             bootstrap_stack_name=$2
             shift 2
@@ -131,6 +137,7 @@ create_arguments=(
     "ParameterKey=GitHubOidcPlanWorkflowReference,ParameterValue=${plan_workflow_reference}"
     "ParameterKey=GitHubOidcDeployWorkflowReference,ParameterValue=${deploy_workflow_reference}"
     "ParameterKey=GitHubOidcProviderArn,ParameterValue=${oidc_provider_arn}"
+    "ParameterKey=InfrastructureAccessAnalyzerArn,ParameterValue=${access_analyzer_arn}"
     "ParameterKey=RunnerStackName,ParameterValue=${runner_stack_name}"
 )
 if [[ ${change_set_type} == CREATE ]]; then

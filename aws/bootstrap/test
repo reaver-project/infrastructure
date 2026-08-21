@@ -131,6 +131,12 @@ if [[ ${current_output} != *'already matches revision'* ||
 fi
 unset BOOTSTRAP_TEST_STACK_EXISTS
 
+"${self_dir}/plan" \
+    "${common_account_arguments[@]}" \
+    --access-analyzer-arn arn:aws:access-analyzer:us-west-2:123456789012:analyzer/existing \
+    > /dev/null
+assert_log_contains 'ParameterKey=InfrastructureAccessAnalyzerArn,ParameterValue=arn:aws:access-analyzer:us-west-2:123456789012:analyzer/existing'
+
 "${self_dir}/apply" "${common_account_arguments[@]}" > /dev/null
 assert_log_contains $'aws\t--profile\treaver-project-ci-admin\tcloudformation\texecute-change-set'
 assert_log_contains $'aws\t--profile\treaver-project-ci-admin\tcloudformation\tupdate-termination-protection'
@@ -184,4 +190,12 @@ if grep --fixed-strings --quiet \
     printf 'Direct infrastructure workflows cannot require job_workflow_ref.\n' >&2
     exit 1
 fi
+
+if grep --fixed-strings --quiet \
+    'access-analyzer:CreateAnalyzer' \
+    "${self_dir}/template.yaml"; then
+    printf 'The planning role must not create account access analyzers.\n' >&2
+    exit 1
+fi
+
 printf 'AWS bootstrap tests passed.\n'
