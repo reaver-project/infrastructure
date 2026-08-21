@@ -33,6 +33,7 @@ python3 -m pip install \
     --platform manylinux_2_34_x86_64 \
     --platform manylinux2014_x86_64 \
     --python-version 3.13 \
+    --require-hashes \
     --requirement "${self_dir}/functions/runner-control/requirements.txt" \
     --target "${staging_directory}/runner-control" \
     >/dev/null

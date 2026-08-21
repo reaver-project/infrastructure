@@ -98,6 +98,35 @@ repos:
           - --log-opts=--no-textconv --full-history HEAD --diff-filter=ACMR
         stages: [manual]
 
+  - repo: https://github.com/pypa/pip-audit
+    rev: 8894eb8cee033531a1fbd9f2fb160892531c14e3  # v2.10.1
+    hooks:
+      - id: pip-audit
+        name: Audit Lambda Python dependencies
+        args:
+          - --requirement
+          - projects/reaveros/aws/functions/runner-control/requirements.txt
+          - --require-hashes
+          - --progress-spinner
+          - 'off'
+        files: ^projects/reaveros/aws/functions/runner-control/requirements\.(in|txt)$
+        pass_filenames: false
+
+  - repo: https://github.com/astral-sh/uv-pre-commit
+    rev: 5900cba2cfe6d20f562458d4d308ac55569f92eb  # 0.12.0
+    hooks:
+      - id: pip-compile
+        name: Compile Lambda Python dependency lock
+        args:
+          - --generate-hashes
+          - '--only-binary=:all:'
+          - --python-platform=x86_64-manylinux_2_34
+          - --python-version=3.13
+          - --output-file=projects/reaveros/aws/functions/runner-control/requirements.txt
+          - projects/reaveros/aws/functions/runner-control/requirements.in
+        files: ^projects/reaveros/aws/functions/runner-control/requirements\.(in|txt)$
+        pass_filenames: false
+
   - repo: local
     hooks:
       - id: infrastructure-tests
