@@ -75,7 +75,7 @@ def github_request(path, token, method="GET", body=None):
             "Accept": "application/vnd.github+json",
             "Authorization": f"Bearer {token}",
             "User-Agent": "reaver-project-runner-controller",
-            "X-GitHub-Api-Version": "2022-11-28",
+            "X-GitHub-Api-Version": "2026-03-10",
         },
     )
     try:
@@ -124,12 +124,18 @@ def runner_instances(instance_ids=None):
     }
     if instance_ids is not None:
         arguments["InstanceIds"] = instance_ids
-    response = ec2.describe_instances(**arguments)
-    return [
-        instance
-        for reservation in response["Reservations"]
-        for instance in reservation["Instances"]
-    ]
+    instances = []
+    while True:
+        response = ec2.describe_instances(**arguments)
+        instances.extend(
+            instance
+            for reservation in response["Reservations"]
+            for instance in reservation["Instances"]
+        )
+        next_token = response.get("NextToken")
+        if next_token is None:
+            return instances
+        arguments["NextToken"] = next_token
 
 
 def launch(event):
@@ -207,7 +213,8 @@ def launch(event):
                 os.environ["RUNNER_INSTANCE_NAME"],
             ),
         )
-    except (BotoCoreError, ClientError, KeyError):
+        instance_id = response["Instances"][0]["InstanceId"]
+    except (BotoCoreError, ClientError, IndexError, KeyError):
         try:
             cleanup_registration(
                 identity["jit_parameter"],
@@ -217,7 +224,7 @@ def launch(event):
             print(f"Runner launch rollback was incomplete: {cleanup_error}")
         raise
     return {
-        "instance_id": response["Instances"][0]["InstanceId"],
+        "instance_id": instance_id,
         "labels": ["self-hosted", "reaveros-aws", identity["runner_name"]],
         "runner_name": identity["runner_name"],
     }

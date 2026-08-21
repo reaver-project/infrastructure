@@ -135,6 +135,14 @@ repos:
 
   - repo: local
     hooks:
+      - id: runner-control-coverage
+        name: Test runner controller with branch coverage
+        entry: projects/reaveros/aws/functions/runner-control/test-coverage
+        language: python
+        additional_dependencies:
+          - coverage==7.15.4
+        files: ^projects/reaveros/aws/functions/runner-control/.*\.py$
+        pass_filenames: false
       - id: infrastructure-tests
         name: Run infrastructure tests
         entry: ./test
