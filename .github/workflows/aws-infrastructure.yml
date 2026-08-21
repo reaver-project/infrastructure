@@ -1,0 +1,81 @@
+name: Plan AWS infrastructure
+
+on:
+    push:
+        branches:
+          - main
+        paths:
+          - .github/workflows/aws-infrastructure.yml
+          - .github/workflows/aws-infrastructure-deploy.yml
+          - aws/**
+          - projects/reaveros/aws/**
+    workflow_dispatch:
+
+permissions:
+    contents: read
+
+concurrency:
+    group: reaveros-aws-infrastructure
+    cancel-in-progress: false
+
+jobs:
+    validate:
+        name: Validate before planning
+        uses: ./.github/workflows/validate.yml
+
+    plan:
+        name: Create a ReaverOS AWS change set
+        needs: validate
+        runs-on: ubuntu-latest
+        timeout-minutes: 20
+        permissions:
+            contents: read
+            id-token: write
+        env:
+            AWS_BUDGET_NOTIFICATION_EMAIL: ${{ vars.AWS_BUDGET_NOTIFICATION_EMAIL }}
+            AWS_CLOUDFORMATION_EXECUTION_ROLE_ARN: ${{ vars.AWS_CLOUDFORMATION_EXECUTION_ROLE_ARN }}
+            AWS_DEPLOYMENT_ARTIFACT_BUCKET: ${{ vars.AWS_DEPLOYMENT_ARTIFACT_BUCKET }}
+            AWS_GITHUB_OIDC_PROVIDER_ARN: ${{ vars.AWS_GITHUB_OIDC_PROVIDER_ARN }}
+            AWS_GITHUB_RUNNER_GROUP_ID: ${{ vars.AWS_GITHUB_RUNNER_GROUP_ID }}
+            AWS_REGION: ${{ vars.AWS_REGION }}
+            AWS_RUNNER_ROLE_PERMISSIONS_BOUNDARY_ARN: ${{ vars.AWS_RUNNER_ROLE_PERMISSIONS_BOUNDARY_ARN }}
+            AWS_RUNNER_STACK_NAME: ${{ vars.AWS_RUNNER_STACK_NAME }}
+
+        steps:
+          - name: Check out infrastructure
+            uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
+            with:
+                persist-credentials: false
+
+          - name: Install Python
+            uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7
+            with:
+                python-version: '3.13'
+
+          - name: Authenticate to AWS for planning
+            uses: aws-actions/configure-aws-credentials@e6de054238d6b7531b4efff3b6587d9aade6a06c # v6.2.3
+            with:
+                aws-region: ${{ env.AWS_REGION }}
+                role-to-assume: ${{ vars.AWS_INFRASTRUCTURE_PLAN_ROLE_ARN }}
+                role-session-name: infrastructure-plan-${{ github.run_id }}
+
+          - name: Package Lambda functions
+            run: projects/reaveros/aws/package-functions build/reaveros-lambda
+
+          - name: Create the reviewed change set
+            id: plan
+            run: |
+                projects/reaveros/aws/plan-infrastructure \
+                    projects/reaveros/aws/runner-stack.yaml \
+                    "${AWS_RUNNER_STACK_NAME}-${GITHUB_RUN_ID}-${GITHUB_RUN_ATTEMPT}"
+
+          - name: Explain how to apply the plan
+            if: steps.plan.outputs.has_changes == 'true'
+            env:
+                PLAN_KEY: ${{ steps.plan.outputs.plan_key }}
+            run: |
+                {
+                    printf '\n### Approval\n\n'
+                    printf 'After reviewing the private change set in AWS, manually run '
+                    printf '`Deploy AWS infrastructure` with lookup key `%s`.\n' "${PLAN_KEY}"
+                } >> "${GITHUB_STEP_SUMMARY}"

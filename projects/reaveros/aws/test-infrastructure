@@ -10,6 +10,37 @@ mock_aws()
         printf '\n'
     } >> "${AWS_TEST_LOG}"
 
+    if [[ $1 == s3api ]]
+    then
+        if [[ $2 != put-object ]]
+        then
+            printf 'Unexpected AWS S3 API command: %s\n' "$2" >&2
+            exit 2
+        fi
+        if [[ ${AWS_TEST_CASE} == plan-storage-conflict ]]
+        then
+            exit 254
+        fi
+        body=
+        previous=
+        for argument in "$@"
+        do
+            if [[ ${previous} == --body ]]
+            then
+                body=${argument}
+                break
+            fi
+            previous=${argument}
+        done
+        if [[ -z ${body} ]]
+        then
+            printf 'Mock put-object call omitted --body.\n' >&2
+            exit 2
+        fi
+        cp "${body}" "${AWS_TEST_PLAN_RECORD}"
+        return
+    fi
+
     if [[ $1 != cloudformation ]]
     then
         printf 'Unexpected AWS service: %s\n' "$1" >&2
@@ -89,7 +120,7 @@ mock_aws()
                         ChangeSetId: "arn:aws:cloudformation:us-west-2:123456789012:changeSet/reaveros-github-runners-101-1/id",
                         ChangeSetName: "reaveros-github-runners-101-1",
                         ChangeSetType: "UPDATE",
-                        Description: "GitHub infrastructure revision 0123456789abcdef; run 101; attempt 1",
+                        Description: "GitHub infrastructure revision 0123456789abcdef0123456789abcdef01234567; run 101; attempt 1",
                         ExecutionStatus: "AVAILABLE",
                         StackName: "another-stack",
                         Status: "CREATE_COMPLETE"
@@ -111,7 +142,7 @@ mock_aws()
                             ChangeSetName: ($stack_name + "-101-1"),
                             ChangeSetType: $change_set_type,
                             OnStackFailure: (if $change_set_type == "CREATE" then "DELETE" else null end),
-                            Description: "GitHub infrastructure revision 0123456789abcdef; run 101; attempt 1",
+                            Description: "GitHub infrastructure revision 0123456789abcdef0123456789abcdef01234567; run 101; attempt 1",
                             ExecutionStatus: "AVAILABLE",
                             StackName: $stack_name,
                             Status: "CREATE_COMPLETE",
@@ -204,7 +235,8 @@ export AWS_RUNNER_ROLE_PERMISSIONS_BOUNDARY_ARN=arn:aws:iam::123456789012:policy
 export AWS_RUNNER_STACK_NAME=reaveros-github-runners
 export GITHUB_RUN_ATTEMPT=1
 export GITHUB_RUN_ID=101
-export GITHUB_SHA=0123456789abcdef
+export GITHUB_REPOSITORY=reaver-project/infrastructure
+export GITHUB_SHA=0123456789abcdef0123456789abcdef01234567
 template=${test_directory}/template.yaml
 printf 'Resources: {}\n' > "${template}"
 
@@ -214,6 +246,7 @@ reset_case()
     export AWS_TEST_LOG="${test_directory}/$1.log"
     export GITHUB_OUTPUT="${test_directory}/$1.output"
     export GITHUB_STEP_SUMMARY="${test_directory}/$1.summary"
+    export AWS_TEST_PLAN_RECORD="${test_directory}/$1.plan.json"
     : > "${AWS_TEST_LOG}"
     : > "${GITHUB_OUTPUT}"
     : > "${GITHUB_STEP_SUMMARY}"
@@ -239,12 +272,24 @@ assert_output()
     fi
 }
 
+assert_output_absent()
+{
+    if grep --fixed-strings --quiet "$1" "${GITHUB_OUTPUT}"
+    then
+        printf 'Expected GitHub output not to contain: %s\n' "$1" >&2
+        cat "${GITHUB_OUTPUT}" >&2
+        exit 1
+    fi
+}
+
 reset_case plan-update
 "${self_dir}/plan-infrastructure" \
     "${template}" \
     reaveros-github-runners-101-1
 assert_output has_changes=true
-assert_output change_set_type=UPDATE
+assert_output plan_key=plans/3de70c5a97f405e494ad4c294a439fb5eff5ba2a024c853ad2613dbf3a96d7b5.json
+assert_output_absent change_set_arn=
+assert_output_absent change_set_type=
 assert_log_contains $'\t--change-set-type\tUPDATE'
 assert_log_contains $'\tpackage\t--region\tus-west-2'
 assert_log_contains $'\t--s3-bucket\treaver-project-deployment-artifacts'
@@ -252,14 +297,26 @@ assert_log_contains $'\tParameterKey=BudgetNotificationEmail,ParameterValue=ci-b
 assert_log_contains $'\tParameterKey=GitHubRunnerGroupId,ParameterValue=7'
 assert_log_contains $'\tParameterKey=RunnerMediumInstanceType,UsePreviousValue=true'
 assert_log_contains $'\t--role-arn\tarn:aws:iam::123456789012:role/reaveros-cloudformation'
-assert_log_contains $'\t--description\tGitHub infrastructure revision 0123456789abcdef; run 101; attempt 1'
+assert_log_contains $'\t--description\tGitHub infrastructure revision 0123456789abcdef0123456789abcdef01234567; run 101; attempt 1'
+assert_log_contains $'s3api\tput-object\t--region\tus-west-2\t--bucket\treaver-project-deployment-artifacts'
+assert_log_contains $'\t--key\tplans/3de70c5a97f405e494ad4c294a439fb5eff5ba2a024c853ad2613dbf3a96d7b5.json'
+assert_log_contains $'\t--if-none-match\t*'
+jq --exit-status \
+    '.schema_version == 1
+        and .infrastructure_contract_version == 1
+        and .repository == "reaver-project/infrastructure"
+        and .source_revision == "0123456789abcdef0123456789abcdef01234567"
+        and .run_id == "101"
+        and .run_attempt == "1"
+        and .stack_name == "reaveros-github-runners"
+        and (.change_set_arn | startswith("arn:aws:cloudformation:"))' \
+    "${AWS_TEST_PLAN_RECORD}" >/dev/null
 
 reset_case plan-create
 "${self_dir}/plan-infrastructure" \
     "${template}" \
     reaveros-github-runners-101-1
 assert_output has_changes=true
-assert_output change_set_type=CREATE
 assert_log_contains $'\t--change-set-type\tCREATE'
 assert_log_contains $'\t--on-stack-failure\tDELETE'
 
@@ -268,7 +325,6 @@ reset_case plan-review
     "${template}" \
     reaveros-github-runners-101-1
 assert_output has_changes=true
-assert_output change_set_type=CREATE
 assert_log_contains $'\t--change-set-type\tCREATE'
 
 reset_case plan-no-changes
@@ -276,6 +332,23 @@ reset_case plan-no-changes
     "${template}" \
     reaveros-github-runners-101-1
 assert_output has_changes=false
+assert_log_contains $'\tdelete-change-set\t'
+if grep --fixed-strings --quiet $'s3api\tput-object\t' "${AWS_TEST_LOG}"
+then
+    printf 'A no-op change set was incorrectly preserved.\n' >&2
+    exit 1
+fi
+
+reset_case plan-storage-conflict
+if "${self_dir}/plan-infrastructure" \
+    "${template}" \
+    reaveros-github-runners-101-1 >/dev/null 2>&1
+then
+    printf 'An existing private plan was incorrectly overwritten.\n' >&2
+    exit 1
+fi
+assert_log_contains $'s3api\tput-object\t'
+assert_log_contains $'\t--if-none-match\t*'
 assert_log_contains $'\tdelete-change-set\t'
 
 reset_case plan-denied
@@ -318,7 +391,7 @@ then
 fi
 
 reset_case deploy-wrong-revision
-export GITHUB_SHA=fedcba9876543210
+export GITHUB_SHA=fedcba9876543210fedcba9876543210fedcba98
 if "${self_dir}/deploy-infrastructure" \
     arn:aws:cloudformation:us-west-2:123456789012:changeSet/reaveros-github-runners-101-1/id \
     >/dev/null 2>&1

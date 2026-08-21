@@ -10,6 +10,7 @@ fi
 
 template=$1
 change_set_name=$2
+self_dir=$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)
 
 required_environment=(
     AWS_REGION
@@ -20,6 +21,10 @@ required_environment=(
     AWS_GITHUB_RUNNER_GROUP_ID
     AWS_RUNNER_ROLE_PERMISSIONS_BOUNDARY_ARN
     AWS_RUNNER_STACK_NAME
+    GITHUB_REPOSITORY
+    GITHUB_RUN_ATTEMPT
+    GITHUB_RUN_ID
+    GITHUB_SHA
 )
 
 for environment_variable in "${required_environment[@]}"
@@ -46,9 +51,10 @@ fi
 
 describe_error=$(mktemp)
 packaged_template=$(mktemp --suffix=.yaml)
+plan_record=$(mktemp --suffix=.json)
 cleanup()
 {
-    rm -f "${describe_error}" "${packaged_template}"
+    rm -f "${describe_error}" "${packaged_template}" "${plan_record}"
 }
 trap cleanup EXIT
 
@@ -151,7 +157,7 @@ then
         exit 0
     fi
 
-    jq . <<<"${change_set}" >&2
+    printf 'CloudFormation could not create the change set; inspect it in AWS.\n' >&2
     exit 1
 fi
 
@@ -161,19 +167,59 @@ change_set=$(aws cloudformation describe-change-set \
     --change-set-name "${change_set_name}" \
     --output json)
 change_set_arn=$(jq --exit-status --raw-output '.ChangeSetId' <<<"${change_set}")
+contract_version=$(<"${self_dir}/../infrastructure-contract-version")
+plan_key=$("${self_dir}/plan-key" \
+    "${GITHUB_REPOSITORY}" \
+    "${GITHUB_SHA}" \
+    "${GITHUB_RUN_ID}" \
+    "${GITHUB_RUN_ATTEMPT}" \
+    "${AWS_RUNNER_STACK_NAME}")
+
+jq --null-input \
+    --arg change_set_arn "${change_set_arn}" \
+    --argjson contract_version "${contract_version}" \
+    --arg repository "${GITHUB_REPOSITORY}" \
+    --arg run_attempt "${GITHUB_RUN_ATTEMPT}" \
+    --arg run_id "${GITHUB_RUN_ID}" \
+    --arg source_revision "${GITHUB_SHA}" \
+    --arg stack_name "${AWS_RUNNER_STACK_NAME}" \
+    '{
+        schema_version: 1,
+        infrastructure_contract_version: $contract_version,
+        change_set_arn: $change_set_arn,
+        repository: $repository,
+        run_attempt: $run_attempt,
+        run_id: $run_id,
+        source_revision: $source_revision,
+        stack_name: $stack_name
+    }' > "${plan_record}"
+
+if ! aws s3api put-object \
+    --region "${AWS_REGION}" \
+    --bucket "${AWS_DEPLOYMENT_ARTIFACT_BUCKET}" \
+    --key "${plan_key}" \
+    --body "${plan_record}" \
+    --content-type application/json \
+    --if-none-match '*' \
+    >/dev/null 2>&1
+then
+    aws cloudformation delete-change-set \
+        --region "${AWS_REGION}" \
+        --stack-name "${AWS_RUNNER_STACK_NAME}" \
+        --change-set-name "${change_set_name}" \
+        >/dev/null 2>&1 \
+        || true
+    printf 'Could not preserve the private deployment plan.\n' >&2
+    exit 1
+fi
 
 {
-    printf 'change_set_arn=%s\n' "${change_set_arn}"
-    printf 'change_set_type=%s\n' "${change_set_type}"
     printf 'has_changes=true\n'
+    printf 'plan_key=%s\n' "${plan_key}"
 } >> "${GITHUB_OUTPUT}"
 
 {
     printf '### AWS infrastructure change set\n\n'
-    printf -- '- Stack: `%s`\n' "${AWS_RUNNER_STACK_NAME}"
-    printf -- '- Type: `%s`\n\n' "${change_set_type}"
-    jq --raw-output '
-        .Changes[].ResourceChange
-        | "- `\(.Action)` `\(.LogicalResourceId)` (`\(.ResourceType)`), replacement: `\(.Replacement // "n/a")`"
-    ' <<<"${change_set}"
+    printf 'A private change set is ready for owner review in AWS.\n\n'
+    printf -- '- Lookup key: `%s`\n' "${plan_key}"
 } >> "${GITHUB_STEP_SUMMARY}"
