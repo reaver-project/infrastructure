@@ -1,11 +1,13 @@
 # GitHub Apps
 
-The repository uses two private organization-owned GitHub Apps:
+The repository uses three private organization-owned GitHub Apps:
 
 - the runner manager has only organization self-hosted-runner permission and
   is installed into the central AWS runner controller; and
 - the infrastructure manager has the organization and repository permissions
-  required to converge settings from this repository.
+  required to converge settings from this repository; and
+- the maintenance manager has only the repository permissions required to
+  publish maintenance branches and manage their pull requests.
 
 The manifests are the reviewable source of truth for initial registration.
 GitHub App creation itself is an interactive manifest handshake and cannot be
@@ -24,6 +26,8 @@ only an encrypted credential bundle into it:
 credential_directory=$(mktemp -d /dev/shm/reaver-project-apps.XXXXXX)
 github/apps/create github/apps/infrastructure/manifest.json \
     --output "${credential_directory}/infrastructure-app.json.gpg"
+github/apps/create github/apps/maintenance/manifest.json \
+    --output "${credential_directory}/maintenance-app.json.gpg"
 github/apps/create github/apps/runner/manifest.json \
     --output "${credential_directory}/runner-app.json.gpg"
 ```
@@ -53,6 +57,26 @@ Subsequent organization and repository convergence uses the App, not the
 owner's token. Creating the App and placing its first key remain bootstrap
 operations because an App cannot create or initially credential itself.
 
+Run the GitHub configuration workflow once to create the main-branch-only
+`maintenance` environment in ReaverOS. Install the maintenance App into the
+organization with access only to repositories that run trusted maintenance
+workflows; initially this is `reaver-project/reaveros`. Then place its narrow
+credential in each repository's maintenance environment:
+
+```console
+gpg --quiet --no-symkey-cache \
+    --decrypt "${credential_directory}/maintenance-app.json.gpg" \
+    | github/apps/configure-maintenance-app \
+        --credentials - \
+        --repository reaver-project/reaveros
+```
+
+Repository selection is installation policy rather than a separate App design.
+Adding another maintained repository requires adding its protected environment,
+granting it access in the existing App installation, and running the same
+configurator with a different `--repository`; it does not require another App
+or helper. The maintenance App is not a branch-protection bypass actor.
+
 After installing the runner App, create or converge its organization runner
 group and record the returned IDs:
 
@@ -80,13 +104,16 @@ gpg --quiet --no-symkey-cache \
         --installation-id RUNNER_APP_INSTALLATION_ID
 ```
 
-Project workflows never receive these credentials. After both destination
-stores have been verified, remove the encrypted bundles and their temporary
-directory; no App key was written to persistent storage:
+Application repository workflows never receive the Runner or Infrastructure
+App credentials. Only a trusted default-branch maintenance job receives the
+repository-scoped maintenance credential. After all destination stores have
+been verified, remove the encrypted bundles and their temporary directory; no
+App key was written to persistent storage:
 
 ```console
 rm -- \
     "${credential_directory}/infrastructure-app.json.gpg" \
+    "${credential_directory}/maintenance-app.json.gpg" \
     "${credential_directory}/runner-app.json.gpg"
 rmdir -- "${credential_directory}"
 ```

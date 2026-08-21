@@ -27,7 +27,7 @@ workflows whose credentials it creates.
 
    Apply the same revision only after reviewing that plan, replacing `plan`
    with `apply`. This enrolls the Deployments OU before any CI trust exists.
-2. Create and install the Infrastructure and Runner Apps using
+2. Create and install the Infrastructure, Maintenance, and Runner Apps using
    `github/apps/README.md`.
 3. Use the owner token once to run `github/configure-repository` with
    `github/repositories/infrastructure.json`. The configurator establishes the
@@ -35,9 +35,13 @@ workflows whose credentials it creates.
    repository public.
 4. Install the Infrastructure App credential in the `github-production`
    environment with `github/apps/configure-infrastructure-app`.
-5. Configure the Runner App group with `github/apps/configure-runner-group` and
+5. Run the GitHub configuration workflow once. This converges ReaverOS policy
+   and creates its main-branch-only `maintenance` environment.
+6. Install the Maintenance App credential in that environment with
+   `github/apps/configure-maintenance-app`.
+7. Configure the Runner App group with `github/apps/configure-runner-group` and
    retain its numeric group and installation IDs.
-6. Create and inspect the CI deployment-trust change set:
+8. Create and inspect the CI deployment-trust change set:
 
    ```console
    aws/bootstrap/plan \
@@ -45,18 +49,18 @@ workflows whose credentials it creates.
        --expected-account-id <ci-account-id>
    ```
 
-7. Run `aws/bootstrap/apply` with the same profile, account ID, and exact
+9. Run `aws/bootstrap/apply` with the same profile, account ID, and exact
    repository revision. It rejects a missing, altered, or stale change set and
    enables termination protection after the stack completes.
-8. Run `aws/bootstrap/publish-github` with the same profile and account ID,
+10. Run `aws/bootstrap/publish-github` with the same profile and account ID,
    together with the budget email and runner group ID. This is a separate
    GitHub mutation and does not modify AWS.
-9. Let the main-branch AWS planning workflow create a private change set and
+11. Let the main-branch AWS planning workflow create a private change set and
    metadata record in AWS. Inspect it in AWS, then manually dispatch the
    deployment workflow with the opaque lookup key and approve the environment.
-10. Stream the Runner App credential bundle into
+12. Stream the Runner App credential bundle into
    `projects/reaveros/aws/configure-runner-app` after the runner stack exists.
-11. Run the GitHub configuration workflow to converge organization and
+13. Run the GitHub configuration workflow to converge organization and
    repository policy through the Infrastructure App.
 
 The bootstrap stack has termination protection. App keys must never be written
