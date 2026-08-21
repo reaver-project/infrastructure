@@ -23,7 +23,9 @@
         "github_owned_allowed": true,
         "patterns_allowed": [
             "aws-actions/configure-aws-credentials@*",
-            "astral-sh/setup-uv@*"
+            "astral-sh/setup-uv@*",
+            "ossf/scorecard-action@*",
+            "zizmorcore/zizmor-action@*"
         ],
         "sha_pinning_required": true,
         "verified_allowed": false

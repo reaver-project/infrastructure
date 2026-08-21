@@ -18,6 +18,8 @@
         "patterns_allowed": [
             "aws-actions/configure-aws-credentials@*",
             "astral-sh/setup-uv@*",
+            "ossf/scorecard-action@*",
+            "zizmorcore/zizmor-action@*",
             "reaver-project/infrastructure/actions/*@*"
         ],
         "sha_pinning_required": true,

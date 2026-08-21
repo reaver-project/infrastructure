@@ -27,6 +27,20 @@ all_workflows = "\n".join(
     for workflow in sorted((root / ".github" / "workflows").glob("*.yml"))
 )
 
+security_workflow = (
+    root / ".github" / "workflows" / "security-analysis.yml"
+).read_text(encoding="utf-8")
+if "publish_results: true" in security_workflow:
+    infrastructure_profile = json.loads(
+        (root / "github" / "repositories" / "infrastructure.json").read_text(
+            encoding="utf-8"
+        )
+    )["profile"]
+    if infrastructure_profile["visibility"] != "public":
+        sys.exit("OpenSSF Scorecard results may be published only for a public repository.")
+if "actions/upload-artifact@" in security_workflow:
+    sys.exit("Security findings belong in code scanning, not public workflow artifacts.")
+
 validate_workflow = (
     root / ".github" / "workflows" / "validate.yml"
 ).read_text(encoding="utf-8")
