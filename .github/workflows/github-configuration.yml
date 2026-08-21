@@ -1,0 +1,54 @@
+name: Deploy GitHub configuration
+
+on:
+    workflow_dispatch:
+
+permissions:
+    contents: read
+
+concurrency:
+    group: github-configuration
+    cancel-in-progress: false
+
+jobs:
+    validate:
+        name: Revalidate before deployment
+        uses: ./.github/workflows/validate.yml
+
+    deploy:
+        name: Converge organization and repository settings
+        needs: validate
+        runs-on: ubuntu-latest
+        timeout-minutes: 15
+        environment: github-production
+
+        steps:
+          - name: Check out infrastructure
+            uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
+            with:
+                persist-credentials: false
+
+          - name: Create an infrastructure App token
+            id: app
+            uses: actions/create-github-app-token@bcd2ba49218906704ab6c1aa796996da409d3eb1 # v3.2.0
+            with:
+                app-id: ${{ vars.INFRASTRUCTURE_APP_ID }}
+                private-key: ${{ secrets.INFRASTRUCTURE_APP_PRIVATE_KEY }}
+                owner: reaver-project
+                repositories: infrastructure,reaveros
+                permission-administration: write
+                permission-environments: write
+                permission-members: read
+                permission-organization-administration: write
+
+          - name: Converge organization policy
+            env:
+                GH_TOKEN: ${{ steps.app.outputs.token }}
+            run: github/configure-organization github/organizations/reaver-project.json
+
+          - name: Converge repository policy
+            env:
+                GH_TOKEN: ${{ steps.app.outputs.token }}
+            run: |
+                github/configure-repository github/repositories/infrastructure.json
+                github/configure-repository github/repositories/reaveros.json

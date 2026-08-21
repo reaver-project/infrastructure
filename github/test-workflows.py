@@ -40,4 +40,13 @@ deploy_workflow = (
 if "plan_run_id" in deploy_workflow or "plan_key" not in deploy_workflow:
     sys.exit("The deployment workflow does not consume the opaque plan key.")
 
+for workflow_name in [
+    "aws-infrastructure-deploy.yml",
+    "aws-infrastructure.yml",
+    "github-configuration.yml",
+]:
+    workflow = (root / ".github" / "workflows" / workflow_name).read_text(encoding="utf-8")
+    if "concurrency:" not in workflow or "cancel-in-progress: false" not in workflow:
+        sys.exit(f"{workflow_name}: mutating workflow is not serialized")
+
 print("GitHub Actions workflow tests passed.")
