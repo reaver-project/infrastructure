@@ -83,6 +83,12 @@ repos:
         args:
           - --schemafile
           - https://coderabbit.ai/integrations/schema.v2.json
+      - id: check-jsonschema
+        name: Validate Renovate configuration
+        files: ^renovate\.json$
+        args:
+          - --schemafile
+          - https://docs.renovatebot.com/renovate-schema.json
 
   - repo: https://github.com/gitleaks/gitleaks
     rev: 83d9cd684c87d95d656c1458ef04895a7f1cbd8e  # v8.30.1

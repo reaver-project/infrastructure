@@ -1,0 +1,75 @@
+{
+    "$schema": "https://docs.renovatebot.com/renovate-schema.json",
+    "extends": [
+        "config:recommended"
+    ],
+    "mode": "full",
+    "timezone": "America/Los_Angeles",
+    "schedule": [
+        "* 0-5 * * 1"
+    ],
+    "updateNotScheduled": false,
+    "dependencyDashboard": true,
+    "dependencyDashboardOSVVulnerabilitySummary": "all",
+    "osvVulnerabilityAlerts": true,
+    "automerge": false,
+    "commitHourlyLimit": 2,
+    "prConcurrentLimit": 5,
+    "minimumReleaseAge": "7 days",
+    "minimumReleaseAgeBehaviour": "timestamp-optional",
+    "internalChecksFilter": "strict",
+    "prCreation": "not-pending",
+    "separateMajorMinor": true,
+    "pre-commit": {
+        "enabled": true
+    },
+    "pip-compile": {
+        "managerFilePatterns": [
+            "/^projects/reaveros/aws/functions/runner-control/requirements\\.txt$/"
+        ]
+    },
+    "pip_requirements": {
+        "enabled": false
+    },
+    "customManagers": [
+        {
+            "customType": "regex",
+            "managerFilePatterns": [
+                "/^\\.pre-commit-config\\.yaml$/",
+                "/^\\.github/workflows/validate\\.yml$/"
+            ],
+            "matchStrings": [
+                "minimum_pre_commit_version:\\s*(?<currentValue>\\d+\\.\\d+\\.\\d+)",
+                "pre-commit==(?<currentValue>\\d+\\.\\d+\\.\\d+)"
+            ],
+            "depNameTemplate": "pre-commit",
+            "datasourceTemplate": "pypi"
+        }
+    ],
+    "packageRules": [
+        {
+            "description": "Group routine GitHub Actions updates",
+            "matchManagers": [
+                "github-actions"
+            ],
+            "matchUpdateTypes": [
+                "digest",
+                "minor",
+                "patch"
+            ],
+            "groupName": "GitHub Actions"
+        },
+        {
+            "description": "Group routine pre-commit hook updates",
+            "matchManagers": [
+                "pre-commit"
+            ],
+            "matchUpdateTypes": [
+                "digest",
+                "minor",
+                "patch"
+            ],
+            "groupName": "pre-commit hooks"
+        }
+    ]
+}
