@@ -32,6 +32,9 @@
     "pip_requirements": {
         "enabled": false
     },
+    "homeassistant-manifest": {
+        "enabled": false
+    },
     "customManagers": [
         {
             "customType": "regex",

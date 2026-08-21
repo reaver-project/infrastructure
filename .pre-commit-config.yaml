@@ -7,6 +7,7 @@ repos:
     hooks:
       - id: check-added-large-files
       - id: check-json
+      - id: check-toml
       - id: pretty-format-json
         args: [--autofix, --indent=4, --no-sort-keys]
       - id: check-yaml
@@ -137,10 +138,6 @@ repos:
         name: Compile Lambda Python dependency lock
         alias: lambda-dependency-lock
         args:
-          - --generate-hashes
-          - '--only-binary=:all:'
-          - --python-platform=x86_64-manylinux_2_34
-          - --python-version=3.13
           - --output-file=projects/reaveros/aws/functions/runner-control/requirements.txt
           - projects/reaveros/aws/functions/runner-control/requirements.in
         files: ^projects/reaveros/aws/functions/runner-control/requirements\.(in|txt)$
@@ -149,10 +146,6 @@ repos:
         name: Compile IAM policy validator dependency lock
         alias: policy-validation-dependency-lock
         args:
-          - --generate-hashes
-          - '--only-binary=:all:'
-          - --python-platform=x86_64-manylinux_2_34
-          - --python-version=3.13
           - --output-file=aws/policy-validation-requirements.txt
           - aws/policy-validation-requirements.in
         files: ^aws/policy-validation-requirements\.(in|txt)$

@@ -1,0 +1,5 @@
+[pip]
+generate-hashes = true
+only-binary = [":all:"]
+python-platform = "x86_64-manylinux_2_34"
+python-version = "3.13"
