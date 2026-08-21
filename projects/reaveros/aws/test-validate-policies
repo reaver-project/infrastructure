@@ -1,0 +1,70 @@
+#!/usr/bin/env bash
+
+set -euo pipefail
+
+if [[ $(basename -- "$0") == cfn-policy-validator ]]
+then
+    {
+        printf 'cfn-policy-validator'
+        printf '\t%s' "$@"
+        printf '\n'
+    } >> "${POLICY_VALIDATOR_TEST_LOG}"
+    exit
+fi
+
+self_dir=$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)
+test_directory=$(mktemp -d)
+mkdir "${test_directory}/bin"
+ln -s "${self_dir}/test-validate-policies" \
+    "${test_directory}/bin/cfn-policy-validator"
+export PATH="${test_directory}/bin:${PATH}"
+export POLICY_VALIDATOR_TEST_LOG="${test_directory}/calls"
+: > "${POLICY_VALIDATOR_TEST_LOG}"
+
+cleanup()
+{
+    rm -rf "${test_directory}"
+}
+trap cleanup EXIT
+
+export AWS_BUDGET_NOTIFICATION_EMAIL=ci-billing@example.com
+export AWS_GITHUB_OIDC_PROVIDER_ARN=arn:aws:iam::123456789012:oidc-provider/token.actions.githubusercontent.com
+export AWS_GITHUB_RUNNER_GROUP_ID=7
+export AWS_REGION=us-west-2
+export AWS_RUNNER_ROLE_PERMISSIONS_BOUNDARY_ARN=arn:aws:iam::123456789012:policy/reaveros-boundary
+template=${test_directory}/template.yaml
+printf 'Resources: {}\n' > "${template}"
+
+"${self_dir}/validate-policies" "${template}"
+
+expected_log=${test_directory}/expected
+{
+    printf 'cfn-policy-validator'
+    printf '\t%s' \
+        validate \
+        --template-path \
+        "${template}" \
+        --region \
+        us-west-2 \
+        --parameters \
+        BudgetNotificationEmail=ci-billing@example.com \
+        GitHubOidcProviderArn=arn:aws:iam::123456789012:oidc-provider/token.actions.githubusercontent.com \
+        GitHubRunnerGroupId=7 \
+        RunnerRolePermissionsBoundaryArn=arn:aws:iam::123456789012:policy/reaveros-boundary
+    printf '\n'
+} > "${expected_log}"
+if ! cmp --silent "${expected_log}" "${POLICY_VALIDATOR_TEST_LOG}"
+then
+    printf 'Unexpected policy validator invocation:\n' >&2
+    cat "${POLICY_VALIDATOR_TEST_LOG}" >&2
+    exit 1
+fi
+
+unset AWS_REGION
+if "${self_dir}/validate-policies" "${template}" 2>/dev/null
+then
+    printf 'Policy validation accepted a missing AWS region.\n' >&2
+    exit 1
+fi
+
+printf 'IAM policy validator tests passed.\n'

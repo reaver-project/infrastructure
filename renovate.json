@@ -25,7 +25,8 @@
     },
     "pip-compile": {
         "managerFilePatterns": [
-            "/^projects/reaveros/aws/functions/runner-control/requirements\\.txt$/"
+            "/^projects/reaveros/aws/functions/runner-control/requirements\\.txt$/",
+            "/^aws/policy-validation-requirements\\.txt$/"
         ]
     },
     "pip_requirements": {

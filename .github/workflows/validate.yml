@@ -64,10 +64,14 @@ jobs:
             uses: ./.github/actions/setup-validation
 
           - name: Verify the compiled dependency lock
-            run: pre-commit run pip-compile --all-files
+            run: |
+                pre-commit run lambda-dependency-lock --all-files
+                pre-commit run policy-validation-dependency-lock --all-files
 
-          - name: Audit Lambda dependencies
-            run: pre-commit run pip-audit --all-files
+          - name: Audit Python dependencies
+            run: |
+                pre-commit run lambda-dependency-audit --all-files
+                pre-commit run policy-validation-dependency-audit --all-files
 
           - name: Scan the worktree for secrets
             run: pre-commit run gitleaks --all-files

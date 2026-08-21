@@ -52,12 +52,21 @@ jobs:
             with:
                 python-version: '3.13'
 
+          - name: Install the IAM policy validator
+            run: |
+                python3 -m pip install \
+                    --require-hashes \
+                    --requirement aws/policy-validation-requirements.txt
+
           - name: Authenticate to AWS for planning
             uses: aws-actions/configure-aws-credentials@e6de054238d6b7531b4efff3b6587d9aade6a06c # v6.2.3
             with:
                 aws-region: ${{ env.AWS_REGION }}
                 role-to-assume: ${{ vars.AWS_INFRASTRUCTURE_PLAN_ROLE_ARN }}
                 role-session-name: infrastructure-plan-${{ github.run_id }}
+
+          - name: Validate IAM policies with Access Analyzer
+            run: projects/reaveros/aws/validate-policies projects/reaveros/aws/runner-stack.yaml
 
           - name: Package Lambda functions
             run: projects/reaveros/aws/package-functions build/reaveros-lambda

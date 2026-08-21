@@ -58,6 +58,20 @@ plan_workflow = (root / ".github" / "workflows" / "aws-infrastructure.yml").read
 if "change_set_arn" in plan_workflow or "change_set_type" in plan_workflow:
     sys.exit("The public planning workflow exposes private change-set metadata.")
 
+validator_install = plan_workflow.find("Install the IAM policy validator")
+aws_authentication = plan_workflow.find("Authenticate to AWS for planning")
+policy_validation = plan_workflow.find("Validate IAM policies with Access Analyzer")
+infrastructure_plan = plan_workflow.find("Create the reviewed change set")
+if not (
+    -1 < validator_install < aws_authentication < policy_validation < infrastructure_plan
+):
+    sys.exit(
+        "The AWS planning workflow does not install and run policy validation "
+        "at the credential boundary."
+    )
+if "--require-hashes" not in plan_workflow:
+    sys.exit("The IAM policy validator is not installed from a hash-locked dependency set.")
+
 deploy_workflow = (
     root / ".github" / "workflows" / "aws-infrastructure-deploy.yml"
 ).read_text(encoding="utf-8")

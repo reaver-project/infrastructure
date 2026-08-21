@@ -109,6 +109,7 @@ repos:
     hooks:
       - id: pip-audit
         name: Audit Lambda Python dependencies
+        alias: lambda-dependency-audit
         args:
           - --requirement
           - projects/reaveros/aws/functions/runner-control/requirements.txt
@@ -117,12 +118,24 @@ repos:
           - 'off'
         files: ^projects/reaveros/aws/functions/runner-control/requirements\.(in|txt)$
         pass_filenames: false
+      - id: pip-audit
+        name: Audit IAM policy validator dependencies
+        alias: policy-validation-dependency-audit
+        args:
+          - --requirement
+          - aws/policy-validation-requirements.txt
+          - --require-hashes
+          - --progress-spinner
+          - 'off'
+        files: ^aws/policy-validation-requirements\.(in|txt)$
+        pass_filenames: false
 
   - repo: https://github.com/astral-sh/uv-pre-commit
     rev: 5900cba2cfe6d20f562458d4d308ac55569f92eb  # 0.12.0
     hooks:
       - id: pip-compile
         name: Compile Lambda Python dependency lock
+        alias: lambda-dependency-lock
         args:
           - --generate-hashes
           - '--only-binary=:all:'
@@ -131,6 +144,18 @@ repos:
           - --output-file=projects/reaveros/aws/functions/runner-control/requirements.txt
           - projects/reaveros/aws/functions/runner-control/requirements.in
         files: ^projects/reaveros/aws/functions/runner-control/requirements\.(in|txt)$
+        pass_filenames: false
+      - id: pip-compile
+        name: Compile IAM policy validator dependency lock
+        alias: policy-validation-dependency-lock
+        args:
+          - --generate-hashes
+          - '--only-binary=:all:'
+          - --python-platform=x86_64-manylinux_2_34
+          - --python-version=3.13
+          - --output-file=aws/policy-validation-requirements.txt
+          - aws/policy-validation-requirements.in
+        files: ^aws/policy-validation-requirements\.(in|txt)$
         pass_filenames: false
 
   - repo: local
