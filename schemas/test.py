@@ -59,9 +59,22 @@ require_rejection(repository_validator, invalid_repository, "required status che
 manifest_validator = validator("schemas/github-app-manifest.schema.json")
 for manifest_path in (
     "github/apps/infrastructure/manifest.json",
+    "github/apps/maintenance/manifest.json",
     "github/apps/runner/manifest.json",
 ):
     manifest_validator.validate(load(manifest_path))
+
+maintenance_manifest = load("github/apps/maintenance/manifest.json")
+if maintenance_manifest["default_permissions"] != {
+    "checks": "read",
+    "contents": "write",
+    "pull_requests": "write",
+    "statuses": "read",
+}:
+    raise SystemExit("Maintenance App permissions exceed its repository PR workflow.")
+if maintenance_manifest["default_events"]:
+    raise SystemExit("Maintenance App must not subscribe to webhook events.")
+
 invalid_manifest = load("github/apps/runner/manifest.json")
 invalid_manifest["public"] = True
 require_rejection(manifest_validator, invalid_manifest, "public infrastructure App")

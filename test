@@ -39,6 +39,7 @@ bash -n "${shell_scripts[@]}"
 json_files=(
     aws/organization/reaver-project.json
     github/apps/infrastructure/manifest.json
+    github/apps/maintenance/manifest.json
     github/apps/runner/manifest.json
     github/organizations/reaver-project.json
     github/repositories/infrastructure.json
