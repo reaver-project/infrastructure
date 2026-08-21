@@ -74,6 +74,22 @@
                 "patch"
             ],
             "groupName": "pre-commit hooks"
+        },
+        {
+            "description": "Automerge patch updates to validation runtimes after every check passes",
+            "matchPackageNames": [
+                "coverage",
+                "pre-commit"
+            ],
+            "matchUpdateTypes": [
+                "patch"
+            ],
+            "groupName": null,
+            "automerge": true,
+            "automergeType": "pr",
+            "automergeStrategy": "squash",
+            "platformAutomerge": false,
+            "ignoreTests": false
         }
     ]
 }
