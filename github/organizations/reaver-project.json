@@ -17,7 +17,8 @@
         "github_owned_allowed": true,
         "patterns_allowed": [
             "aws-actions/configure-aws-credentials@*",
-            "astral-sh/setup-uv@*"
+            "astral-sh/setup-uv@*",
+            "reaver-project/infrastructure/actions/*@*"
         ],
         "sha_pinning_required": true,
         "verified_allowed": false

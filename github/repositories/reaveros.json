@@ -17,7 +17,8 @@
         "enabled": true,
         "github_owned_allowed": true,
         "patterns_allowed": [
-            "aws-actions/configure-aws-credentials@*"
+            "aws-actions/configure-aws-credentials@*",
+            "reaver-project/infrastructure/actions/*@*"
         ],
         "sha_pinning_required": true,
         "verified_allowed": false
