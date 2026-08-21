@@ -1,0 +1,430 @@
+{
+    "$schema": "https://json-schema.org/draft/2020-12/schema",
+    "$id": "https://reaver-project.org/schemas/github-repository.schema.json",
+    "title": "Reaver Project GitHub repository desired state",
+    "type": "object",
+    "additionalProperties": false,
+    "required": [
+        "repository",
+        "default_branch",
+        "profile",
+        "fork_pull_request_approval",
+        "actions",
+        "oidc_subject_claims",
+        "rulesets",
+        "environments"
+    ],
+    "properties": {
+        "repository": {
+            "type": "string",
+            "pattern": "^[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+$"
+        },
+        "default_branch": {
+            "$ref": "#/$defs/name"
+        },
+        "environment_reviewer": {
+            "oneOf": [
+                {
+                    "type": "object",
+                    "additionalProperties": false,
+                    "required": [
+                        "type",
+                        "slug"
+                    ],
+                    "properties": {
+                        "type": {
+                            "const": "Team"
+                        },
+                        "slug": {
+                            "$ref": "#/$defs/name"
+                        }
+                    }
+                },
+                {
+                    "type": "object",
+                    "additionalProperties": false,
+                    "required": [
+                        "type",
+                        "login"
+                    ],
+                    "properties": {
+                        "type": {
+                            "const": "User"
+                        },
+                        "login": {
+                            "$ref": "#/$defs/name"
+                        }
+                    }
+                }
+            ]
+        },
+        "profile": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": [
+                "allow_auto_merge",
+                "allow_merge_commit",
+                "allow_rebase_merge",
+                "allow_squash_merge",
+                "allow_update_branch",
+                "delete_branch_on_merge",
+                "visibility"
+            ],
+            "properties": {
+                "allow_auto_merge": {
+                    "type": "boolean"
+                },
+                "allow_merge_commit": {
+                    "type": "boolean"
+                },
+                "allow_rebase_merge": {
+                    "type": "boolean"
+                },
+                "allow_squash_merge": {
+                    "type": "boolean"
+                },
+                "allow_update_branch": {
+                    "type": "boolean"
+                },
+                "delete_branch_on_merge": {
+                    "type": "boolean"
+                },
+                "visibility": {
+                    "enum": [
+                        "private",
+                        "public"
+                    ]
+                }
+            }
+        },
+        "fork_pull_request_approval": {
+            "enum": [
+                "first_time_contributors",
+                "all_external_contributors"
+            ]
+        },
+        "actions": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": [
+                "allowed_actions",
+                "can_approve_pull_request_reviews",
+                "default_workflow_permissions",
+                "enabled",
+                "github_owned_allowed",
+                "patterns_allowed",
+                "sha_pinning_required",
+                "verified_allowed"
+            ],
+            "properties": {
+                "allowed_actions": {
+                    "enum": [
+                        "all",
+                        "local_only",
+                        "selected"
+                    ]
+                },
+                "can_approve_pull_request_reviews": {
+                    "type": "boolean"
+                },
+                "default_workflow_permissions": {
+                    "enum": [
+                        "read",
+                        "write"
+                    ]
+                },
+                "enabled": {
+                    "type": "boolean"
+                },
+                "github_owned_allowed": {
+                    "type": "boolean"
+                },
+                "patterns_allowed": {
+                    "type": "array",
+                    "uniqueItems": true,
+                    "items": {
+                        "type": "string",
+                        "minLength": 1
+                    }
+                },
+                "sha_pinning_required": {
+                    "type": "boolean"
+                },
+                "verified_allowed": {
+                    "type": "boolean"
+                }
+            }
+        },
+        "action_access": {
+            "enum": [
+                "none",
+                "user",
+                "organization",
+                "enterprise"
+            ]
+        },
+        "oidc_subject_claims": {
+            "type": "array",
+            "minItems": 1,
+            "uniqueItems": true,
+            "items": {
+                "enum": [
+                    "actor",
+                    "actor_id",
+                    "base_ref",
+                    "context",
+                    "environment",
+                    "event_name",
+                    "head_ref",
+                    "job_workflow_ref",
+                    "job_workflow_sha",
+                    "ref",
+                    "ref_type",
+                    "repository",
+                    "repository_id",
+                    "repository_owner",
+                    "repository_owner_id",
+                    "runner_environment",
+                    "workflow",
+                    "workflow_ref",
+                    "workflow_sha"
+                ]
+            }
+        },
+        "rulesets": {
+            "type": "array",
+            "items": {
+                "$ref": "#/$defs/ruleset"
+            }
+        },
+        "environments": {
+            "type": "array",
+            "uniqueItems": true,
+            "items": {
+                "type": "object",
+                "additionalProperties": false,
+                "required": [
+                    "name",
+                    "branch",
+                    "required_reviewer"
+                ],
+                "properties": {
+                    "name": {
+                        "$ref": "#/$defs/name"
+                    },
+                    "branch": {
+                        "$ref": "#/$defs/name"
+                    },
+                    "required_reviewer": {
+                        "type": "boolean"
+                    }
+                }
+            }
+        }
+    },
+    "$defs": {
+        "name": {
+            "type": "string",
+            "pattern": "^[A-Za-z0-9_.-]+$"
+        },
+        "ruleset": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": [
+                "name",
+                "target",
+                "enforcement",
+                "conditions",
+                "rules",
+                "bypass_actors"
+            ],
+            "properties": {
+                "name": {
+                    "$ref": "#/$defs/name"
+                },
+                "target": {
+                    "const": "branch"
+                },
+                "enforcement": {
+                    "enum": [
+                        "active",
+                        "evaluate",
+                        "disabled"
+                    ]
+                },
+                "conditions": {
+                    "type": "object",
+                    "additionalProperties": false,
+                    "required": [
+                        "ref_name"
+                    ],
+                    "properties": {
+                        "ref_name": {
+                            "type": "object",
+                            "additionalProperties": false,
+                            "required": [
+                                "include",
+                                "exclude"
+                            ],
+                            "properties": {
+                                "include": {
+                                    "$ref": "#/$defs/string_array"
+                                },
+                                "exclude": {
+                                    "$ref": "#/$defs/string_array"
+                                }
+                            }
+                        }
+                    }
+                },
+                "rules": {
+                    "type": "array",
+                    "minItems": 1,
+                    "items": {
+                        "oneOf": [
+                            {
+                                "$ref": "#/$defs/simple_rule"
+                            },
+                            {
+                                "$ref": "#/$defs/pull_request_rule"
+                            },
+                            {
+                                "$ref": "#/$defs/status_checks_rule"
+                            }
+                        ]
+                    }
+                },
+                "bypass_actors": {
+                    "type": "array"
+                }
+            }
+        },
+        "simple_rule": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": [
+                "type"
+            ],
+            "properties": {
+                "type": {
+                    "enum": [
+                        "deletion",
+                        "non_fast_forward",
+                        "required_linear_history"
+                    ]
+                }
+            }
+        },
+        "pull_request_rule": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": [
+                "type",
+                "parameters"
+            ],
+            "properties": {
+                "type": {
+                    "const": "pull_request"
+                },
+                "parameters": {
+                    "type": "object",
+                    "additionalProperties": false,
+                    "required": [
+                        "allowed_merge_methods",
+                        "dismiss_stale_reviews_on_push",
+                        "require_code_owner_review",
+                        "require_last_push_approval",
+                        "required_approving_review_count",
+                        "required_review_thread_resolution"
+                    ],
+                    "properties": {
+                        "allowed_merge_methods": {
+                            "type": "array",
+                            "minItems": 1,
+                            "uniqueItems": true,
+                            "items": {
+                                "enum": [
+                                    "merge",
+                                    "rebase",
+                                    "squash"
+                                ]
+                            }
+                        },
+                        "dismiss_stale_reviews_on_push": {
+                            "type": "boolean"
+                        },
+                        "require_code_owner_review": {
+                            "type": "boolean"
+                        },
+                        "require_last_push_approval": {
+                            "type": "boolean"
+                        },
+                        "required_approving_review_count": {
+                            "type": "integer",
+                            "minimum": 0,
+                            "maximum": 10
+                        },
+                        "required_review_thread_resolution": {
+                            "type": "boolean"
+                        }
+                    }
+                }
+            }
+        },
+        "status_checks_rule": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": [
+                "type",
+                "parameters"
+            ],
+            "properties": {
+                "type": {
+                    "const": "required_status_checks"
+                },
+                "parameters": {
+                    "type": "object",
+                    "additionalProperties": false,
+                    "required": [
+                        "do_not_enforce_on_create",
+                        "required_status_checks",
+                        "strict_required_status_checks_policy"
+                    ],
+                    "properties": {
+                        "do_not_enforce_on_create": {
+                            "type": "boolean"
+                        },
+                        "required_status_checks": {
+                            "type": "array",
+                            "minItems": 1,
+                            "items": {
+                                "type": "object",
+                                "additionalProperties": false,
+                                "required": [
+                                    "context"
+                                ],
+                                "properties": {
+                                    "context": {
+                                        "type": "string",
+                                        "minLength": 1
+                                    }
+                                }
+                            }
+                        },
+                        "strict_required_status_checks_policy": {
+                            "type": "boolean"
+                        }
+                    }
+                }
+            }
+        },
+        "string_array": {
+            "type": "array",
+            "uniqueItems": true,
+            "items": {
+                "type": "string",
+                "minLength": 1
+            }
+        }
+    }
+}

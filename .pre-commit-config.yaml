@@ -45,6 +45,38 @@ repos:
   - repo: https://github.com/python-jsonschema/check-jsonschema
     rev: 12e63946db2c5cfcc9030fac21c3883ba88c6ed8  # 0.38.0
     hooks:
+      - id: check-metaschema
+        files: ^schemas/.*\.schema\.json$
+      - id: check-jsonschema
+        name: Validate GitHub App manifests
+        files: ^github/apps/[^/]+/manifest\.json$
+        args:
+          - --schemafile
+          - schemas/github-app-manifest.schema.json
+      - id: check-jsonschema
+        name: Validate GitHub organization configuration
+        files: ^github/organizations/.*\.json$
+        args:
+          - --schemafile
+          - schemas/github-organization.schema.json
+      - id: check-jsonschema
+        name: Validate GitHub repository configuration
+        files: ^github/repositories/.*\.json$
+        args:
+          - --schemafile
+          - schemas/github-repository.schema.json
+      - id: check-jsonschema
+        name: Validate private plan fixtures
+        files: ^projects/reaveros/aws/testdata/private-plan.*\.json$
+        args:
+          - --schemafile
+          - schemas/private-plan.schema.json
+      - id: check-jsonschema
+        alias: repository-json-schema-tests
+        name: Test repository JSON schemas
+        entry: python schemas/test.py
+        files: ^(schemas/.*\.schema\.json|github/apps/[^/]+/manifest\.json|github/organizations/.*\.json|github/repositories/.*\.json|projects/reaveros/aws/testdata/private-plan.*\.json)$
+        pass_filenames: false
       - id: check-jsonschema
         name: Validate CodeRabbit configuration
         files: ^\.coderabbit\.yaml$

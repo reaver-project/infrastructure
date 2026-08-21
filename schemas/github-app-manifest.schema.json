@@ -1,0 +1,67 @@
+{
+    "$schema": "https://json-schema.org/draft/2020-12/schema",
+    "$id": "https://reaver-project.org/schemas/github-app-manifest.schema.json",
+    "title": "Reaver Project GitHub App manifest",
+    "type": "object",
+    "additionalProperties": false,
+    "required": [
+        "name",
+        "url",
+        "description",
+        "hook_attributes",
+        "public",
+        "default_permissions",
+        "default_events"
+    ],
+    "properties": {
+        "name": {
+            "type": "string",
+            "minLength": 1
+        },
+        "url": {
+            "type": "string",
+            "format": "uri",
+            "pattern": "^https://"
+        },
+        "description": {
+            "type": "string",
+            "minLength": 1
+        },
+        "hook_attributes": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": [
+                "active"
+            ],
+            "properties": {
+                "active": {
+                    "type": "boolean"
+                }
+            }
+        },
+        "public": {
+            "const": false
+        },
+        "default_permissions": {
+            "type": "object",
+            "minProperties": 1,
+            "propertyNames": {
+                "pattern": "^[a-z][a-z0-9_]*$"
+            },
+            "additionalProperties": {
+                "enum": [
+                    "read",
+                    "write"
+                ]
+            }
+        },
+        "default_events": {
+            "type": "array",
+            "uniqueItems": true,
+            "items": {
+                "type": "string",
+                "minLength": 1
+            }
+        }
+    }
+}

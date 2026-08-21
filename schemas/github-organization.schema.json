@@ -1,0 +1,135 @@
+{
+    "$schema": "https://json-schema.org/draft/2020-12/schema",
+    "$id": "https://reaver-project.org/schemas/github-organization.schema.json",
+    "title": "Reaver Project GitHub organization desired state",
+    "type": "object",
+    "additionalProperties": false,
+    "required": [
+        "organization",
+        "profile",
+        "actions",
+        "manual_controls"
+    ],
+    "properties": {
+        "organization": {
+            "$ref": "#/$defs/name"
+        },
+        "profile": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": [
+                "default_repository_permission",
+                "deploy_keys_enabled_for_repositories",
+                "members_can_create_private_repositories",
+                "members_can_create_public_repositories",
+                "members_can_create_repositories",
+                "web_commit_signoff_required"
+            ],
+            "properties": {
+                "default_repository_permission": {
+                    "enum": [
+                        "none",
+                        "read",
+                        "write",
+                        "admin"
+                    ]
+                },
+                "deploy_keys_enabled_for_repositories": {
+                    "type": "boolean"
+                },
+                "members_can_create_private_repositories": {
+                    "type": "boolean"
+                },
+                "members_can_create_public_repositories": {
+                    "type": "boolean"
+                },
+                "members_can_create_repositories": {
+                    "type": "boolean"
+                },
+                "web_commit_signoff_required": {
+                    "type": "boolean"
+                }
+            }
+        },
+        "actions": {
+            "$ref": "#/$defs/actions"
+        },
+        "manual_controls": {
+            "type": "array",
+            "minItems": 1,
+            "uniqueItems": true,
+            "items": {
+                "type": "string",
+                "minLength": 1
+            }
+        }
+    },
+    "$defs": {
+        "name": {
+            "type": "string",
+            "pattern": "^[A-Za-z0-9_.-]+$"
+        },
+        "actions": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": [
+                "allowed_actions",
+                "artifact_and_log_retention_days",
+                "can_approve_pull_request_reviews",
+                "default_workflow_permissions",
+                "enabled_repositories",
+                "github_owned_allowed",
+                "patterns_allowed",
+                "sha_pinning_required",
+                "verified_allowed"
+            ],
+            "properties": {
+                "allowed_actions": {
+                    "enum": [
+                        "all",
+                        "local_only",
+                        "selected"
+                    ]
+                },
+                "artifact_and_log_retention_days": {
+                    "type": "integer",
+                    "minimum": 1,
+                    "maximum": 400
+                },
+                "can_approve_pull_request_reviews": {
+                    "type": "boolean"
+                },
+                "default_workflow_permissions": {
+                    "enum": [
+                        "read",
+                        "write"
+                    ]
+                },
+                "enabled_repositories": {
+                    "enum": [
+                        "all",
+                        "none",
+                        "selected"
+                    ]
+                },
+                "github_owned_allowed": {
+                    "type": "boolean"
+                },
+                "patterns_allowed": {
+                    "type": "array",
+                    "uniqueItems": true,
+                    "items": {
+                        "type": "string",
+                        "minLength": 1
+                    }
+                },
+                "sha_pinning_required": {
+                    "type": "boolean"
+                },
+                "verified_allowed": {
+                    "type": "boolean"
+                }
+            }
+        }
+    }
+}
