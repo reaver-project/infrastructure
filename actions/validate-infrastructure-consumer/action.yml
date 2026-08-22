@@ -1,0 +1,51 @@
+name: Validate infrastructure consumer
+description: Validate a consumer's action pins and deployed stack contract
+
+inputs:
+    source-directory:
+        description: Checked-out consumer repository to validate
+        required: true
+    revision-file:
+        description: Consumer-relative file recording the infrastructure revision
+        required: true
+    contract-version-file:
+        description: Consumer-relative file recording the stack contract version
+        required: true
+    expected-revision:
+        description: Exact deployed infrastructure Git revision
+        required: true
+    expected-contract-version:
+        description: Exact deployed stack contract version
+        required: true
+    base-revision:
+        description: Consumer base revision for strict automatic-update validation
+        required: false
+        default: ''
+
+runs:
+    using: composite
+    steps:
+      - name: Validate the infrastructure consumer
+        shell: bash
+        env:
+            BASE_REVISION: ${{ inputs.base-revision }}
+            CONTRACT_VERSION_FILE: ${{ inputs.contract-version-file }}
+            EXPECTED_CONTRACT_VERSION: ${{ inputs.expected-contract-version }}
+            EXPECTED_REVISION: ${{ inputs.expected-revision }}
+            REVISION_FILE: ${{ inputs.revision-file }}
+            SOURCE_DIRECTORY: ${{ inputs.source-directory }}
+        run: |
+            arguments=(
+                validate
+                --root "${SOURCE_DIRECTORY}"
+                --revision-file "${REVISION_FILE}"
+                --contract-version-file "${CONTRACT_VERSION_FILE}"
+                --expected-revision "${EXPECTED_REVISION}"
+                --expected-contract-version "${EXPECTED_CONTRACT_VERSION}"
+            )
+            if [[ -n ${BASE_REVISION} ]]
+            then
+                arguments+=(--base-revision "${BASE_REVISION}")
+            fi
+            python3 "${GITHUB_ACTION_PATH}/../lib/infrastructure_consumer.py" \
+                "${arguments[@]}"

@@ -1,0 +1,49 @@
+name: Update infrastructure consumer
+description: Publish and auto-merge a consumer's deployed infrastructure contract
+
+inputs:
+    repository:
+        description: Consumer repository in owner/name form
+        required: true
+    revision-file:
+        description: Consumer-relative file recording the infrastructure revision
+        required: true
+    contract-version-file:
+        description: Consumer-relative file recording the stack contract version
+        required: true
+    source-contract-version-file:
+        description: Infrastructure-relative file defining the deployed contract version
+        required: true
+    infrastructure-revision:
+        description: Exact deployed infrastructure Git revision
+        required: true
+    contract-version:
+        description: Exact deployed stack contract version
+        required: true
+    app-slug:
+        description: GitHub App slug used as the maintenance commit author
+        required: true
+
+outputs:
+    pull-request-number:
+        description: Created or updated pull request number, if an update was needed
+        value: ${{ steps.publish.outputs.pull_request_number }}
+    pull-request-url:
+        description: Created or updated pull request URL, if an update was needed
+        value: ${{ steps.publish.outputs.pull_request_url }}
+
+runs:
+    using: composite
+    steps:
+      - name: Publish the infrastructure consumer update
+        id: publish
+        shell: bash
+        env:
+            APP_SLUG: ${{ inputs.app-slug }}
+            CONSUMER_REPOSITORY: ${{ inputs.repository }}
+            CONTRACT_VERSION: ${{ inputs.contract-version }}
+            CONTRACT_VERSION_FILE: ${{ inputs.contract-version-file }}
+            INFRASTRUCTURE_REVISION: ${{ inputs.infrastructure-revision }}
+            REVISION_FILE: ${{ inputs.revision-file }}
+            SOURCE_CONTRACT_VERSION_FILE: ${{ inputs.source-contract-version-file }}
+        run: "${GITHUB_ACTION_PATH}/publish"

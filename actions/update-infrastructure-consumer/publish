@@ -1,0 +1,209 @@
+#!/usr/bin/env bash
+
+set -euo pipefail
+
+required_environment=(
+    APP_SLUG
+    CONSUMER_REPOSITORY
+    CONTRACT_VERSION
+    CONTRACT_VERSION_FILE
+    GH_TOKEN
+    GITHUB_OUTPUT
+    GITHUB_SHA
+    INFRASTRUCTURE_REVISION
+    REVISION_FILE
+    SOURCE_CONTRACT_VERSION_FILE
+)
+for environment_variable in "${required_environment[@]}"
+do
+    if [[ -z ${!environment_variable:-} ]]
+    then
+        printf 'Required environment variable is empty: %s\n' \
+            "${environment_variable}" >&2
+        exit 2
+    fi
+done
+
+if [[ ! ${APP_SLUG} =~ ^[a-z0-9]+(-[a-z0-9]+)*$ \
+    || ! ${CONSUMER_REPOSITORY} =~ ^[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+$ \
+    || ! ${CONTRACT_VERSION} =~ ^[1-9][0-9]*$ \
+    || ! ${INFRASTRUCTURE_REVISION} =~ ^[0-9a-f]{40}$ \
+    || ${INFRASTRUCTURE_REVISION} != "${GITHUB_SHA}" ]]
+then
+    printf 'Invalid infrastructure consumer update configuration.\n' >&2
+    exit 2
+fi
+
+action_directory=$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)
+repository_root=$(git -C "${action_directory}" rev-parse --show-toplevel)
+if [[ ! ${SOURCE_CONTRACT_VERSION_FILE} =~ ^([A-Za-z0-9_.-]+/)*[A-Za-z0-9_.-]+$ \
+    || ${SOURCE_CONTRACT_VERSION_FILE} == *..* \
+    || ! -f "${repository_root}/${SOURCE_CONTRACT_VERSION_FILE}" \
+    || -L "${repository_root}/${SOURCE_CONTRACT_VERSION_FILE}" \
+    || $(git -C "${repository_root}" rev-parse HEAD) != "${INFRASTRUCTURE_REVISION}" \
+    || $(<"${repository_root}/${SOURCE_CONTRACT_VERSION_FILE}") != "${CONTRACT_VERSION}" ]]
+then
+    printf 'Refusing to publish values that do not match the deployment source.\n' >&2
+    exit 1
+fi
+
+default_branch=$(gh repo view "${CONSUMER_REPOSITORY}" \
+    --json defaultBranchRef \
+    --jq '.defaultBranchRef.name')
+if [[ ! ${default_branch} =~ ^[A-Za-z0-9._/-]+$ \
+    || ${default_branch} == /* \
+    || ${default_branch} == *..* ]]
+then
+    printf 'Consumer has an invalid default branch: %s\n' "${default_branch}" >&2
+    exit 1
+fi
+
+test_directory=$(mktemp -d)
+body_file="${test_directory}/pull-request-body"
+checkout_directory="${test_directory}/consumer"
+cleanup()
+{
+    rm -rf "${test_directory}"
+}
+trap cleanup EXIT
+
+gh auth setup-git
+gh repo clone "${CONSUMER_REPOSITORY}" "${checkout_directory}" -- \
+    --branch "${default_branch}" \
+    --single-branch
+
+python3 "${action_directory}/../lib/infrastructure_consumer.py" rewrite \
+    --root "${checkout_directory}" \
+    --revision-file "${REVISION_FILE}" \
+    --contract-version-file "${CONTRACT_VERSION_FILE}" \
+    --revision "${INFRASTRUCTURE_REVISION}" \
+    --contract-version "${CONTRACT_VERSION}" \
+    >/dev/null
+
+if git -C "${checkout_directory}" diff --quiet
+then
+    {
+        printf 'pull_request_number=\n'
+        printf 'pull_request_url=\n'
+    } >> "${GITHUB_OUTPUT}"
+    printf 'Consumer %s already uses infrastructure revision %s.\n' \
+        "${CONSUMER_REPOSITORY}" "${INFRASTRUCTURE_REVISION}"
+    exit
+fi
+
+git -C "${checkout_directory}" diff --check
+python3 "${action_directory}/../lib/infrastructure_consumer.py" validate \
+    --root "${checkout_directory}" \
+    --revision-file "${REVISION_FILE}" \
+    --contract-version-file "${CONTRACT_VERSION_FILE}" \
+    --expected-revision "${INFRASTRUCTURE_REVISION}" \
+    --expected-contract-version "${CONTRACT_VERSION}" \
+    >/dev/null
+
+branch="maintenance/infrastructure/${INFRASTRUCTURE_REVISION}"
+git -C "${checkout_directory}" switch --create "${branch}"
+git -C "${checkout_directory}" config user.name "${APP_SLUG}[bot]"
+git -C "${checkout_directory}" config user.email \
+    "${APP_SLUG}[bot]@users.noreply.github.com"
+git -C "${checkout_directory}" add --all
+git -C "${checkout_directory}" commit --no-gpg-sign \
+    --message "Update infrastructure integration to ${INFRASTRUCTURE_REVISION:0:12}"
+
+remote_revision=$(git -C "${checkout_directory}" ls-remote \
+    --heads origin "refs/heads/${branch}" | cut -f1)
+if [[ -n ${remote_revision} ]]
+then
+    git -C "${checkout_directory}" push \
+        --force-with-lease="refs/heads/${branch}:${remote_revision}" \
+        origin "HEAD:refs/heads/${branch}"
+else
+    git -C "${checkout_directory}" push origin "HEAD:refs/heads/${branch}"
+fi
+
+printf '%s\n' \
+    'This automated change aligns the repository with the deployed AWS infrastructure.' \
+    '' \
+    "- Infrastructure revision: \`${INFRASTRUCTURE_REVISION}\`" \
+    "- Stack contract version: \`${CONTRACT_VERSION}\`" \
+    '' \
+    'The required consumer check validates every shared-action pin and contract input' \
+    'against the values published from the deployed CloudFormation stack. Auto-merge' \
+    'remains subject to all repository rules and required checks.' \
+    > "${body_file}"
+
+pull_request_number=$(gh pr list \
+    --repo "${CONSUMER_REPOSITORY}" \
+    --base "${default_branch}" \
+    --head "${branch}" \
+    --state open \
+    --json number \
+    --jq '.[0].number // ""')
+title="Update infrastructure integration to ${INFRASTRUCTURE_REVISION:0:12}"
+if [[ -n ${pull_request_number} ]]
+then
+    gh pr edit "${pull_request_number}" \
+        --repo "${CONSUMER_REPOSITORY}" \
+        --title "${title}" \
+        --body-file "${body_file}"
+else
+    gh pr create \
+        --repo "${CONSUMER_REPOSITORY}" \
+        --base "${default_branch}" \
+        --head "${branch}" \
+        --title "${title}" \
+        --body-file "${body_file}" \
+        >/dev/null
+    pull_request_number=$(gh pr list \
+        --repo "${CONSUMER_REPOSITORY}" \
+        --base "${default_branch}" \
+        --head "${branch}" \
+        --state open \
+        --json number \
+        --jq '.[0].number // ""')
+fi
+if [[ ! ${pull_request_number} =~ ^[1-9][0-9]*$ ]]
+then
+    printf 'Could not find the infrastructure update pull request.\n' >&2
+    exit 1
+fi
+
+head_revision=$(git -C "${checkout_directory}" rev-parse HEAD)
+gh pr merge "${pull_request_number}" \
+    --repo "${CONSUMER_REPOSITORY}" \
+    --auto \
+    --rebase \
+    --delete-branch \
+    --match-head-commit "${head_revision}"
+
+superseded_pull_requests=$(gh pr list \
+    --repo "${CONSUMER_REPOSITORY}" \
+    --base "${default_branch}" \
+    --state open \
+    --limit 100 \
+    --json number,headRefName \
+    --jq '.[] | select(.headRefName | startswith("maintenance/infrastructure/")) | [.number, .headRefName] | @tsv')
+while IFS=$'\t' read -r superseded_number superseded_branch
+do
+    if [[ -z ${superseded_number} || ${superseded_branch} == "${branch}" ]]
+    then
+        continue
+    fi
+    gh pr close "${superseded_number}" \
+        --repo "${CONSUMER_REPOSITORY}" \
+        --delete-branch
+done <<< "${superseded_pull_requests}"
+
+pull_request_url="https://github.com/${CONSUMER_REPOSITORY}/pull/${pull_request_number}"
+{
+    printf 'pull_request_number=%s\n' "${pull_request_number}"
+    printf 'pull_request_url=%s\n' "${pull_request_url}"
+} >> "${GITHUB_OUTPUT}"
+if [[ -n ${GITHUB_STEP_SUMMARY:-} ]]
+then
+    printf 'Created [%s#%s](%s) for infrastructure revision `%s`.\n' \
+        "${CONSUMER_REPOSITORY}" \
+        "${pull_request_number}" \
+        "${pull_request_url}" \
+        "${INFRASTRUCTURE_REVISION}" \
+        >> "${GITHUB_STEP_SUMMARY}"
+fi
