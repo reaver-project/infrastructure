@@ -10,7 +10,8 @@
         "checks": "read",
         "contents": "write",
         "pull_requests": "write",
-        "statuses": "read"
+        "statuses": "read",
+        "workflows": "write"
     },
     "default_events": []
 }

@@ -70,8 +70,9 @@ if maintenance_manifest["default_permissions"] != {
     "contents": "write",
     "pull_requests": "write",
     "statuses": "read",
+    "workflows": "write",
 }:
-    raise SystemExit("Maintenance App permissions exceed its repository PR workflow.")
+    raise SystemExit("Maintenance App permissions exceed its maintenance PR workflow.")
 if maintenance_manifest["default_events"]:
     raise SystemExit("Maintenance App must not subscribe to webhook events.")
 

@@ -60,8 +60,14 @@ operations because an App cannot create or initially credential itself.
 Run the GitHub configuration workflow once to create the main-branch-only
 `maintenance` environment in ReaverOS. Install the maintenance App into the
 organization with access only to repositories that run trusted maintenance
-workflows; initially this is `reaver-project/reaveros`. Then place its narrow
-credential in each repository's maintenance environment:
+workflows; initially this is `reaver-project/reaveros`. Accept the App's
+`Workflows: write` permission so it can update pinned actions under
+`.github/workflows`; the App remains outside every ruleset bypass list.
+
+Place its narrow credential in ReaverOS's maintenance environment and in the
+infrastructure repository's reviewed deployment environment. The former lets
+ReaverOS publish its toolchain updates; the latter lets a completed AWS
+deployment publish the corresponding contract update:
 
 ```console
 gpg --quiet --no-symkey-cache \
@@ -69,13 +75,21 @@ gpg --quiet --no-symkey-cache \
     | github/apps/configure-maintenance-app \
         --credentials - \
         --repository reaver-project/reaveros
+gpg --quiet --no-symkey-cache \
+    --decrypt "${credential_directory}/maintenance-app.json.gpg" \
+    | github/apps/configure-maintenance-app \
+        --credentials - \
+        --environment github-production \
+        --repository reaver-project/infrastructure
 ```
 
 Repository selection is installation policy rather than a separate App design.
 Adding another maintained repository requires adding its protected environment,
 granting it access in the existing App installation, and running the same
 configurator with a different `--repository`; it does not require another App
-or helper. The maintenance App is not a branch-protection bypass actor.
+or helper. Infrastructure needs only the credential, not an App installation on
+its repository: deployment tokens are explicitly scoped to the consumer
+repositories. The maintenance App is not a branch-protection bypass actor.
 
 After installing the runner App, create or converge its organization runner
 group and record the returned IDs:

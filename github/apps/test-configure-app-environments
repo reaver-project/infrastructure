@@ -49,6 +49,12 @@ trap cleanup EXIT
     --credentials - \
     < "${credentials}" \
     >/dev/null
+"${self_dir}/configure-maintenance-app" \
+    --credentials - \
+    --environment github-production \
+    --repository reaver-project/infrastructure \
+    < "${credentials}" \
+    >/dev/null
 
 assert_log_contains()
 {
@@ -66,5 +72,7 @@ assert_log_contains $'gh\tsecret\tset\tINFRASTRUCTURE_APP_PRIVATE_KEY\t--repo\tr
 assert_log_contains $'gh\tapi\trepos/reaver-project/reaveros/environments/maintenance'
 assert_log_contains $'gh\tvariable\tset\tMAINTENANCE_APP_ID\t--repo\treaver-project/reaveros\t--env\tmaintenance\t--body\t1234'
 assert_log_contains $'gh\tsecret\tset\tMAINTENANCE_APP_PRIVATE_KEY\t--repo\treaver-project/reaveros\t--env\tmaintenance'
+assert_log_contains $'gh\tvariable\tset\tMAINTENANCE_APP_ID\t--repo\treaver-project/infrastructure\t--env\tgithub-production\t--body\t1234'
+assert_log_contains $'gh\tsecret\tset\tMAINTENANCE_APP_PRIVATE_KEY\t--repo\treaver-project/infrastructure\t--env\tgithub-production'
 
 printf 'App environment configuration tests passed.\n'
