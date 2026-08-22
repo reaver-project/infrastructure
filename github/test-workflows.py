@@ -98,7 +98,7 @@ deployed_contract = deploy_workflow.find("Read the deployed ReaverOS contract")
 publish_variables = deploy_workflow.find("Configure the ReaverOS consumer")
 maintenance_token = deploy_workflow.find("Create a maintenance App token")
 publish_update = deploy_workflow.find("Publish the ReaverOS infrastructure update")
-if not (-1 < deployed_contract < publish_variables < maintenance_token < publish_update):
+if not (-1 < deployed_contract < maintenance_token < publish_variables < publish_update):
     sys.exit(
         "The deployment workflow does not publish authoritative consumer values "
         "before opening its maintenance PR."

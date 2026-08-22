@@ -4,6 +4,7 @@ set -euo pipefail
 
 contract_version=
 infrastructure_revision=
+maintenance_app_slug=
 region=
 repository=reaver-project/reaveros
 runner_role_arn=
@@ -13,7 +14,8 @@ usage()
 {
     printf '%s\n' \
         "usage: $0 --contract-version <version> --infrastructure-revision <sha>" \
-        '    --region <region> --runner-role-arn <arn> --stack-name <name>' \
+        '    --maintenance-app-slug <slug> --region <region>' \
+        '    --runner-role-arn <arn> --stack-name <name>' \
         '    [--repository <owner/repository>]'
 }
 
@@ -26,6 +28,10 @@ do
             ;;
         --infrastructure-revision)
             infrastructure_revision=$2
+            shift 2
+            ;;
+        --maintenance-app-slug)
+            maintenance_app_slug=$2
             shift 2
             ;;
         --region)
@@ -57,6 +63,7 @@ done
 
 if [[ ! ${contract_version} =~ ^[1-9][0-9]*$ \
     || ! ${infrastructure_revision} =~ ^[0-9a-f]{40}$ \
+    || ! ${maintenance_app_slug} =~ ^[a-z0-9]+(-[a-z0-9]+)*$ \
     || ! ${repository} =~ ^[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+$ \
     || ! ${region} =~ ^[a-z]{2}(-[a-z]+)+-[0-9]+$ \
     || ! ${stack_name} =~ ^[A-Za-z][-A-Za-z0-9]*$ \
@@ -76,5 +83,6 @@ set_variable AWS_INFRASTRUCTURE_CONTRACT_VERSION "${contract_version}"
 set_variable AWS_INFRASTRUCTURE_REVISION "${infrastructure_revision}"
 set_variable AWS_RUNNER_ROLE_ARN "${runner_role_arn}"
 set_variable AWS_RUNNER_STACK_NAME "${stack_name}"
+set_variable MAINTENANCE_APP_SLUG "${maintenance_app_slug}"
 
 printf 'Configured the ReaverOS AWS CI contract for %s.\n' "${repository}"

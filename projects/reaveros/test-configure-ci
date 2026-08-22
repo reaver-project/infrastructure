@@ -29,6 +29,7 @@ trap cleanup EXIT
 "${self_dir}/configure-ci" \
     --contract-version 1 \
     --infrastructure-revision 0123456789abcdef0123456789abcdef01234567 \
+    --maintenance-app-slug reaver-project-maintenance \
     --region us-west-2 \
     --runner-role-arn arn:aws:iam::123456789012:role/reaveros-github-runners-actions \
     --stack-name reaveros-github-runners \
@@ -49,10 +50,12 @@ assert_log_contains $'gh\tvariable\tset\tAWS_INFRASTRUCTURE_CONTRACT_VERSION\t--
 assert_log_contains $'gh\tvariable\tset\tAWS_INFRASTRUCTURE_REVISION\t--repo\treaver-project/reaveros\t--body\t0123456789abcdef0123456789abcdef01234567'
 assert_log_contains $'gh\tvariable\tset\tAWS_RUNNER_STACK_NAME\t--repo\treaver-project/reaveros\t--body\treaveros-github-runners'
 assert_log_contains $'gh\tvariable\tset\tAWS_RUNNER_ROLE_ARN\t--repo\treaver-project/reaveros\t--body\tarn:aws:iam::123456789012:role/reaveros-github-runners-actions'
+assert_log_contains $'gh\tvariable\tset\tMAINTENANCE_APP_SLUG\t--repo\treaver-project/reaveros\t--body\treaver-project-maintenance'
 
 if "${self_dir}/configure-ci" \
     --contract-version 1 \
     --infrastructure-revision 0123456789abcdef0123456789abcdef01234567 \
+    --maintenance-app-slug reaver-project-maintenance \
     --region not-a-region \
     --runner-role-arn arn:aws:iam::123456789012:role/reaveros \
     --stack-name reaveros-github-runners \

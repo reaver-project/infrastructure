@@ -105,20 +105,6 @@ jobs:
                 repositories: reaveros
                 permission-actions-variables: write
 
-          - name: Configure the ReaverOS consumer
-            env:
-                CONTRACT_VERSION: ${{ needs.deploy.outputs.contract_version }}
-                GH_TOKEN: ${{ steps.infrastructure-app.outputs.token }}
-                INFRASTRUCTURE_REVISION: ${{ needs.deploy.outputs.infrastructure_revision }}
-                RUNNER_ROLE_ARN: ${{ needs.deploy.outputs.runner_role_arn }}
-            run: |
-                projects/reaveros/configure-ci \
-                    --contract-version "${CONTRACT_VERSION}" \
-                    --infrastructure-revision "${INFRASTRUCTURE_REVISION}" \
-                    --region "${AWS_REGION}" \
-                    --runner-role-arn "${RUNNER_ROLE_ARN}" \
-                    --stack-name "${AWS_RUNNER_STACK_NAME}"
-
           - name: Create a maintenance App token
             id: maintenance-app
             uses: actions/create-github-app-token@bcd2ba49218906704ab6c1aa796996da409d3eb1 # v3.2.0
@@ -130,6 +116,22 @@ jobs:
                 permission-contents: write
                 permission-pull-requests: write
                 permission-workflows: write
+
+          - name: Configure the ReaverOS consumer
+            env:
+                CONTRACT_VERSION: ${{ needs.deploy.outputs.contract_version }}
+                GH_TOKEN: ${{ steps.infrastructure-app.outputs.token }}
+                INFRASTRUCTURE_REVISION: ${{ needs.deploy.outputs.infrastructure_revision }}
+                MAINTENANCE_APP_SLUG: ${{ steps.maintenance-app.outputs.app-slug }}
+                RUNNER_ROLE_ARN: ${{ needs.deploy.outputs.runner_role_arn }}
+            run: |
+                projects/reaveros/configure-ci \
+                    --contract-version "${CONTRACT_VERSION}" \
+                    --infrastructure-revision "${INFRASTRUCTURE_REVISION}" \
+                    --maintenance-app-slug "${MAINTENANCE_APP_SLUG}" \
+                    --region "${AWS_REGION}" \
+                    --runner-role-arn "${RUNNER_ROLE_ARN}" \
+                    --stack-name "${AWS_RUNNER_STACK_NAME}"
 
           - name: Publish the ReaverOS infrastructure update
             uses: ./actions/update-infrastructure-consumer
