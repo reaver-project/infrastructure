@@ -96,7 +96,7 @@ jobs:
                 persist-credentials: false
 
           - name: Create an infrastructure App token
-            id: app
+            id: infrastructure-app
             uses: actions/create-github-app-token@bcd2ba49218906704ab6c1aa796996da409d3eb1 # v3.2.0
             with:
                 app-id: ${{ vars.INFRASTRUCTURE_APP_ID }}
@@ -108,7 +108,7 @@ jobs:
           - name: Configure the ReaverOS consumer
             env:
                 CONTRACT_VERSION: ${{ needs.deploy.outputs.contract_version }}
-                GH_TOKEN: ${{ steps.app.outputs.token }}
+                GH_TOKEN: ${{ steps.infrastructure-app.outputs.token }}
                 INFRASTRUCTURE_REVISION: ${{ needs.deploy.outputs.infrastructure_revision }}
                 RUNNER_ROLE_ARN: ${{ needs.deploy.outputs.runner_role_arn }}
             run: |
@@ -118,3 +118,28 @@ jobs:
                     --region "${AWS_REGION}" \
                     --runner-role-arn "${RUNNER_ROLE_ARN}" \
                     --stack-name "${AWS_RUNNER_STACK_NAME}"
+
+          - name: Create a maintenance App token
+            id: maintenance-app
+            uses: actions/create-github-app-token@bcd2ba49218906704ab6c1aa796996da409d3eb1 # v3.2.0
+            with:
+                app-id: ${{ vars.MAINTENANCE_APP_ID }}
+                private-key: ${{ secrets.MAINTENANCE_APP_PRIVATE_KEY }}
+                owner: reaver-project
+                repositories: reaveros
+                permission-contents: write
+                permission-pull-requests: write
+                permission-workflows: write
+
+          - name: Publish the ReaverOS infrastructure update
+            uses: ./actions/update-infrastructure-consumer
+            env:
+                GH_TOKEN: ${{ steps.maintenance-app.outputs.token }}
+            with:
+                app-slug: ${{ steps.maintenance-app.outputs.app-slug }}
+                repository: reaver-project/reaveros
+                infrastructure-revision: ${{ needs.deploy.outputs.infrastructure_revision }}
+                contract-version: ${{ needs.deploy.outputs.contract_version }}
+                revision-file: ci/aws/infrastructure-revision
+                contract-version-file: ci/aws/infrastructure-contract-version
+                source-contract-version-file: projects/reaveros/infrastructure-contract-version

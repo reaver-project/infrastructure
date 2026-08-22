@@ -94,6 +94,25 @@ deploy_workflow = (
 if "plan_run_id" in deploy_workflow or "plan_key" not in deploy_workflow:
     sys.exit("The deployment workflow does not consume the opaque plan key.")
 
+deployed_contract = deploy_workflow.find("Read the deployed ReaverOS contract")
+publish_variables = deploy_workflow.find("Configure the ReaverOS consumer")
+maintenance_token = deploy_workflow.find("Create a maintenance App token")
+publish_update = deploy_workflow.find("Publish the ReaverOS infrastructure update")
+if not (-1 < deployed_contract < publish_variables < maintenance_token < publish_update):
+    sys.exit(
+        "The deployment workflow does not publish authoritative consumer values "
+        "before opening its maintenance PR."
+    )
+for permission in (
+    "permission-contents: write",
+    "permission-pull-requests: write",
+    "permission-workflows: write",
+):
+    if permission not in deploy_workflow[maintenance_token:publish_update]:
+        sys.exit(f"The deployment maintenance token is missing {permission}.")
+if "repositories: reaveros" not in deploy_workflow[maintenance_token:publish_update]:
+    sys.exit("The deployment maintenance token is not scoped to ReaverOS.")
+
 for workflow_name in [
     "aws-infrastructure-deploy.yml",
     "aws-infrastructure.yml",

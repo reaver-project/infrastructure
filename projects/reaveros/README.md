@@ -4,10 +4,14 @@ This directory owns the cloud resources and shared integration contract used by
 ReaverOS. ReaverOS itself continues to own build commands, CI task matrices,
 spending authorization, build-environment cache keys, and image promotion.
 
-An approved AWS deployment publishes three non-secret repository variables to
+An approved AWS deployment publishes five non-secret repository variables to
 `reaver-project/reaveros` through the infrastructure GitHub App:
 
 - `AWS_REGION` identifies the region containing the runner stack;
+- `AWS_INFRASTRUCTURE_CONTRACT_VERSION` records the version read back from the
+  deployed stack;
+- `AWS_INFRASTRUCTURE_REVISION` records the exact infrastructure commit used by
+  the deployed change set;
 - `AWS_RUNNER_STACK_NAME` identifies the stack whose outputs implement the
   contract; and
 - `AWS_RUNNER_ROLE_ARN` is the narrowly trusted OIDC role used by ReaverOS
@@ -24,6 +28,13 @@ Compatible additions retain its value. A breaking change to stack outputs,
 shared-action inputs or outputs, OIDC trust, or resource ownership increments
 it and requires a coordinated consumer update pinned to an immutable commit of
 this repository.
+
+After the authoritative variables are published, a separately scoped
+Maintenance App token runs `actions/update-infrastructure-consumer`. The action
+updates every shared-action pin and contract input, publishes the ReaverOS pull
+request, and enables auto-merge. Its consumer-side validation permits only
+those semantic substitutions and compares them to the deployed variables;
+repository rules remain the authority that decides whether the PR may merge.
 
 ReaverOS-owned policy such as `AWS_CI_TRUSTED_USERS` is intentionally not set
 here.
