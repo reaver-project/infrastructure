@@ -15,10 +15,18 @@ action_reference_pattern = re.compile(
     r"(?P<revision>[0-9a-f]{40})(?P<suffix>\s*(?:#.*)?)$",
     re.MULTILINE,
 )
+infrastructure_reference_pattern = re.compile(
+    r"^\s*uses:\s*reaver-project/infrastructure/actions/[^\s#]+",
+    re.MULTILINE,
+)
 contract_input_pattern = re.compile(
     r"^(?P<prefix>\s*expected-contract-version:\s*)"
     r"(?P<quote>['\"]?)(?P<version>[1-9][0-9]*)(?P=quote)"
     r"(?P<suffix>\s*(?:#.*)?)$",
+    re.MULTILINE,
+)
+contract_input_reference_pattern = re.compile(
+    r"^\s*expected-contract-version:\s*[^\s#]+",
     re.MULTILINE,
 )
 
@@ -80,7 +88,9 @@ def read_state(
         raise ValueError(f"invalid recorded contract version: {contract_version}")
 
     referenced_workflows = set()
+    infrastructure_reference_count = 0
     action_revisions = []
+    contract_input_reference_count = 0
     contract_versions = []
     for workflow_path in workflow_paths(root):
         contents = workflow_path.read_text(encoding="utf-8")
@@ -92,15 +102,27 @@ def read_state(
             match.group("version")
             for match in contract_input_pattern.finditer(contents)
         ]
-        if workflow_revisions or workflow_contract_versions:
+        workflow_infrastructure_reference_count = len(
+            infrastructure_reference_pattern.findall(contents)
+        )
+        workflow_contract_input_reference_count = len(
+            contract_input_reference_pattern.findall(contents)
+        )
+        if workflow_infrastructure_reference_count or workflow_contract_input_reference_count:
             referenced_workflows.add(workflow_path.relative_to(root).as_posix())
+        infrastructure_reference_count += workflow_infrastructure_reference_count
         action_revisions.extend(workflow_revisions)
+        contract_input_reference_count += workflow_contract_input_reference_count
         contract_versions.extend(workflow_contract_versions)
 
-    if not action_revisions:
+    if not infrastructure_reference_count:
         raise ValueError("consumer has no shared infrastructure action references")
-    if not contract_versions:
+    if len(action_revisions) != infrastructure_reference_count:
+        raise ValueError("a shared infrastructure action is not pinned by full Git SHA")
+    if not contract_input_reference_count:
         raise ValueError("consumer has no infrastructure contract inputs")
+    if len(contract_versions) != contract_input_reference_count:
+        raise ValueError("an infrastructure contract input is not a literal version")
     if any(candidate != revision for candidate in action_revisions):
         raise ValueError("a shared infrastructure action does not use the recorded revision")
     if any(candidate != contract_version for candidate in contract_versions):

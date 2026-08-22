@@ -14,7 +14,7 @@ inputs:
     expected-revision:
         description: Exact deployed infrastructure Git revision
         required: true
-    expected-contract-version:
+    contract-version:
         description: Exact deployed stack contract version
         required: true
     base-revision:
@@ -30,7 +30,7 @@ runs:
         env:
             BASE_REVISION: ${{ inputs.base-revision }}
             CONTRACT_VERSION_FILE: ${{ inputs.contract-version-file }}
-            EXPECTED_CONTRACT_VERSION: ${{ inputs.expected-contract-version }}
+            EXPECTED_CONTRACT_VERSION: ${{ inputs.contract-version }}
             EXPECTED_REVISION: ${{ inputs.expected-revision }}
             REVISION_FILE: ${{ inputs.revision-file }}
             SOURCE_DIRECTORY: ${{ inputs.source-directory }}

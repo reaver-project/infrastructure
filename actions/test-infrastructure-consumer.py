@@ -152,6 +152,37 @@ jobs:
                 "ci/aws/infrastructure-contract-version",
             )
 
+    def test_rejects_a_mutable_shared_action_reference(self):
+        workflow = self.root / ".github" / "workflows" / "ci.yml"
+        workflow.write_text(
+            workflow.read_text(encoding="utf-8").replace(
+                f"@{old_revision}", "@main"
+            ),
+            encoding="utf-8",
+        )
+        with self.assertRaisesRegex(ValueError, "not pinned by full Git SHA"):
+            infrastructure_consumer.read_state(
+                self.root,
+                "ci/aws/infrastructure-revision",
+                "ci/aws/infrastructure-contract-version",
+            )
+
+    def test_rejects_a_non_literal_contract_input(self):
+        workflow = self.root / ".github" / "workflows" / "ci.yml"
+        workflow.write_text(
+            workflow.read_text(encoding="utf-8").replace(
+                "expected-contract-version: '1'",
+                "expected-contract-version: latest",
+            ),
+            encoding="utf-8",
+        )
+        with self.assertRaisesRegex(ValueError, "not a literal version"):
+            infrastructure_consumer.read_state(
+                self.root,
+                "ci/aws/infrastructure-revision",
+                "ci/aws/infrastructure-contract-version",
+            )
+
 
 if __name__ == "__main__":
     unittest.main()
