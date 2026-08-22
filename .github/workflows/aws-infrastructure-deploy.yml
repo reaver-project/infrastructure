@@ -37,6 +37,8 @@ jobs:
             AWS_RUNNER_STACK_NAME: ${{ vars.AWS_RUNNER_STACK_NAME }}
             PLAN_KEY: ${{ inputs.plan_key }}
         outputs:
+            contract_version: ${{ steps.stack.outputs.contract_version }}
+            infrastructure_revision: ${{ steps.stack.outputs.infrastructure_revision }}
             runner_role_arn: ${{ steps.stack.outputs.runner_role_arn }}
 
         steps:
@@ -66,21 +68,9 @@ jobs:
                 CHANGE_SET_ARN: ${{ steps.plan.outputs.change_set_arn }}
             run: projects/reaveros/aws/deploy-infrastructure "${CHANGE_SET_ARN}"
 
-          - name: Read the deployed ReaverOS role
+          - name: Read the deployed ReaverOS contract
             id: stack
-            run: |
-                runner_role_arn=$(aws cloudformation describe-stacks \
-                    --region "${AWS_REGION}" \
-                    --stack-name "${AWS_RUNNER_STACK_NAME}" \
-                    --query 'Stacks[0].Outputs[?OutputKey==`GitHubActionsRoleArn`].OutputValue | [0]' \
-                    --output text)
-                if [[ ! ${runner_role_arn} =~ ^arn:(aws|aws-us-gov|aws-cn):iam::[0-9]{12}:role/[A-Za-z0-9+=,.@_/-]+$ ]]
-                then
-                    printf 'Invalid GitHubActionsRoleArn stack output: %s\n' \
-                        "${runner_role_arn}" >&2
-                    exit 1
-                fi
-                printf 'runner_role_arn=%s\n' "${runner_role_arn}" >> "${GITHUB_OUTPUT}"
+            run: projects/reaveros/aws/read-deployed-contract
 
     configure-reaveros:
         name: Publish the ReaverOS AWS CI contract
@@ -117,10 +107,14 @@ jobs:
 
           - name: Configure the ReaverOS consumer
             env:
+                CONTRACT_VERSION: ${{ needs.deploy.outputs.contract_version }}
                 GH_TOKEN: ${{ steps.app.outputs.token }}
+                INFRASTRUCTURE_REVISION: ${{ needs.deploy.outputs.infrastructure_revision }}
                 RUNNER_ROLE_ARN: ${{ needs.deploy.outputs.runner_role_arn }}
             run: |
                 projects/reaveros/configure-ci \
+                    --contract-version "${CONTRACT_VERSION}" \
+                    --infrastructure-revision "${INFRASTRUCTURE_REVISION}" \
                     --region "${AWS_REGION}" \
                     --runner-role-arn "${RUNNER_ROLE_ARN}" \
                     --stack-name "${AWS_RUNNER_STACK_NAME}"

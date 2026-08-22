@@ -27,8 +27,10 @@ shell_scripts=(
     projects/reaveros/aws/plan-key
     projects/reaveros/aws/plan-infrastructure
     projects/reaveros/aws/read-plan
+    projects/reaveros/aws/read-deployed-contract
     projects/reaveros/aws/functions/runner-control/test-coverage
     projects/reaveros/aws/test-infrastructure
+    projects/reaveros/aws/test-read-deployed-contract
     projects/reaveros/aws/test-configure-runner-app
     projects/reaveros/aws/test-validate-policies
     projects/reaveros/aws/validate-policies
@@ -75,6 +77,7 @@ github/apps/test-configure-app-environments
 python3 github/apps/test-create.py
 node github/apps/test-configure-runner-group.js
 projects/reaveros/aws/test-infrastructure
+projects/reaveros/aws/test-read-deployed-contract
 projects/reaveros/aws/test-configure-runner-app
 projects/reaveros/aws/test-validate-policies
 projects/reaveros/test-configure-ci

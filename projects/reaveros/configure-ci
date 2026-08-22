@@ -2,6 +2,8 @@
 
 set -euo pipefail
 
+contract_version=
+infrastructure_revision=
 region=
 repository=reaver-project/reaveros
 runner_role_arn=
@@ -10,13 +12,22 @@ stack_name=
 usage()
 {
     printf '%s\n' \
-        "usage: $0 --region <region> --runner-role-arn <arn> --stack-name <name>" \
+        "usage: $0 --contract-version <version> --infrastructure-revision <sha>" \
+        '    --region <region> --runner-role-arn <arn> --stack-name <name>' \
         '    [--repository <owner/repository>]'
 }
 
 while [[ $# -gt 0 ]]
 do
     case $1 in
+        --contract-version)
+            contract_version=$2
+            shift 2
+            ;;
+        --infrastructure-revision)
+            infrastructure_revision=$2
+            shift 2
+            ;;
         --region)
             region=$2
             shift 2
@@ -44,7 +55,9 @@ do
     esac
 done
 
-if [[ ! ${repository} =~ ^[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+$ \
+if [[ ! ${contract_version} =~ ^[1-9][0-9]*$ \
+    || ! ${infrastructure_revision} =~ ^[0-9a-f]{40}$ \
+    || ! ${repository} =~ ^[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+$ \
     || ! ${region} =~ ^[a-z]{2}(-[a-z]+)+-[0-9]+$ \
     || ! ${stack_name} =~ ^[A-Za-z][-A-Za-z0-9]*$ \
     || ! ${runner_role_arn} =~ ^arn:(aws|aws-us-gov|aws-cn):iam::[0-9]{12}:role/[A-Za-z0-9+=,.@_/-]+$ ]]
@@ -59,6 +72,8 @@ set_variable()
 }
 
 set_variable AWS_REGION "${region}"
+set_variable AWS_INFRASTRUCTURE_CONTRACT_VERSION "${contract_version}"
+set_variable AWS_INFRASTRUCTURE_REVISION "${infrastructure_revision}"
 set_variable AWS_RUNNER_ROLE_ARN "${runner_role_arn}"
 set_variable AWS_RUNNER_STACK_NAME "${stack_name}"
 
