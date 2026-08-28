@@ -42,3 +42,9 @@ repository rules remain the authority that decides whether the PR may merge.
 
 ReaverOS-owned policy such as `AWS_CI_TRUSTED_USERS` is intentionally not set
 here.
+
+The runner role trusts `ci.yml` and its local AWS reusable workflows on `main`
+and on `pull-request/*`. Repository rules reserve that latter namespace for the
+CI Gate App, which creates a branch only after resolving an approved revision
+to the pull request's current full head commit. This couples AWS authorization
+to an immutable reviewed object without granting fork workflows cloud access.

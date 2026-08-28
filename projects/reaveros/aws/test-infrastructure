@@ -92,6 +92,8 @@ mock_aws()
                             {ParameterKey: "RunnerRolePermissionsBoundaryArn"},
                             {ParameterKey: "GitHubOidcCallerWorkflowReferencePattern"},
                             {ParameterKey: "GitHubOidcWorkflowReference"},
+                            {ParameterKey: "GitHubOidcPullRequestCallerWorkflowReferencePattern"},
+                            {ParameterKey: "GitHubOidcPullRequestWorkflowReference"},
                             {ParameterKey: "RunnerMediumInstanceType"}
                         ]}]
                     }'
@@ -225,6 +227,19 @@ for ci_gate_invariant in \
         "${ci_gate_invariant}" \
         "${self_dir}/runner-stack.yaml"; then
         printf 'CI gate stack invariant is missing: %s\n' "${ci_gate_invariant}" >&2
+        exit 1
+    fi
+done
+
+for copied_branch_trust_invariant in \
+    'Default: reaver-project/reaveros/.github/workflows/ci.yml@refs/heads/pull-request/*' \
+    'Default: reaver-project/reaveros/.github/workflows/aws-*.yml@refs/heads/pull-request/*' \
+    '- !Sub workflow_ref:${GitHubOidcPullRequestCallerWorkflowReferencePattern}:*:job_workflow_ref:${GitHubOidcPullRequestWorkflowReference}'; do
+    if ! grep --fixed-strings --quiet \
+        -- "${copied_branch_trust_invariant}" \
+        "${self_dir}/runner-stack.yaml"; then
+        printf 'Copied-branch OIDC trust invariant is missing: %s\n' \
+            "${copied_branch_trust_invariant}" >&2
         exit 1
     fi
 done

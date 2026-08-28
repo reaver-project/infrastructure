@@ -8,6 +8,12 @@ Parameters:
     GitHubOidcWorkflowReference:
         Type: String
         Default: reaver-project/reaveros/.github/workflows/aws-*.yml@refs/heads/main
+    GitHubOidcPullRequestCallerWorkflowReferencePattern:
+        Type: String
+        Default: reaver-project/reaveros/.github/workflows/ci.yml@refs/heads/pull-request/*
+    GitHubOidcPullRequestWorkflowReference:
+        Type: String
+        Default: reaver-project/reaveros/.github/workflows/aws-*.yml@refs/heads/pull-request/*
     GitHubOidcProviderArn:
         Type: String
         Description: ARN of the account-wide GitHub Actions OIDC provider from the bootstrap stack.
@@ -921,7 +927,9 @@ Resources:
                         StringEquals:
                             token.actions.githubusercontent.com:aud: sts.amazonaws.com
                         StringLike:
-                            token.actions.githubusercontent.com:sub: !Sub workflow_ref:${GitHubOidcCallerWorkflowReferencePattern}:*:job_workflow_ref:${GitHubOidcWorkflowReference}
+                            token.actions.githubusercontent.com:sub:
+                              - !Sub workflow_ref:${GitHubOidcCallerWorkflowReferencePattern}:*:job_workflow_ref:${GitHubOidcWorkflowReference}
+                              - !Sub workflow_ref:${GitHubOidcPullRequestCallerWorkflowReferencePattern}:*:job_workflow_ref:${GitHubOidcPullRequestWorkflowReference}
             Policies:
               - PolicyName: ProvisionEphemeralRunner
                 PolicyDocument:
