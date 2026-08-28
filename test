@@ -32,6 +32,7 @@ shell_scripts=(
     projects/reaveros/aws/read-plan
     projects/reaveros/aws/read-deployed-contract
     projects/reaveros/aws/functions/runner-control/test-coverage
+    projects/reaveros/aws/functions/ci-gate/test-coverage
     projects/reaveros/aws/test-infrastructure
     projects/reaveros/aws/test-read-deployed-contract
     projects/reaveros/aws/test-configure-runner-app
@@ -67,6 +68,10 @@ python3 -m py_compile \
     github/apps/test-create.py \
     projects/reaveros/aws/create-function-archive \
     projects/reaveros/aws/functions/github_app.py \
+    projects/reaveros/aws/functions/ci-gate/index.py \
+    projects/reaveros/aws/functions/ci-gate/lib.py \
+    projects/reaveros/aws/functions/ci-gate/test.py \
+    projects/reaveros/aws/functions/ci-gate/test_index.py \
     projects/reaveros/aws/functions/runner-control/index.py \
     projects/reaveros/aws/functions/runner-control/lib.py \
     projects/reaveros/aws/functions/runner-control/test.py \
@@ -96,6 +101,8 @@ projects/reaveros/test-configure-ci
 projects/reaveros/test-contract
 python3 projects/reaveros/aws/functions/runner-control/test.py
 python3 projects/reaveros/aws/functions/runner-control/test_index.py
+python3 projects/reaveros/aws/functions/ci-gate/test.py
+python3 projects/reaveros/aws/functions/ci-gate/test_index.py
 projects/reaveros/aws/package-functions build/reaveros-lambda
 test -f build/reaveros-lambda/runner-control.zip
 test ! -e build/reaveros-lambda/runner-reaper.zip

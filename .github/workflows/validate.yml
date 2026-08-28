@@ -43,7 +43,9 @@ jobs:
             uses: ./.github/actions/setup-validation
 
           - name: Enforce runner-controller branch coverage
-            run: pre-commit run runner-control-coverage --all-files
+            run: |
+                pre-commit run runner-control-coverage --all-files
+                pre-commit run ci-gate-coverage --all-files
 
           - name: Run infrastructure tests
             run: pre-commit run infrastructure-tests --all-files

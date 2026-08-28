@@ -182,6 +182,14 @@ repos:
           - coverage==7.15.4
         files: ^projects/reaveros/aws/functions/runner-control/.*\.py$
         pass_filenames: false
+      - id: ci-gate-coverage
+        name: Test CI gate with branch coverage
+        entry: projects/reaveros/aws/functions/ci-gate/test-coverage
+        language: python
+        additional_dependencies:
+          - coverage==7.15.4
+        files: ^projects/reaveros/aws/functions/(ci-gate/.*\.py|github_app\.py)$
+        pass_filenames: false
       - id: infrastructure-tests
         name: Run infrastructure tests
         entry: ./test
