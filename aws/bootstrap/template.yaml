@@ -582,6 +582,7 @@ Resources:
                           - cloudformation:DescribeStacks
                           - cloudformation:DescribeStackEvents
                           - cloudformation:ExecuteChangeSet
+                          - cloudformation:UpdateTerminationProtection
                         Resource: !Sub arn:${AWS::Partition}:cloudformation:${AWS::Region}:${AWS::AccountId}:stack/${RunnerStackName}/*
                       - Effect: Allow
                         Action: cloudformation:DescribeChangeSet

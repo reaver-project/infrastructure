@@ -154,7 +154,7 @@ mock_aws()
                     ;;
             esac
             ;;
-        delete-change-set | execute-change-set | describe-stack-events)
+        delete-change-set | execute-change-set | describe-stack-events | update-termination-protection)
             ;;
         *)
             printf 'Unexpected AWS CloudFormation command: %s\n' "$2" >&2
@@ -429,11 +429,15 @@ reset_case deploy-update
     arn:aws:cloudformation:us-west-2:123456789012:changeSet/reaveros-github-runners-101-1/id
 assert_log_contains $'\texecute-change-set\t'
 assert_log_contains $'\twait\tstack-update-complete'
+assert_log_contains $'\tupdate-termination-protection\t'
+assert_log_contains $'\t--enable-termination-protection'
 
 reset_case deploy-create
 "${self_dir}/deploy-infrastructure" \
     arn:aws:cloudformation:us-west-2:123456789012:changeSet/reaveros-github-runners-101-1/id
 assert_log_contains $'\twait\tstack-create-complete'
+assert_log_contains $'\tupdate-termination-protection\t'
+assert_log_contains $'\t--enable-termination-protection'
 
 reset_case deploy-wrong-stack
 if "${self_dir}/deploy-infrastructure" \

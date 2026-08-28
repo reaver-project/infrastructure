@@ -70,7 +70,13 @@ if ! aws cloudformation wait "${waiter}" \
     exit 1
 fi
 
+aws cloudformation update-termination-protection \
+    --region "${AWS_REGION}" \
+    --stack-name "${AWS_RUNNER_STACK_NAME}" \
+    --enable-termination-protection \
+    > /dev/null
+
 {
     printf '### AWS infrastructure deployment\n\n'
-    printf 'Executed the reviewed private change set successfully.\n'
+    printf 'Executed the reviewed private change set and protected the stack.\n'
 } >> "${GITHUB_STEP_SUMMARY}"
