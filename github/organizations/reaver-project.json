@@ -56,7 +56,7 @@
             "secret_scanning_delegated_bypass": "disabled",
             "secret_scanning_validity_checks": "enabled",
             "secret_scanning_non_provider_patterns": "enabled",
-            "secret_scanning_generic_secrets": "disabled",
+            "secret_scanning_generic_secrets": "enabled",
             "secret_scanning_delegated_alert_dismissal": "disabled",
             "secret_scanning_extended_metadata": "enabled",
             "private_vulnerability_reporting": "enabled",
