@@ -2,8 +2,7 @@
 
 set -euo pipefail
 
-if [[ $# -ne 0 ]]
-then
+if [[ $# -ne 0 ]]; then
     printf 'usage: %s\n' "$0" >&2
     exit 2
 fi

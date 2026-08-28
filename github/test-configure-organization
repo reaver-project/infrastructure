@@ -2,19 +2,15 @@
 
 set -euo pipefail
 
-if [[ $(basename -- "$0") == gh ]]
-then
+if [[ $(basename -- "$0") == gh ]]; then
     method=GET
     endpoint=
     body=
     previous=
-    for argument in "$@"
-    do
-        if [[ ${previous} == --method ]]
-        then
+    for argument in "$@"; do
+        if [[ ${previous} == --method ]]; then
             method=${argument}
-        elif [[ ${argument} == orgs/* ]]
-        then
+        elif [[ ${argument} == orgs/* ]]; then
             endpoint=${argument}
         fi
         previous=${argument}
@@ -26,10 +22,8 @@ then
         printf '\n'
     } >> "${GH_TEST_LOG}"
     previous=
-    for argument in "$@"
-    do
-        if [[ ${previous} == --input && ${argument} == - ]]
-        then
+    for argument in "$@"; do
+        if [[ ${previous} == --input && ${argument} == - ]]; then
             body=$(jq --compact-output .)
             printf 'BODY\t%s\n' "${body}" >> "${GH_TEST_LOG}"
             break
@@ -37,12 +31,10 @@ then
         previous=${argument}
     done
 
-    if [[ ${endpoint} == 'orgs/reaver-project/code-security/configurations?per_page=100' ]]
-    then
+    if [[ ${endpoint} == 'orgs/reaver-project/code-security/configurations?per_page=100' ]]; then
         cat "${GH_TEST_CONFIGURATIONS}"
-    elif [[ ${method} == POST \
-        && ${endpoint} == 'orgs/reaver-project/code-security/configurations' ]]
-    then
+    elif [[ ${method} == POST &&
+        ${endpoint} == 'orgs/reaver-project/code-security/configurations' ]]; then
         printf '{"id":99}\n'
     fi
     exit
@@ -68,12 +60,11 @@ trap cleanup EXIT
 
 "${self_dir}/configure-organization" \
     "${self_dir}/organizations/reaver-project.json" \
-    >/dev/null
+    > /dev/null
 
 assert_log_contains()
 {
-    if ! grep --fixed-strings --quiet "$1" "${GH_TEST_LOG}"
-    then
+    if ! grep --fixed-strings --quiet "$1" "${GH_TEST_LOG}"; then
         printf 'Expected GitHub call log to contain: %s\n' "$1" >&2
         cat "${GH_TEST_LOG}" >&2
         exit 1
@@ -98,7 +89,7 @@ assert_log_contains $'BODY\t{"default_for_new_repos":"all"}'
 printf '[[]]\n' > "${GH_TEST_CONFIGURATIONS}"
 "${self_dir}/configure-organization" \
     "${self_dir}/organizations/reaver-project.json" \
-    >/dev/null
+    > /dev/null
 
 assert_log_contains $'POST\torgs/reaver-project/code-security/configurations\t--input\t-'
 assert_log_contains $'POST\torgs/reaver-project/code-security/configurations/99/attach'

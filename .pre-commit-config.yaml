@@ -29,6 +29,18 @@ repos:
     hooks:
       - id: shellcheck
 
+  - repo: https://github.com/scop/pre-commit-shfmt
+    rev: 05c1426671b9237fb5e1444dd63aa5731bec0dfb  # v3.13.1-1
+    hooks:
+      - id: shfmt
+        args:
+          - --write
+          - --indent
+          - '4'
+          - --case-indent
+          - --space-redirects
+          - --func-next-line
+
   - repo: https://github.com/aws-cloudformation/cfn-lint
     rev: f76cd1d1fa0291e97a7b6c7ea09531e02a53fdd3  # v1.54.0
     hooks:

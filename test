@@ -53,9 +53,8 @@ json_files=(
     github/repositories/infrastructure.json
     github/repositories/reaveros.json
 )
-for json_file in "${json_files[@]}"
-do
-    jq --exit-status . "${json_file}" >/dev/null
+for json_file in "${json_files[@]}"; do
+    jq --exit-status . "${json_file}" > /dev/null
 done
 
 python3 -m py_compile \

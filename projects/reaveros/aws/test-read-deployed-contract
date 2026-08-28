@@ -2,10 +2,8 @@
 
 set -euo pipefail
 
-if [[ $(basename -- "$0") == aws ]]
-then
-    if [[ $1 == cloudformation && $2 == describe-stacks ]]
-    then
+if [[ $(basename -- "$0") == aws ]]; then
+    if [[ $1 == cloudformation && $2 == describe-stacks ]]; then
         jq --null-input \
             --arg contract_version "${TEST_CONTRACT_VERSION:-1}" \
             '[
@@ -44,16 +42,15 @@ GITHUB_SHA=$(git -C "${self_dir}" rev-parse HEAD)
 : > "${GITHUB_OUTPUT}"
 
 "${self_dir}/read-deployed-contract"
-grep --fixed-strings --line-regexp 'contract_version=1' "${GITHUB_OUTPUT}" >/dev/null
+grep --fixed-strings --line-regexp 'contract_version=1' "${GITHUB_OUTPUT}" > /dev/null
 grep --fixed-strings --line-regexp \
-    "infrastructure_revision=${GITHUB_SHA}" "${GITHUB_OUTPUT}" >/dev/null
+    "infrastructure_revision=${GITHUB_SHA}" "${GITHUB_OUTPUT}" > /dev/null
 grep --fixed-strings --line-regexp \
     'runner_role_arn=arn:aws:iam::123456789012:role/reaveros-actions' \
-    "${GITHUB_OUTPUT}" >/dev/null
+    "${GITHUB_OUTPUT}" > /dev/null
 
 export TEST_CONTRACT_VERSION=2
-if "${self_dir}/read-deployed-contract" >/dev/null 2>&1
-then
+if "${self_dir}/read-deployed-contract" > /dev/null 2>&1; then
     printf 'A deployed contract that differs from its source was accepted.\n' >&2
     exit 1
 fi

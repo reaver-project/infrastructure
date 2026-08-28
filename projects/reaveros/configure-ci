@@ -19,8 +19,7 @@ usage()
         '    [--repository <owner/repository>]'
 }
 
-while [[ $# -gt 0 ]]
-do
+while [[ $# -gt 0 ]]; do
     case $1 in
         --contract-version)
             contract_version=$2
@@ -50,7 +49,7 @@ do
             stack_name=$2
             shift 2
             ;;
-        --help|-h)
+        --help | -h)
             usage
             exit 0
             ;;
@@ -61,14 +60,13 @@ do
     esac
 done
 
-if [[ ! ${contract_version} =~ ^[1-9][0-9]*$ \
-    || ! ${infrastructure_revision} =~ ^[0-9a-f]{40}$ \
-    || ! ${maintenance_app_slug} =~ ^[a-z0-9]+(-[a-z0-9]+)*$ \
-    || ! ${repository} =~ ^[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+$ \
-    || ! ${region} =~ ^[a-z]{2}(-[a-z]+)+-[0-9]+$ \
-    || ! ${stack_name} =~ ^[A-Za-z][-A-Za-z0-9]*$ \
-    || ! ${runner_role_arn} =~ ^arn:(aws|aws-us-gov|aws-cn):iam::[0-9]{12}:role/[A-Za-z0-9+=,.@_/-]+$ ]]
-then
+if [[ ! ${contract_version} =~ ^[1-9][0-9]*$ ||
+    ! ${infrastructure_revision} =~ ^[0-9a-f]{40}$ ||
+    ! ${maintenance_app_slug} =~ ^[a-z0-9]+(-[a-z0-9]+)*$ ||
+    ! ${repository} =~ ^[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+$ ||
+    ! ${region} =~ ^[a-z]{2}(-[a-z]+)+-[0-9]+$ ||
+    ! ${stack_name} =~ ^[A-Za-z][-A-Za-z0-9]*$ ||
+    ! ${runner_role_arn} =~ ^arn:(aws|aws-us-gov|aws-cn):iam::[0-9]{12}:role/[A-Za-z0-9+=,.@_/-]+$ ]]; then
     usage >&2
     exit 2
 fi

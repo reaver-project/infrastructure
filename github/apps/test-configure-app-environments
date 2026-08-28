@@ -2,18 +2,15 @@
 
 set -euo pipefail
 
-if [[ $(basename -- "$0") == gh ]]
-then
+if [[ $(basename -- "$0") == gh ]]; then
     {
         printf 'gh'
         printf '\t%s' "$@"
         printf '\n'
     } >> "${APP_TEST_LOG}"
-    if [[ $1 == secret && $2 == set ]]
-    then
+    if [[ $1 == secret && $2 == set ]]; then
         secret=$(cat)
-        if [[ ${secret} != test-private-key ]]
-        then
+        if [[ ${secret} != test-private-key ]]; then
             printf 'Unexpected private key on standard input.\n' >&2
             exit 1
         fi
@@ -44,22 +41,21 @@ trap cleanup EXIT
 "${self_dir}/configure-infrastructure-app" \
     --credentials - \
     < "${credentials}" \
-    >/dev/null
+    > /dev/null
 "${self_dir}/configure-maintenance-app" \
     --credentials - \
     < "${credentials}" \
-    >/dev/null
+    > /dev/null
 "${self_dir}/configure-maintenance-app" \
     --credentials - \
     --environment github-production \
     --repository reaver-project/infrastructure \
     < "${credentials}" \
-    >/dev/null
+    > /dev/null
 
 assert_log_contains()
 {
-    if ! grep --fixed-strings --quiet "$1" "${APP_TEST_LOG}"
-    then
+    if ! grep --fixed-strings --quiet "$1" "${APP_TEST_LOG}"; then
         printf 'Expected App configuration log to contain: %s\n' "$1" >&2
         cat "${APP_TEST_LOG}" >&2
         exit 1

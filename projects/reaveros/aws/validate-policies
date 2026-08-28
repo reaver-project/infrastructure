@@ -7,8 +7,7 @@ usage()
     printf 'usage: %s <cloudformation-template>\n' "$0"
 }
 
-if [[ $# -ne 1 ]]
-then
+if [[ $# -ne 1 ]]; then
     usage >&2
     exit 2
 fi
@@ -20,10 +19,8 @@ required_environment=(
     AWS_REGION
     AWS_RUNNER_ROLE_PERMISSIONS_BOUNDARY_ARN
 )
-for variable in "${required_environment[@]}"
-do
-    if [[ -z ${!variable:-} ]]
-    then
+for variable in "${required_environment[@]}"; do
+    if [[ -z ${!variable:-} ]]; then
         printf 'Required environment variable is not set: %s\n' "${variable}" >&2
         exit 2
     fi
@@ -33,7 +30,7 @@ cfn-policy-validator validate \
     --template-path "$1" \
     --region "${AWS_REGION}" \
     --parameters \
-        "BudgetNotificationEmail=${AWS_BUDGET_NOTIFICATION_EMAIL}" \
-        "GitHubOidcProviderArn=${AWS_GITHUB_OIDC_PROVIDER_ARN}" \
-        "GitHubRunnerGroupId=${AWS_GITHUB_RUNNER_GROUP_ID}" \
-        "RunnerRolePermissionsBoundaryArn=${AWS_RUNNER_ROLE_PERMISSIONS_BOUNDARY_ARN}"
+    "BudgetNotificationEmail=${AWS_BUDGET_NOTIFICATION_EMAIL}" \
+    "GitHubOidcProviderArn=${AWS_GITHUB_OIDC_PROVIDER_ARN}" \
+    "GitHubRunnerGroupId=${AWS_GITHUB_RUNNER_GROUP_ID}" \
+    "RunnerRolePermissionsBoundaryArn=${AWS_RUNNER_ROLE_PERMISSIONS_BOUNDARY_ARN}"

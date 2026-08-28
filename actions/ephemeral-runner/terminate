@@ -2,17 +2,14 @@
 
 set -euo pipefail
 
-for required_variable in AWS_REGION CONTROL_FUNCTION INSTANCE_ID
-do
-    if [[ -z ${!required_variable:-} ]]
-    then
+for required_variable in AWS_REGION CONTROL_FUNCTION INSTANCE_ID; do
+    if [[ -z ${!required_variable:-} ]]; then
         printf '%s must be set.\n' "${required_variable}" >&2
         exit 2
     fi
 done
 
-if [[ ! ${INSTANCE_ID} =~ ^i-[0-9a-f]+$ ]]
-then
+if [[ ! ${INSTANCE_ID} =~ ^i-[0-9a-f]+$ ]]; then
     printf 'Invalid runner cleanup request.\n' >&2
     exit 2
 fi
@@ -38,8 +35,7 @@ invocation=$(aws lambda invoke \
     --payload "${payload}" \
     "${invocation_result}" \
     --output json)
-if jq --exit-status '.FunctionError' <<<"${invocation}" >/dev/null
-then
+if jq --exit-status '.FunctionError' <<< "${invocation}" > /dev/null; then
     jq . "${invocation_result}" >&2
     exit 1
 fi

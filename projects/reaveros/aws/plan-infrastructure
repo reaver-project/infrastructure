@@ -2,8 +2,7 @@
 
 set -euo pipefail
 
-if [[ $# -ne 2 || -z ${GITHUB_OUTPUT:-} || -z ${GITHUB_STEP_SUMMARY:-} ]]
-then
+if [[ $# -ne 2 || -z ${GITHUB_OUTPUT:-} || -z ${GITHUB_STEP_SUMMARY:-} ]]; then
     printf 'usage: %s <template> <change-set-name>\n' "$0" >&2
     exit 2
 fi
@@ -27,24 +26,20 @@ required_environment=(
     GITHUB_SHA
 )
 
-for environment_variable in "${required_environment[@]}"
-do
-    if [[ -z ${!environment_variable:-} ]]
-    then
+for environment_variable in "${required_environment[@]}"; do
+    if [[ -z ${!environment_variable:-} ]]; then
         printf 'Required environment variable is empty: %s\n' "${environment_variable}" >&2
         exit 2
     fi
 done
 
-if [[ ! -f ${template} ]]
-then
+if [[ ! -f ${template} ]]; then
     printf 'CloudFormation template does not exist: %s\n' "${template}" >&2
     exit 1
 fi
 
-if [[ ! ${change_set_name} =~ ^[a-zA-Z][-a-zA-Z0-9]*-[0-9]+-[0-9]+$ \
-    || ${change_set_name} != "${AWS_RUNNER_STACK_NAME}-"* ]]
-then
+if [[ ! ${change_set_name} =~ ^[a-zA-Z][-a-zA-Z0-9]*-[0-9]+-[0-9]+$ ||
+    ${change_set_name} != "${AWS_RUNNER_STACK_NAME}-"* ]]; then
     printf 'Invalid change-set name: %s\n' "${change_set_name}" >&2
     exit 2
 fi
@@ -64,24 +59,21 @@ aws cloudformation package \
     --s3-bucket "${AWS_DEPLOYMENT_ARTIFACT_BUCKET}" \
     --s3-prefix "${AWS_RUNNER_STACK_NAME}" \
     --output-template-file "${packaged_template}" \
-    >/dev/null
+    > /dev/null
 
 if stack=$(aws cloudformation describe-stacks \
     --region "${AWS_REGION}" \
     --stack-name "${AWS_RUNNER_STACK_NAME}" \
     --output json \
-    2>"${describe_error}")
-then
-    stack_status=$(jq --exit-status --raw-output '.Stacks[0].StackStatus' <<<"${stack}")
-    if [[ ${stack_status} == REVIEW_IN_PROGRESS ]]
-    then
+    2> "${describe_error}"); then
+    stack_status=$(jq --exit-status --raw-output '.Stacks[0].StackStatus' <<< "${stack}")
+    if [[ ${stack_status} == REVIEW_IN_PROGRESS ]]; then
         change_set_type=CREATE
     else
         change_set_type=UPDATE
     fi
 else
-    if ! grep --fixed-strings --quiet 'does not exist' "${describe_error}"
-    then
+    if ! grep --fixed-strings --quiet 'does not exist' "${describe_error}"; then
         cat "${describe_error}" >&2
         exit 1
     fi
@@ -96,18 +88,16 @@ parameters=(
     "ParameterKey=RunnerRolePermissionsBoundaryArn,ParameterValue=${AWS_RUNNER_ROLE_PERMISSIONS_BOUNDARY_ARN}"
 )
 
-if [[ ${change_set_type} == UPDATE ]]
-then
-    while read -r parameter
-    do
+if [[ ${change_set_type} == UPDATE ]]; then
+    while read -r parameter; do
         case ${parameter} in
-            BudgetNotificationEmail|GitHubOidcProviderArn|GitHubRunnerGroupId|RunnerRolePermissionsBoundaryArn)
+            BudgetNotificationEmail | GitHubOidcProviderArn | GitHubRunnerGroupId | RunnerRolePermissionsBoundaryArn)
                 ;;
             *)
                 parameters+=("ParameterKey=${parameter},UsePreviousValue=true")
                 ;;
         esac
-    done < <(jq --raw-output '.Stacks[0].Parameters[].ParameterKey' <<<"${stack}")
+    done < <(jq --raw-output '.Stacks[0].Parameters[].ParameterKey' <<< "${stack}")
 fi
 
 create_arguments=(
@@ -123,30 +113,29 @@ create_arguments=(
     --tags "Key=Project,Value=ReaverOS"
 )
 
-if [[ ${change_set_type} == CREATE ]]
-then
+if [[ ${change_set_type} == CREATE ]]; then
     create_arguments+=(--on-stack-failure DELETE)
 fi
 
-aws cloudformation create-change-set "${create_arguments[@]}" >/dev/null
+aws cloudformation create-change-set "${create_arguments[@]}" > /dev/null
 
 if ! aws cloudformation wait change-set-create-complete \
     --region "${AWS_REGION}" \
     --stack-name "${AWS_RUNNER_STACK_NAME}" \
-    --change-set-name "${change_set_name}"
-then
+    --change-set-name "${change_set_name}"; then
     change_set=$(aws cloudformation describe-change-set \
         --region "${AWS_REGION}" \
         --stack-name "${AWS_RUNNER_STACK_NAME}" \
         --change-set-name "${change_set_name}" \
         --output json)
-    status=$(jq --raw-output '.Status' <<<"${change_set}")
-    reason=$(jq --raw-output '.StatusReason // ""' <<<"${change_set}")
-    if [[ ${status} == FAILED ]] \
-        && { [[ ${reason} == *"didn't contain changes"* ]] \
-            || [[ ${reason} == *"did not contain changes"* ]] \
-            || [[ ${reason} == *"No updates are to be performed"* ]]; }
-    then
+    status=$(jq --raw-output '.Status' <<< "${change_set}")
+    reason=$(jq --raw-output '.StatusReason // ""' <<< "${change_set}")
+    if [[ ${status} == FAILED ]] &&
+        {
+            [[ ${reason} == *"didn't contain changes"* ]] ||
+                [[ ${reason} == *"did not contain changes"* ]] ||
+                [[ ${reason} == *"No updates are to be performed"* ]]
+        }; then
         aws cloudformation delete-change-set \
             --region "${AWS_REGION}" \
             --stack-name "${AWS_RUNNER_STACK_NAME}" \
@@ -166,8 +155,8 @@ change_set=$(aws cloudformation describe-change-set \
     --stack-name "${AWS_RUNNER_STACK_NAME}" \
     --change-set-name "${change_set_name}" \
     --output json)
-change_set_arn=$(jq --exit-status --raw-output '.ChangeSetId' <<<"${change_set}")
-contract_version=$(<"${self_dir}/../infrastructure-contract-version")
+change_set_arn=$(jq --exit-status --raw-output '.ChangeSetId' <<< "${change_set}")
+contract_version=$(< "${self_dir}/../infrastructure-contract-version")
 plan_key=$("${self_dir}/plan-key" \
     "${GITHUB_REPOSITORY}" \
     "${GITHUB_SHA}" \
@@ -201,14 +190,13 @@ if ! aws s3api put-object \
     --body "${plan_record}" \
     --content-type application/json \
     --if-none-match '*' \
-    >/dev/null 2>&1
-then
+    > /dev/null 2>&1; then
     aws cloudformation delete-change-set \
         --region "${AWS_REGION}" \
         --stack-name "${AWS_RUNNER_STACK_NAME}" \
         --change-set-name "${change_set_name}" \
-        >/dev/null 2>&1 \
-        || true
+        > /dev/null 2>&1 ||
+        true
     printf 'Could not preserve the private deployment plan.\n' >&2
     exit 1
 fi

@@ -16,8 +16,7 @@ usage()
         '    --private-key-secret <name>'
 }
 
-while [[ $# -gt 0 ]]
-do
+while [[ $# -gt 0 ]]; do
     case $1 in
         --app-id-variable)
             app_id_variable=$2
@@ -39,7 +38,7 @@ do
             repository=$2
             shift 2
             ;;
-        --help|-h)
+        --help | -h)
             usage
             exit 0
             ;;
@@ -50,12 +49,11 @@ do
     esac
 done
 
-if [[ ${credentials} != - \
-    || ! ${repository} =~ ^[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+$ \
-    || ! ${environment} =~ ^[A-Za-z0-9_.-]+$ \
-    || ! ${app_id_variable} =~ ^[A-Z][A-Z0-9_]*$ \
-    || ! ${private_key_secret} =~ ^[A-Z][A-Z0-9_]*$ ]]
-then
+if [[ ${credentials} != - ||
+    ! ${repository} =~ ^[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+$ ||
+    ! ${environment} =~ ^[A-Za-z0-9_.-]+$ ||
+    ! ${app_id_variable} =~ ^[A-Z][A-Z0-9_]*$ ||
+    ! ${private_key_secret} =~ ^[A-Z][A-Z0-9_]*$ ]]; then
     printf 'Invalid App environment configuration.\n' >&2
     usage >&2
     exit 2
@@ -63,12 +61,11 @@ fi
 
 credentials_json=$(cat)
 app_id=$(jq --exit-status --raw-output \
-    '.id | select(type == "number")' <<<"${credentials_json}")
+    '.id | select(type == "number")' <<< "${credentials_json}")
 private_key=$(jq --exit-status --raw-output \
-    '.pem | select(type == "string" and length > 0)' <<<"${credentials_json}")
+    '.pem | select(type == "string" and length > 0)' <<< "${credentials_json}")
 
-if ! gh api "repos/${repository}/environments/${environment}" >/dev/null
-then
+if ! gh api "repos/${repository}/environments/${environment}" > /dev/null; then
     printf '%s\n' \
         "Environment ${environment} does not exist in ${repository}." \
         'Converge its repository configuration before installing App credentials.' >&2
@@ -79,8 +76,8 @@ gh variable set "${app_id_variable}" \
     --repo "${repository}" \
     --env "${environment}" \
     --body "${app_id}"
-printf '%s' "${private_key}" \
-    | gh secret set "${private_key_secret}" \
+printf '%s' "${private_key}" |
+    gh secret set "${private_key_secret}" \
         --repo "${repository}" \
         --env "${environment}"
 

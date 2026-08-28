@@ -2,25 +2,22 @@
 
 set -euo pipefail
 
-if [[ $(basename -- "$0") == aws ]]
-then
+if [[ $(basename -- "$0") == aws ]]; then
     {
         printf 'aws'
         printf '\t%s' "$@"
         printf '\n'
     } >> "${RUNNER_APP_TEST_LOG}"
 
-    if [[ $1 == cloudformation && $2 == describe-stacks ]]
-    then
+    if [[ $1 == cloudformation && $2 == describe-stacks ]]; then
         printf 'runner-app-secret\n'
-    elif [[ $1 == secretsmanager && $2 == put-secret-value ]]
-    then
+    elif [[ $1 == secretsmanager && $2 == put-secret-value ]]; then
         secret=$(cat)
         jq --exit-status '
             .app_id == "1234"
                 and .installation_id == "5678"
                 and .private_key == "test-private-key"
-        ' <<<"${secret}" >/dev/null
+        ' <<< "${secret}" > /dev/null
     fi
     exit
 fi
@@ -42,21 +39,19 @@ trap cleanup EXIT
 jq --null-input \
     --argjson id 1234 \
     --arg pem test-private-key \
-    '{id: $id, pem: $pem}' \
-    | "${self_dir}/configure-runner-app" \
+    '{id: $id, pem: $pem}' |
+    "${self_dir}/configure-runner-app" \
         --credentials - \
         --installation-id 5678 \
-        >/dev/null
+        > /dev/null
 
-if grep --fixed-strings --quiet test-private-key "${RUNNER_APP_TEST_LOG}"
-then
+if grep --fixed-strings --quiet test-private-key "${RUNNER_APP_TEST_LOG}"; then
     printf 'The runner App private key leaked into an AWS argument.\n' >&2
     exit 1
 fi
 if ! grep --fixed-strings --quiet \
     $'aws\tsecretsmanager\tput-secret-value\t--region\tus-west-2\t--secret-id\trunner-app-secret\t--secret-string\tfile:///dev/stdin' \
-    "${RUNNER_APP_TEST_LOG}"
-then
+    "${RUNNER_APP_TEST_LOG}"; then
     printf 'Runner App credentials were not streamed to Secrets Manager.\n' >&2
     cat "${RUNNER_APP_TEST_LOG}" >&2
     exit 1

@@ -2,9 +2,8 @@
 
 set -euo pipefail
 
-if [[ $# -ne 1 || -z ${AWS_REGION:-} || -z ${AWS_RUNNER_STACK_NAME:-} \
-    || -z ${GITHUB_SHA:-} || -z ${GITHUB_STEP_SUMMARY:-} ]]
-then
+if [[ $# -ne 1 || -z ${AWS_REGION:-} || -z ${AWS_RUNNER_STACK_NAME:-} ||
+    -z ${GITHUB_SHA:-} || -z ${GITHUB_STEP_SUMMARY:-} ]]; then
     printf 'usage: %s <change-set-arn>\n' "$0" >&2
     exit 2
 fi
@@ -14,15 +13,14 @@ if ! change_set=$(aws cloudformation describe-change-set \
     --region "${AWS_REGION}" \
     --change-set-name "${change_set_arn}" \
     --output json \
-    2>/dev/null)
-then
+    2> /dev/null); then
     printf 'Could not read the private CloudFormation change set.\n' >&2
     exit 1
 fi
 
-stack_name=$(jq --exit-status --raw-output '.StackName' <<<"${change_set}")
-change_set_name=$(jq --exit-status --raw-output '.ChangeSetName' <<<"${change_set}")
-on_stack_failure=$(jq --raw-output '.OnStackFailure // empty' <<<"${change_set}")
+stack_name=$(jq --exit-status --raw-output '.StackName' <<< "${change_set}")
+change_set_name=$(jq --exit-status --raw-output '.ChangeSetName' <<< "${change_set}")
+on_stack_failure=$(jq --raw-output '.OnStackFailure // empty' <<< "${change_set}")
 case ${on_stack_failure} in
     DELETE)
         change_set_type=CREATE
@@ -31,20 +29,19 @@ case ${on_stack_failure} in
         change_set_type=UPDATE
         ;;
     *)
-        printf 'Refusing a change set with unexpected failure behavior.\n' >&2
+        printf 'Refusing a private change set with unexpected failure behavior.\n' >&2
         exit 1
         ;;
 esac
-status=$(jq --exit-status --raw-output '.Status' <<<"${change_set}")
-execution_status=$(jq --exit-status --raw-output '.ExecutionStatus' <<<"${change_set}")
-description=$(jq --exit-status --raw-output '.Description' <<<"${change_set}")
+status=$(jq --exit-status --raw-output '.Status' <<< "${change_set}")
+execution_status=$(jq --exit-status --raw-output '.ExecutionStatus' <<< "${change_set}")
+description=$(jq --exit-status --raw-output '.Description' <<< "${change_set}")
 
-if [[ ${stack_name} != "${AWS_RUNNER_STACK_NAME}" \
-    || ${change_set_name} != "${AWS_RUNNER_STACK_NAME}-"* \
-    || ${status} != CREATE_COMPLETE \
-    || ${execution_status} != AVAILABLE \
-    || ${description} != "GitHub infrastructure revision ${GITHUB_SHA}; "* ]]
-then
+if [[ ${stack_name} != "${AWS_RUNNER_STACK_NAME}" ||
+    ${change_set_name} != "${AWS_RUNNER_STACK_NAME}-"* ||
+    ${status} != CREATE_COMPLETE ||
+    ${execution_status} != AVAILABLE ||
+    ${description} != "GitHub infrastructure revision ${GITHUB_SHA}; "* ]]; then
     printf 'Refusing an unexpected private CloudFormation change set.\n' >&2
     exit 1
 fi
@@ -54,7 +51,7 @@ aws cloudformation execute-change-set \
     --stack-name "${AWS_RUNNER_STACK_NAME}" \
     --change-set-name "${change_set_arn}" \
     --client-request-token "github-${GITHUB_RUN_ID:-unknown}-${GITHUB_RUN_ATTEMPT:-unknown}" \
-    >/dev/null
+    > /dev/null
 
 case ${change_set_type} in
     CREATE)
@@ -67,8 +64,7 @@ esac
 
 if ! aws cloudformation wait "${waiter}" \
     --region "${AWS_REGION}" \
-    --stack-name "${AWS_RUNNER_STACK_NAME}"
-then
+    --stack-name "${AWS_RUNNER_STACK_NAME}"; then
     printf 'CloudFormation deployment failed; inspect the private stack events in AWS.\n' \
         >&2
     exit 1

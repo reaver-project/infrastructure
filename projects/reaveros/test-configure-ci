@@ -2,8 +2,7 @@
 
 set -euo pipefail
 
-if [[ $(basename -- "$0") == gh ]]
-then
+if [[ $(basename -- "$0") == gh ]]; then
     {
         printf 'gh'
         printf '\t%s' "$@"
@@ -33,12 +32,11 @@ trap cleanup EXIT
     --region us-west-2 \
     --runner-role-arn arn:aws:iam::123456789012:role/reaveros-github-runners-actions \
     --stack-name reaveros-github-runners \
-    >/dev/null
+    > /dev/null
 
 assert_log_contains()
 {
-    if ! grep --fixed-strings --quiet "$1" "${CONFIGURE_CI_TEST_LOG}"
-    then
+    if ! grep --fixed-strings --quiet "$1" "${CONFIGURE_CI_TEST_LOG}"; then
         printf 'Expected ReaverOS configuration log to contain: %s\n' "$1" >&2
         cat "${CONFIGURE_CI_TEST_LOG}" >&2
         exit 1
@@ -59,8 +57,7 @@ if "${self_dir}/configure-ci" \
     --region not-a-region \
     --runner-role-arn arn:aws:iam::123456789012:role/reaveros \
     --stack-name reaveros-github-runners \
-    >/dev/null 2>&1
-then
+    > /dev/null 2>&1; then
     printf 'An invalid AWS region was accepted.\n' >&2
     exit 1
 fi

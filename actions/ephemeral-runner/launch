@@ -11,19 +11,16 @@ for required_variable in \
     GITHUB_RUN_ID \
     RUNNER_KEY \
     RUNNER_PROFILE \
-    RUNNER_SIZE
-do
-    if [[ -z ${!required_variable:-} ]]
-    then
+    RUNNER_SIZE; do
+    if [[ -z ${!required_variable:-} ]]; then
         printf '%s must be set.\n' "${required_variable}" >&2
         exit 2
     fi
 done
 
-if [[ ! ${RUNNER_KEY} =~ ^[a-z0-9-]{1,48}$ \
-    || ! ${RUNNER_SIZE} =~ ^(medium|large)$ \
-    || ! ${RUNNER_PROFILE} =~ ^(builder|validation)$ ]]
-then
+if [[ ! ${RUNNER_KEY} =~ ^[a-z0-9-]{1,48}$ ||
+    ! ${RUNNER_SIZE} =~ ^(medium|large)$ ||
+    ! ${RUNNER_PROFILE} =~ ^(builder|validation)$ ]]; then
     printf 'Invalid runner request: key=%s size=%s profile=%s\n' \
         "${RUNNER_KEY}" "${RUNNER_SIZE}" "${RUNNER_PROFILE}" >&2
     exit 2
@@ -42,12 +39,10 @@ invoke_controller()
         --cli-binary-format raw-in-base64-out \
         --payload "${payload}" \
         "${invocation_result}" \
-        --output json)
-    then
+        --output json); then
         return 1
     fi
-    if jq --exit-status '.FunctionError' <<<"${invocation}" >/dev/null
-    then
+    if jq --exit-status '.FunctionError' <<< "${invocation}" > /dev/null; then
         jq . "${invocation_result}" >&2
         return 1
     fi
@@ -56,8 +51,7 @@ invoke_controller()
 cleanup()
 {
     local status=$?
-    if [[ ${status} -ne 0 && -n ${instance_id} ]]
-    then
+    if [[ ${status} -ne 0 && -n ${instance_id} ]]; then
         invoke_controller "$(jq --null-input --compact-output \
             --arg instance_id "${instance_id}" \
             '{
@@ -93,21 +87,18 @@ labels=$(jq --exit-status --compact-output '.labels' "${invocation_result}")
 runner_name=$(jq --exit-status --raw-output '.runner_name' "${invocation_result}")
 
 deadline=$((SECONDS + 1200))
-while (( SECONDS < deadline ))
-do
+while ((SECONDS < deadline)); do
     status_payload=$(jq --null-input --compact-output \
         --arg runner_name "${runner_name}" \
         '{action: "status", runner_name: $runner_name}')
-    if invoke_controller "${status_payload}" \
-        && jq --exit-status '.online == true' "${invocation_result}" >/dev/null
-    then
+    if invoke_controller "${status_payload}" &&
+        jq --exit-status '.online == true' "${invocation_result}" > /dev/null; then
         break
     fi
     sleep 10
 done
 
-if (( SECONDS >= deadline ))
-then
+if ((SECONDS >= deadline)); then
     printf 'Runner %s did not come online within 20 minutes.\n' "${runner_name}" >&2
     exit 1
 fi

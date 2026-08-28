@@ -2,8 +2,7 @@
 
 set -euo pipefail
 
-if [[ $# -ne 1 || ! -f $1 ]]
-then
+if [[ $# -ne 1 || ! -f $1 ]]; then
     printf 'usage: %s <organization-config.json>\n' "$0" >&2
     exit 2
 fi
@@ -32,85 +31,83 @@ converge_code_security()
         "orgs/${organization}/code-security/configurations?per_page=100")
     configuration_ids=$(jq --compact-output --arg name "${configuration_name}" \
         '[.[][] | select(.target_type == "organization" and .name == $name) | .id]' \
-        <<<"${configuration_pages}")
-    match_count=$(jq 'length' <<<"${configuration_ids}")
+        <<< "${configuration_pages}")
+    match_count=$(jq 'length' <<< "${configuration_ids}")
 
-    if (( match_count > 1 ))
-    then
+    if ((match_count > 1)); then
         printf 'Multiple code security configurations are named %s.\n' \
             "${configuration_name}" >&2
         exit 1
-    elif (( match_count == 1 ))
-    then
+    elif ((match_count == 1)); then
         configuration_id=$(jq --exit-status --raw-output '.[0]' \
-            <<<"${configuration_ids}")
-        printf '%s\n' "${configuration_body}" \
-            | github_api --method PATCH \
+            <<< "${configuration_ids}")
+        printf '%s\n' "${configuration_body}" |
+            github_api --method PATCH \
                 "orgs/${organization}/code-security/configurations/${configuration_id}" \
                 --input - \
-                >/dev/null
+                > /dev/null
     else
-        configuration_id=$(printf '%s\n' "${configuration_body}" \
-            | github_api --method POST \
+        configuration_id=$(printf '%s\n' "${configuration_body}" |
+            github_api --method POST \
                 "orgs/${organization}/code-security/configurations" \
-                --input - \
-            | jq --exit-status --raw-output '.id | select(type == "number")')
+                --input - |
+            jq --exit-status --raw-output '.id | select(type == "number")')
     fi
 
     jq --compact-output '.code_security | {scope: .attachment_scope}' \
-        "${configuration}" \
-        | github_api --method POST \
+        "${configuration}" |
+        github_api --method POST \
             "orgs/${organization}/code-security/configurations/${configuration_id}/attach" \
             --input - \
-            >/dev/null
+            > /dev/null
 
     jq --compact-output \
         '.code_security | {default_for_new_repos: .default_for_new_repositories}' \
-        "${configuration}" \
-        | github_api --method PUT \
+        "${configuration}" |
+        github_api --method PUT \
             "orgs/${organization}/code-security/configurations/${configuration_id}/defaults" \
             --input - \
-            >/dev/null
+            > /dev/null
 }
 
-jq --compact-output '.profile' "${configuration}" \
-    | github_api --method PATCH "orgs/${organization}" --input - >/dev/null
+jq --compact-output '.profile' "${configuration}" |
+    github_api --method PATCH "orgs/${organization}" --input - > /dev/null
 
 jq --compact-output '.actions | {
     enabled_repositories,
     allowed_actions,
     sha_pinning_required
-}' "${configuration}" \
-    | github_api --method PUT \
+}' "${configuration}" |
+    github_api --method PUT \
         "orgs/${organization}/actions/permissions" \
         --input - \
-        >/dev/null
+        > /dev/null
 
 jq --compact-output '.actions | {
     github_owned_allowed,
     verified_allowed,
     patterns_allowed
-}' "${configuration}" \
-    | github_api --method PUT \
+}' "${configuration}" |
+    github_api --method PUT \
         "orgs/${organization}/actions/permissions/selected-actions" \
         --input - \
-        >/dev/null
+        > /dev/null
 
 jq --compact-output '.actions | {
     default_workflow_permissions,
     can_approve_pull_request_reviews
-}' "${configuration}" \
-    | github_api --method PUT \
+}' "${configuration}" |
+    github_api --method PUT \
         "orgs/${organization}/actions/permissions/workflow" \
         --input - \
-        >/dev/null
+        > /dev/null
 
 jq --compact-output '.actions | {days: .artifact_and_log_retention_days}' \
-    "${configuration}" \
-    | github_api --method PUT \
+    "${configuration}" |
+    github_api --method PUT \
         "orgs/${organization}/actions/permissions/artifact-and-log-retention" \
         --input - \
-        >/dev/null
+        > /dev/null
 
 converge_code_security
 

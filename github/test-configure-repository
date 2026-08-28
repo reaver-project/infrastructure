@@ -2,31 +2,25 @@
 
 set -euo pipefail
 
-if [[ $(basename -- "$0") == gh ]]
-then
+if [[ $(basename -- "$0") == gh ]]; then
     {
         printf 'CALL'
         printf '\t%s' "$@"
         printf '\n'
     } >> "${GH_TEST_LOG}"
     previous=
-    for argument in "$@"
-    do
-        if [[ ${previous} == --input && ${argument} == - ]]
-        then
+    for argument in "$@"; do
+        if [[ ${previous} == --input && ${argument} == - ]]; then
             printf 'BODY\t%s\n' "$(jq --compact-output .)" >> "${GH_TEST_LOG}"
             break
         fi
         previous=${argument}
     done
-    if [[ " $* " == *' orgs/reaver-project/teams/infrastructure-maintainers '* ]]
-    then
+    if [[ " $* " == *' orgs/reaver-project/teams/infrastructure-maintainers '* ]]; then
         printf '314159\n'
-    elif [[ " $* " == *' repos/reaver-project/infrastructure/rulesets?includes_parents=false '* ]]
-    then
+    elif [[ " $* " == *' repos/reaver-project/infrastructure/rulesets?includes_parents=false '* ]]; then
         printf '17\tprotect-default-branch\n'
-    elif [[ " $* " == *'/deployment-branch-policies '* ]]
-    then
+    elif [[ " $* " == *'/deployment-branch-policies '* ]]; then
         printf '21\tmain\tbranch\n'
         printf '22\tstale\tbranch\n'
     fi
@@ -54,8 +48,7 @@ trap cleanup EXIT
 
 assert_log_contains()
 {
-    if ! grep --fixed-strings --quiet "$1" "${GH_TEST_LOG}"
-    then
+    if ! grep --fixed-strings --quiet "$1" "${GH_TEST_LOG}"; then
         printf 'Expected GitHub call log to contain: %s\n' "$1" >&2
         cat "${GH_TEST_LOG}" >&2
         exit 1
@@ -87,16 +80,14 @@ assert_log_contains $'BODY\t{"use_default":false,"use_immutable_subject":false,"
 
 if grep --fixed-strings --quiet \
     'repos/reaver-project/infrastructure/actions/permissions/access' \
-    "${GH_TEST_LOG}"
-then
+    "${GH_TEST_LOG}"; then
     printf 'Public repositories must not configure private action access.\n' >&2
     exit 1
 fi
 
 if grep --extended-regexp --quiet \
     $'CALL.*--method\t(POST|PUT|PATCH|DELETE).*orgs/reaver-project/teams' \
-    "${GH_TEST_LOG}"
-then
+    "${GH_TEST_LOG}"; then
     printf 'Repository convergence must not manage the external reviewer team.\n' >&2
     exit 1
 fi
@@ -110,9 +101,8 @@ first_infrastructure_ruleset=$(grep --line-number --fixed-strings \
 first_publication=$(grep --line-number --fixed-strings \
     $'BODY\t{"visibility":"public"}' \
     "${GH_TEST_LOG}" | head -n 1 | cut -d: -f1)
-if (( first_infrastructure_profile >= first_infrastructure_ruleset \
-    || first_infrastructure_ruleset >= first_publication ))
-then
+if ((first_infrastructure_profile >= first_infrastructure_ruleset || \
+    first_infrastructure_ruleset >= first_publication)); then
     printf 'Repository publication must follow protection configuration.\n' >&2
     exit 1
 fi

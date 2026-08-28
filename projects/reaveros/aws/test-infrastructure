@@ -10,35 +10,29 @@ mock_aws()
         printf '\n'
     } >> "${AWS_TEST_LOG}"
 
-    if [[ $1 == s3api ]]
-    then
+    if [[ $1 == s3api ]]; then
         case $2 in
             put-object)
-                if [[ ${AWS_TEST_CASE} == plan-storage-conflict ]]
-                then
+                if [[ ${AWS_TEST_CASE} == plan-storage-conflict ]]; then
                     exit 254
                 fi
                 body=
                 previous=
-                for argument in "$@"
-                do
-                    if [[ ${previous} == --body ]]
-                    then
+                for argument in "$@"; do
+                    if [[ ${previous} == --body ]]; then
                         body=${argument}
                         break
                     fi
                     previous=${argument}
                 done
-                if [[ -z ${body} ]]
-                then
+                if [[ -z ${body} ]]; then
                     printf 'Mock put-object call omitted --body.\n' >&2
                     exit 2
                 fi
                 cp "${body}" "${AWS_TEST_PLAN_RECORD}"
                 ;;
             get-object)
-                if [[ ${AWS_TEST_CASE} == read-plan-missing ]]
-                then
+                if [[ ${AWS_TEST_CASE} == read-plan-missing ]]; then
                     exit 254
                 fi
                 destination=${!#}
@@ -52,8 +46,7 @@ mock_aws()
         return
     fi
 
-    if [[ $1 != cloudformation ]]
-    then
+    if [[ $1 != cloudformation ]]; then
         printf 'Unexpected AWS service: %s\n' "$1" >&2
         exit 2
     fi
@@ -62,17 +55,14 @@ mock_aws()
         package)
             output_template=
             previous=
-            for argument in "$@"
-            do
-                if [[ ${previous} == --output-template-file ]]
-                then
+            for argument in "$@"; do
+                if [[ ${previous} == --output-template-file ]]; then
                     output_template=${argument}
                     break
                 fi
                 previous=${argument}
             done
-            if [[ -z ${output_template} ]]
-            then
+            if [[ -z ${output_template} ]]; then
                 printf 'Mock package call omitted --output-template-file.\n' >&2
                 exit 2
             fi
@@ -91,8 +81,7 @@ mock_aws()
                     ;;
                 *)
                     stack_status=UPDATE_COMPLETE
-                    if [[ ${AWS_TEST_CASE} == plan-review ]]
-                    then
+                    if [[ ${AWS_TEST_CASE} == plan-review ]]; then
                         stack_status=REVIEW_IN_PROGRESS
                     fi
                     jq --null-input --arg stack_status "${stack_status}" '{
@@ -112,9 +101,8 @@ mock_aws()
         create-change-set)
             ;;
         wait)
-            if [[ $3 == change-set-create-complete \
-                && ${AWS_TEST_CASE} == plan-no-changes ]]
-            then
+            if [[ $3 == change-set-create-complete &&
+                ${AWS_TEST_CASE} == plan-no-changes ]]; then
                 exit 255
             fi
             ;;
@@ -139,10 +127,9 @@ mock_aws()
                     ;;
                 *)
                     change_set_type=UPDATE
-                    if [[ ${AWS_TEST_CASE} == plan-create \
-                        || ${AWS_TEST_CASE} == plan-review \
-                        || ${AWS_TEST_CASE} == deploy-create ]]
-                    then
+                    if [[ ${AWS_TEST_CASE} == plan-create ||
+                        ${AWS_TEST_CASE} == plan-review ||
+                        ${AWS_TEST_CASE} == deploy-create ]]; then
                         change_set_type=CREATE
                     fi
                     jq --null-input \
@@ -167,7 +154,7 @@ mock_aws()
                     ;;
             esac
             ;;
-        delete-change-set|execute-change-set|describe-stack-events)
+        delete-change-set | execute-change-set | describe-stack-events)
             ;;
         *)
             printf 'Unexpected AWS CloudFormation command: %s\n' "$2" >&2
@@ -176,8 +163,7 @@ mock_aws()
     esac
 }
 
-if [[ $(basename -- "$0") == aws ]]
-then
+if [[ $(basename -- "$0") == aws ]]; then
     mock_aws "$@"
     exit
 fi
@@ -200,9 +186,8 @@ bootstrap_repository_name=$(parameter_default \
 runner_repository_name=$(parameter_default \
     "${self_dir}/runner-stack.yaml" \
     BuildEnvironmentRepositoryName)
-if [[ -z ${bootstrap_repository_name} \
-    || ${bootstrap_repository_name} != "${runner_repository_name}" ]]
-then
+if [[ -z ${bootstrap_repository_name} ||
+    ${bootstrap_repository_name} != "${runner_repository_name}" ]]; then
     printf 'Bootstrap and runner ECR repository names disagree: %s != %s\n' \
         "${bootstrap_repository_name}" \
         "${runner_repository_name}" >&2
@@ -211,59 +196,52 @@ fi
 
 if ! grep --fixed-strings --quiet \
     -- '- !Sub arn:${AWS::Partition}:ec2:${AWS::Region}:${AWS::AccountId}:volume/*' \
-    "${self_dir}/runner-stack.yaml"
-then
+    "${self_dir}/runner-stack.yaml"; then
     printf 'Runner controller cannot tag launch-template EBS volumes.\n' >&2
     exit 1
 fi
 
 if ! grep --fixed-strings --quiet \
     'RetentionInDays: 30' \
-    "${self_dir}/runner-stack.yaml"
-then
+    "${self_dir}/runner-stack.yaml"; then
     printf 'Runner controller log retention is not bounded.\n' >&2
     exit 1
 fi
 
 if [[ $(grep --fixed-strings --count \
     'AlarmActions:' \
-    "${self_dir}/runner-stack.yaml") -ne 4 ]]
-then
+    "${self_dir}/runner-stack.yaml") -ne 4 ]]; then
     printf 'Runner operational failures are not fully alarmed.\n' >&2
     exit 1
 fi
 
 if ! grep --fixed-strings --quiet \
     'Value: !Ref RunnerReaperSchedule' \
-    "${self_dir}/runner-stack.yaml"
-then
+    "${self_dir}/runner-stack.yaml"; then
     printf 'Runner reaper delivery failures are not alarmed.\n' >&2
     exit 1
 fi
 
 if [[ $(grep --fixed-strings --count \
     'ImageTagMutability: IMMUTABLE_WITH_EXCLUSION' \
-    "${self_dir}/runner-stack.yaml") -ne 2 \
-    || $(grep --fixed-strings --count \
-        'ImageTagMutabilityExclusionFilterValue: latest' \
-        "${self_dir}/runner-stack.yaml") -ne 2 ]]
-then
+    "${self_dir}/runner-stack.yaml") -ne 2 ||
+$(grep --fixed-strings --count \
+    'ImageTagMutabilityExclusionFilterValue: latest' \
+    "${self_dir}/runner-stack.yaml") -ne 2 ]]; then
     printf 'Production image tags are not immutable except for latest.\n' >&2
     exit 1
 fi
 
 if [[ $(grep --fixed-strings --count \
     'ImageTagMutability: IMMUTABLE' \
-    "${self_dir}/runner-stack.yaml") -ne 6 ]]
-then
+    "${self_dir}/runner-stack.yaml") -ne 6 ]]; then
     printf 'Every ECR repository must default to immutable tags.\n' >&2
     exit 1
 fi
 
 if ! grep --fixed-strings --quiet \
     'user:Project$ReaverOS' \
-    "${self_dir}/runner-stack.yaml"
-then
+    "${self_dir}/runner-stack.yaml"; then
     printf 'The ReaverOS budget is not scoped by its cost allocation tag.\n' >&2
     exit 1
 fi
@@ -319,8 +297,7 @@ reset_case()
 
 assert_log_contains()
 {
-    if ! grep --fixed-strings --quiet "$1" "${AWS_TEST_LOG}"
-    then
+    if ! grep --fixed-strings --quiet "$1" "${AWS_TEST_LOG}"; then
         printf 'Expected AWS call log to contain: %s\n' "$1" >&2
         cat "${AWS_TEST_LOG}" >&2
         exit 1
@@ -329,8 +306,7 @@ assert_log_contains()
 
 assert_output()
 {
-    if ! grep --fixed-strings --line-regexp --quiet "$1" "${GITHUB_OUTPUT}"
-    then
+    if ! grep --fixed-strings --line-regexp --quiet "$1" "${GITHUB_OUTPUT}"; then
         printf 'Expected GitHub output to contain: %s\n' "$1" >&2
         cat "${GITHUB_OUTPUT}" >&2
         exit 1
@@ -339,8 +315,7 @@ assert_output()
 
 assert_output_absent()
 {
-    if grep --fixed-strings --quiet "$1" "${GITHUB_OUTPUT}"
-    then
+    if grep --fixed-strings --quiet "$1" "${GITHUB_OUTPUT}"; then
         printf 'Expected GitHub output not to contain: %s\n' "$1" >&2
         cat "${GITHUB_OUTPUT}" >&2
         exit 1
@@ -375,7 +350,7 @@ jq --exit-status \
         and .run_attempt == "1"
         and .stack_name == "reaveros-github-runners"
         and (.change_set_arn | startswith("arn:aws:cloudformation:"))' \
-    "${AWS_TEST_PLAN_RECORD}" >/dev/null
+    "${AWS_TEST_PLAN_RECORD}" > /dev/null
 
 reset_case plan-create
 "${self_dir}/plan-infrastructure" \
@@ -398,8 +373,7 @@ reset_case plan-no-changes
     reaveros-github-runners-101-1
 assert_output has_changes=false
 assert_log_contains $'\tdelete-change-set\t'
-if grep --fixed-strings --quiet $'s3api\tput-object\t' "${AWS_TEST_LOG}"
-then
+if grep --fixed-strings --quiet $'s3api\tput-object\t' "${AWS_TEST_LOG}"; then
     printf 'A no-op change set was incorrectly preserved.\n' >&2
     exit 1
 fi
@@ -407,8 +381,7 @@ fi
 reset_case plan-storage-conflict
 if "${self_dir}/plan-infrastructure" \
     "${template}" \
-    reaveros-github-runners-101-1 >/dev/null 2>&1
-then
+    reaveros-github-runners-101-1 > /dev/null 2>&1; then
     printf 'An existing private plan was incorrectly overwritten.\n' >&2
     exit 1
 fi
@@ -419,13 +392,11 @@ assert_log_contains $'\tdelete-change-set\t'
 reset_case plan-denied
 if "${self_dir}/plan-infrastructure" \
     "${template}" \
-    reaveros-github-runners-101-1 >/dev/null 2>&1
-then
+    reaveros-github-runners-101-1 > /dev/null 2>&1; then
     printf 'An authorization failure was incorrectly treated as a missing stack.\n' >&2
     exit 1
 fi
-if grep --fixed-strings --quiet $'\tcreate-change-set\t' "${AWS_TEST_LOG}"
-then
+if grep --fixed-strings --quiet $'\tcreate-change-set\t' "${AWS_TEST_LOG}"; then
     printf 'A change set was created after an authorization failure.\n' >&2
     exit 1
 fi
@@ -440,16 +411,14 @@ assert_log_contains $'\t--key\tplans/3de70c5a97f405e494ad4c294a439fb5eff5ba2a024
 reset_case read-plan-wrong-key
 if "${self_dir}/read-plan" \
     plans/0000000000000000000000000000000000000000000000000000000000000000.json \
-    >/dev/null 2>&1
-then
+    > /dev/null 2>&1; then
     printf 'Private plan metadata was accepted under the wrong lookup key.\n' >&2
     exit 1
 fi
 assert_output_absent change_set_arn=
 
 reset_case read-plan-missing
-if "${self_dir}/read-plan" "${plan_key}" >/dev/null 2>&1
-then
+if "${self_dir}/read-plan" "${plan_key}" > /dev/null 2>&1; then
     printf 'A missing private plan was incorrectly accepted.\n' >&2
     exit 1
 fi
@@ -469,13 +438,11 @@ assert_log_contains $'\twait\tstack-create-complete'
 reset_case deploy-wrong-stack
 if "${self_dir}/deploy-infrastructure" \
     arn:aws:cloudformation:us-west-2:123456789012:changeSet/reaveros-github-runners-101-1/id \
-    >/dev/null 2>&1
-then
+    > /dev/null 2>&1; then
     printf 'A change set for another stack was incorrectly accepted.\n' >&2
     exit 1
 fi
-if grep --fixed-strings --quiet $'\texecute-change-set\t' "${AWS_TEST_LOG}"
-then
+if grep --fixed-strings --quiet $'\texecute-change-set\t' "${AWS_TEST_LOG}"; then
     printf 'An unexpected change set was executed.\n' >&2
     exit 1
 fi
@@ -484,13 +451,11 @@ reset_case deploy-wrong-revision
 export GITHUB_SHA=fedcba9876543210fedcba9876543210fedcba98
 if "${self_dir}/deploy-infrastructure" \
     arn:aws:cloudformation:us-west-2:123456789012:changeSet/reaveros-github-runners-101-1/id \
-    >/dev/null 2>&1
-then
+    > /dev/null 2>&1; then
     printf 'A change set for another revision was incorrectly accepted.\n' >&2
     exit 1
 fi
-if grep --fixed-strings --quiet $'\texecute-change-set\t' "${AWS_TEST_LOG}"
-then
+if grep --fixed-strings --quiet $'\texecute-change-set\t' "${AWS_TEST_LOG}"; then
     printf 'A change set for another revision was executed.\n' >&2
     exit 1
 fi

@@ -4,8 +4,7 @@ set -euo pipefail
 
 mock_aws()
 {
-    if [[ $1 == cloudformation && $2 == describe-stacks ]]
-    then
+    if [[ $1 == cloudformation && $2 == describe-stacks ]]; then
         jq --null-input '[
             {OutputKey: "InfrastructureContractVersion", OutputValue: "1"},
             {OutputKey: "RunnerControlFunctionName", OutputValue: "runner-control"}
@@ -13,27 +12,22 @@ mock_aws()
         return
     fi
 
-    if [[ $1 == lambda && $2 == invoke ]]
-    then
+    if [[ $1 == lambda && $2 == invoke ]]; then
         payload=
         output_file=
         previous=
-        for argument in "$@"
-        do
-            if [[ ${previous} == --payload ]]
-            then
+        for argument in "$@"; do
+            if [[ ${previous} == --payload ]]; then
                 payload=${argument}
-            elif [[ ${argument} == --output ]]
-            then
+            elif [[ ${argument} == --output ]]; then
                 break
-            elif [[ ${previous} != --payload && ${argument} != -* ]]
-            then
+            elif [[ ${previous} != --payload && ${argument} != -* ]]; then
                 output_file=${argument}
             fi
             previous=${argument}
         done
 
-        case $(jq --exit-status --raw-output '.action' <<<"${payload}") in
+        case $(jq --exit-status --raw-output '.action' <<< "${payload}") in
             launch)
                 jq --null-input '{
                     instance_id: "i-123abc",
@@ -47,7 +41,7 @@ mock_aws()
             terminate)
                 jq --exit-status \
                     'keys == ["action", "instance_id"]' \
-                    <<<"${payload}" >/dev/null
+                    <<< "${payload}" > /dev/null
                 printf '{"console_output":"runner stopped"}\n' > "${output_file}"
                 ;;
         esac
@@ -59,8 +53,7 @@ mock_aws()
     exit 2
 }
 
-if [[ $(basename -- "$0") == aws ]]
-then
+if [[ $(basename -- "$0") == aws ]]; then
     mock_aws "$@"
     exit
 fi
@@ -83,12 +76,11 @@ export GITHUB_OUTPUT="${test_directory}/stack.output"
 export EXPECTED_CONTRACT_VERSION=1
 : > "${GITHUB_OUTPUT}"
 "${self_dir}/aws-stack-contract/read"
-grep --fixed-strings --line-regexp 'contract_version=1' "${GITHUB_OUTPUT}" >/dev/null
-grep --fixed-strings 'RunnerControlFunctionName' "${GITHUB_OUTPUT}" >/dev/null
+grep --fixed-strings --line-regexp 'contract_version=1' "${GITHUB_OUTPUT}" > /dev/null
+grep --fixed-strings 'RunnerControlFunctionName' "${GITHUB_OUTPUT}" > /dev/null
 
 export EXPECTED_CONTRACT_VERSION=2
-if "${self_dir}/aws-stack-contract/read" >/dev/null 2>&1
-then
+if "${self_dir}/aws-stack-contract/read" > /dev/null 2>&1; then
     printf 'A mismatched infrastructure contract was accepted.\n' >&2
     exit 1
 fi
@@ -103,7 +95,7 @@ export RUNNER_PROFILE=validation
 export RUNNER_SIZE=medium
 : > "${GITHUB_OUTPUT}"
 "${self_dir}/ephemeral-runner/launch"
-grep --fixed-strings --line-regexp 'instance_id=i-123abc' "${GITHUB_OUTPUT}" >/dev/null
+grep --fixed-strings --line-regexp 'instance_id=i-123abc' "${GITHUB_OUTPUT}" > /dev/null
 
 export INSTANCE_ID=i-123abc
 [[ $("${self_dir}/ephemeral-runner/terminate") == 'runner stopped' ]]

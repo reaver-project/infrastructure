@@ -14,8 +14,7 @@ usage()
         '    [--region <region>] [--stack-name <name>]'
 }
 
-while [[ $# -gt 0 ]]
-do
+while [[ $# -gt 0 ]]; do
     case $1 in
         --credentials)
             credentials=$2
@@ -33,7 +32,7 @@ do
             stack_name=$2
             shift 2
             ;;
-        --help|-h)
+        --help | -h)
             usage
             exit 0
             ;;
@@ -44,8 +43,7 @@ do
     esac
 done
 
-if [[ ${credentials} != - || ! ${installation_id} =~ ^[0-9]+$ ]]
-then
+if [[ ${credentials} != - || ! ${installation_id} =~ ^[0-9]+$ ]]; then
     printf 'Credentials must be decrypted into standard input.\n' >&2
     usage >&2
     exit 2
@@ -53,10 +51,9 @@ fi
 
 credentials_json=$(cat)
 app_id=$(jq --exit-status --raw-output '.id | select(type == "number")' \
-    <<<"${credentials_json}")
+    <<< "${credentials_json}")
 if ! jq --exit-status '.pem | select(type == "string")' \
-    <<<"${credentials_json}" >/dev/null
-then
+    <<< "${credentials_json}" > /dev/null; then
     printf 'GitHub App credentials do not contain a private key.\n' >&2
     exit 2
 fi
@@ -66,8 +63,7 @@ secret_id=$(aws cloudformation describe-stacks \
     --stack-name "${stack_name}" \
     --query 'Stacks[0].Outputs[?OutputKey==`RunnerAppSecretId`].OutputValue | [0]' \
     --output text)
-if [[ -z ${secret_id} || ${secret_id} == None ]]
-then
+if [[ -z ${secret_id} || ${secret_id} == None ]]; then
     printf 'RunnerAppSecretId is missing from stack %s.\n' "${stack_name}" >&2
     exit 1
 fi
@@ -79,12 +75,12 @@ jq \
         installation_id: $installation_id,
         private_key: .pem
     }' \
-    <<<"${credentials_json}" \
-    | aws secretsmanager put-secret-value \
+    <<< "${credentials_json}" |
+    aws secretsmanager put-secret-value \
         --region "${region}" \
         --secret-id "${secret_id}" \
         --secret-string file:///dev/stdin \
-        >/dev/null
+        > /dev/null
 
 printf 'Stored App %s installation %s in %s.\n' \
     "${app_id}" "${installation_id}" "${secret_id}"

@@ -8,10 +8,8 @@ required_environment=(
     GITHUB_OUTPUT
     GITHUB_SHA
 )
-for environment_variable in "${required_environment[@]}"
-do
-    if [[ -z ${!environment_variable:-} ]]
-    then
+for environment_variable in "${required_environment[@]}"; do
+    if [[ -z ${!environment_variable:-} ]]; then
         printf 'Required environment variable is empty: %s\n' \
             "${environment_variable}" >&2
         exit 2
@@ -21,11 +19,10 @@ done
 self_dir=$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)
 repository_root=$(git -C "${self_dir}" rev-parse --show-toplevel)
 source_revision=$(git -C "${repository_root}" rev-parse HEAD)
-source_contract_version=$(<"${self_dir}/../infrastructure-contract-version")
-if [[ ! ${GITHUB_SHA} =~ ^[0-9a-f]{40}$ \
-    || ${source_revision} != "${GITHUB_SHA}" \
-    || ! ${source_contract_version} =~ ^[1-9][0-9]*$ ]]
-then
+source_contract_version=$(< "${self_dir}/../infrastructure-contract-version")
+if [[ ! ${GITHUB_SHA} =~ ^[0-9a-f]{40}$ ||
+    ${source_revision} != "${GITHUB_SHA}" ||
+    ! ${source_contract_version} =~ ^[1-9][0-9]*$ ]]; then
     printf 'The checked-out infrastructure source is not the deployment revision.\n' >&2
     exit 1
 fi
@@ -42,21 +39,19 @@ read_stack_output()
         --arg key "$1" \
         '[.[] | select(.OutputKey == $key) | .OutputValue]
          | if length == 1 then .[0] else error("missing or duplicate stack output") end' \
-        <<<"${stack_outputs}"
+        <<< "${stack_outputs}"
 }
 
 contract_version=$(read_stack_output InfrastructureContractVersion)
 runner_role_arn=$(read_stack_output GitHubActionsRoleArn)
-if [[ ! ${contract_version} =~ ^[1-9][0-9]*$ \
-    || ${contract_version} != "${source_contract_version}" ]]
-then
+if [[ ! ${contract_version} =~ ^[1-9][0-9]*$ ||
+    ${contract_version} != "${source_contract_version}" ]]; then
     printf 'Deployed contract version %s does not match source version %s.\n' \
         "${contract_version:-<invalid>}" \
         "${source_contract_version}" >&2
     exit 1
 fi
-if [[ ! ${runner_role_arn} =~ ^arn:(aws|aws-us-gov|aws-cn):iam::[0-9]{12}:role/[A-Za-z0-9+=,.@_/-]+$ ]]
-then
+if [[ ! ${runner_role_arn} =~ ^arn:(aws|aws-us-gov|aws-cn):iam::[0-9]{12}:role/[A-Za-z0-9+=,.@_/-]+$ ]]; then
     printf 'Invalid GitHubActionsRoleArn stack output: %s\n' \
         "${runner_role_arn}" >&2
     exit 1

@@ -2,8 +2,7 @@
 
 set -euo pipefail
 
-if [[ $(basename -- "$0") == cfn-policy-validator ]]
-then
+if [[ $(basename -- "$0") == cfn-policy-validator ]]; then
     {
         printf 'cfn-policy-validator'
         printf '\t%s' "$@"
@@ -53,16 +52,14 @@ expected_log=${test_directory}/expected
         RunnerRolePermissionsBoundaryArn=arn:aws:iam::123456789012:policy/reaveros-boundary
     printf '\n'
 } > "${expected_log}"
-if ! cmp --silent "${expected_log}" "${POLICY_VALIDATOR_TEST_LOG}"
-then
+if ! cmp --silent "${expected_log}" "${POLICY_VALIDATOR_TEST_LOG}"; then
     printf 'Unexpected policy validator invocation:\n' >&2
     cat "${POLICY_VALIDATOR_TEST_LOG}" >&2
     exit 1
 fi
 
 unset AWS_REGION
-if "${self_dir}/validate-policies" "${template}" 2>/dev/null
-then
+if "${self_dir}/validate-policies" "${template}" 2> /dev/null; then
     printf 'Policy validation accepted a missing AWS region.\n' >&2
     exit 1
 fi

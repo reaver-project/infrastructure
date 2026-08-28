@@ -9,15 +9,13 @@ usage()
     printf 'usage: %s <repository-config.json>\n' "$0"
 }
 
-if [[ $# -ne 1 ]]
-then
+if [[ $# -ne 1 ]]; then
     usage >&2
     exit 2
 fi
 configuration=$1
 
-if [[ ! -f ${configuration} ]]
-then
+if [[ ! -f ${configuration} ]]; then
     usage >&2
     exit 2
 fi
@@ -33,92 +31,87 @@ github_api()
         "$@"
 }
 
-jq --compact-output '.profile | del(.visibility)' "${configuration}" \
-    | github_api --method PATCH "repos/${repository}" --input - >/dev/null
+jq --compact-output '.profile | del(.visibility)' "${configuration}" |
+    github_api --method PATCH "repos/${repository}" --input - > /dev/null
 
 jq --compact-output '.actions | {enabled, allowed_actions, sha_pinning_required}' \
-    "${configuration}" \
-    | github_api --method PUT \
+    "${configuration}" |
+    github_api --method PUT \
         "repos/${repository}/actions/permissions" \
         --input - \
-        >/dev/null
+        > /dev/null
 
 jq --compact-output '.actions | {
     github_owned_allowed,
     verified_allowed,
     patterns_allowed
-}' "${configuration}" \
-    | github_api --method PUT \
+}' "${configuration}" |
+    github_api --method PUT \
         "repos/${repository}/actions/permissions/selected-actions" \
         --input - \
-        >/dev/null
+        > /dev/null
 
 jq --compact-output '.actions | {
     default_workflow_permissions,
     can_approve_pull_request_reviews
-}' "${configuration}" \
-    | github_api --method PUT \
+}' "${configuration}" |
+    github_api --method PUT \
         "repos/${repository}/actions/permissions/workflow" \
         --input - \
-        >/dev/null
+        > /dev/null
 
 action_access=$(jq --raw-output '.action_access // empty' "${configuration}")
-if [[ -n ${action_access} ]]
-then
+if [[ -n ${action_access} ]]; then
     jq --null-input --compact-output --arg access_level "${action_access}" \
-        '{access_level: $access_level}' \
-        | github_api --method PUT \
+        '{access_level: $access_level}' |
+        github_api --method PUT \
             "repos/${repository}/actions/permissions/access" \
             --input - \
-            >/dev/null
+            > /dev/null
 fi
 
 jq --compact-output '{
     use_default: false,
     use_immutable_subject: false,
     include_claim_keys: .oidc_subject_claims
-}' "${configuration}" \
-    | github_api --method PUT \
+}' "${configuration}" |
+    github_api --method PUT \
         "repos/${repository}/actions/oidc/customization/sub" \
         --input - \
-        >/dev/null
+        > /dev/null
 
 fork_approval=$(jq --raw-output '.fork_pull_request_approval // empty' "${configuration}")
-if [[ -n ${fork_approval} ]]
-then
+if [[ -n ${fork_approval} ]]; then
     jq --null-input --compact-output --arg approval_policy "${fork_approval}" \
-        '{approval_policy: $approval_policy}' \
-        | github_api --method PUT \
+        '{approval_policy: $approval_policy}' |
+        github_api --method PUT \
             "repos/${repository}/actions/permissions/fork-pr-contributor-approval" \
             --input - \
-            >/dev/null
+            > /dev/null
 fi
 
 existing_rulesets=$(github_api --paginate \
     "repos/${repository}/rulesets?includes_parents=false" \
     --jq '.[] | [.id, .name] | @tsv')
-while IFS= read -r ruleset
-do
-    name=$(jq --exit-status --raw-output '.name' <<<"${ruleset}")
+while IFS= read -r ruleset; do
+    name=$(jq --exit-status --raw-output '.name' <<< "${ruleset}")
     ruleset_id=$(awk -F $'\t' -v name="${name}" '$2 == name {print $1; exit}' \
-        <<<"${existing_rulesets}")
-    if [[ -n ${ruleset_id} ]]
-    then
+        <<< "${existing_rulesets}")
+    if [[ -n ${ruleset_id} ]]; then
         method=PUT
         endpoint="repos/${repository}/rulesets/${ruleset_id}"
     else
         method=POST
         endpoint="repos/${repository}/rulesets"
     fi
-    jq --compact-output . <<<"${ruleset}" \
-        | github_api --method "${method}" "${endpoint}" --input - >/dev/null
+    jq --compact-output . <<< "${ruleset}" |
+        github_api --method "${method}" "${endpoint}" --input - > /dev/null
 done < <(jq --compact-output '.rulesets[]' "${configuration}")
 
 reviewer_type=$(jq --raw-output '.environment_reviewer.type // empty' "${configuration}")
 reviewer_id=
 if jq --exit-status 'any(.environments[]; .required_reviewer)' \
-    "${configuration}" >/dev/null
-then
+    "${configuration}" > /dev/null; then
     case ${reviewer_type} in
         Team)
             reviewer_slug=$(jq --exit-status --raw-output \
@@ -141,14 +134,12 @@ then
     esac
 fi
 
-while IFS= read -r environment
-do
-    name=$(jq --exit-status --raw-output '.name' <<<"${environment}")
-    branch=$(jq --exit-status --raw-output '.branch' <<<"${environment}")
-    required_reviewer=$(jq --raw-output '.required_reviewer' <<<"${environment}")
+while IFS= read -r environment; do
+    name=$(jq --exit-status --raw-output '.name' <<< "${environment}")
+    branch=$(jq --exit-status --raw-output '.branch' <<< "${environment}")
+    required_reviewer=$(jq --raw-output '.required_reviewer' <<< "${environment}")
     reviewers='[]'
-    if [[ ${required_reviewer} == true ]]
-    then
+    if [[ ${required_reviewer} == true ]]; then
         reviewers=$(jq --null-input --compact-output \
             --arg reviewer_type "${reviewer_type}" \
             --argjson reviewer_id "${reviewer_id}" \
@@ -164,40 +155,36 @@ do
                 protected_branches: false,
                 custom_branch_policies: true
             }
-        }' \
-        | github_api --method PUT \
+        }' |
+        github_api --method PUT \
             "repos/${repository}/environments/${name}" \
             --input - \
-            >/dev/null
+            > /dev/null
 
     branch_policies=$(github_api --paginate \
         "repos/${repository}/environments/${name}/deployment-branch-policies" \
         --jq '.branch_policies[] | [.id, .name, .type] | @tsv')
     found_branch=false
-    while IFS=$'\t' read -r policy_id policy_name policy_type
-    do
-        if [[ -z ${policy_id} ]]
-        then
+    while IFS=$'\t' read -r policy_id policy_name policy_type; do
+        if [[ -z ${policy_id} ]]; then
             continue
         fi
-        if [[ ${policy_name} == "${branch}" && ${policy_type} == branch ]]
-        then
+        if [[ ${policy_name} == "${branch}" && ${policy_type} == branch ]]; then
             found_branch=true
         else
             github_api --method DELETE \
                 "repos/${repository}/environments/${name}/deployment-branch-policies/${policy_id}" \
-                >/dev/null
+                > /dev/null
         fi
-    done <<<"${branch_policies}"
+    done <<< "${branch_policies}"
 
-    if [[ ${found_branch} == false ]]
-    then
+    if [[ ${found_branch} == false ]]; then
         jq --null-input --compact-output --arg name "${branch}" \
-            '{name: $name, type: "branch"}' \
-            | github_api --method POST \
+            '{name: $name, type: "branch"}' |
+            github_api --method POST \
                 "repos/${repository}/environments/${name}/deployment-branch-policies" \
                 --input - \
-                >/dev/null
+                > /dev/null
     fi
 done < <(jq --compact-output '.environments[]' "${configuration}")
 
@@ -205,11 +192,10 @@ done < <(jq --compact-output '.environments[]' "${configuration}")
 # in place, so publishing a repository never creates an avoidable unprotected
 # interval.
 visibility=$(jq --raw-output '.profile.visibility // empty' "${configuration}")
-if [[ -n ${visibility} ]]
-then
+if [[ -n ${visibility} ]]; then
     jq --null-input --compact-output --arg visibility "${visibility}" \
-        '{visibility: $visibility}' \
-        | github_api --method PATCH "repos/${repository}" --input - >/dev/null
+        '{visibility: $visibility}' |
+        github_api --method PATCH "repos/${repository}" --input - > /dev/null
 fi
 
 printf 'Converged GitHub repository settings for %s at %s.\n' \
