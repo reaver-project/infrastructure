@@ -467,6 +467,11 @@ Resources:
     RunnerLaunchTemplate:
         Type: AWS::EC2::LaunchTemplate
         Properties:
+            TagSpecifications:
+              - ResourceType: launch-template
+                Tags:
+                  - Key: Project
+                    Value: ReaverOS
             LaunchTemplateData:
                 BlockDeviceMappings:
                   - DeviceName: /dev/xvda
@@ -626,6 +631,9 @@ Resources:
                     RUNNER_INSTANCE_NAME: !Sub ${AWS::StackName}-runner
                     VALIDATION_PROFILE_ARN: !GetAtt RunnerInstanceProfile.Arn
             Code: ../../../build/reaveros-lambda/runner-control.zip
+            Tags:
+              - Key: Project
+                Value: ReaverOS
 
     RunnerControlLogGroup:
         Type: AWS::Logs::LogGroup
@@ -642,6 +650,9 @@ Resources:
             Description: Terminate orphaned ReaverOS GitHub Actions runners
             ScheduleExpression: rate(15 minutes)
             State: ENABLED
+            Tags:
+              - Key: Project
+                Value: ReaverOS
             Targets:
               - Arn: !GetAtt RunnerControlFunction.Arn
                 Id: RunnerReaper
