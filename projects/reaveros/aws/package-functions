@@ -21,6 +21,7 @@ install -d "${requested_output_directory}"
 output_directory=$(cd -- "${requested_output_directory}" && pwd)
 install -d "${staging_directory}/runner-control"
 install \
+    "${self_dir}/functions/github_app.py" \
     "${self_dir}/functions/runner-control/index.py" \
     "${self_dir}/functions/runner-control/lib.py" \
     "${staging_directory}/runner-control/"

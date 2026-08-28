@@ -66,6 +66,7 @@ python3 -m py_compile \
     github/apps/create \
     github/apps/test-create.py \
     projects/reaveros/aws/create-function-archive \
+    projects/reaveros/aws/functions/github_app.py \
     projects/reaveros/aws/functions/runner-control/index.py \
     projects/reaveros/aws/functions/runner-control/lib.py \
     projects/reaveros/aws/functions/runner-control/test.py \

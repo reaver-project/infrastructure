@@ -53,6 +53,13 @@ sys.modules.update(
 )
 
 module_directory = pathlib.Path(__file__).parent
+github_app_specification = importlib.util.spec_from_file_location(
+    "github_app",
+    module_directory.parent / "github_app.py",
+)
+github_app = importlib.util.module_from_spec(github_app_specification)
+github_app_specification.loader.exec_module(github_app)
+sys.modules["github_app"] = github_app
 lib_specification = importlib.util.spec_from_file_location(
     "lib",
     module_directory / "lib.py",
