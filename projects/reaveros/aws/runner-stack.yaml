@@ -72,6 +72,7 @@ Parameters:
         Type: Number
         Default: 100
         MinValue: 10
+        Description: Monthly ReaverOS cost allocation budget in USD.
     BudgetNotificationEmail:
         Type: String
         AllowedPattern: '[^@\s]+@[^@\s]+\.[^@\s]+'
@@ -837,6 +838,9 @@ Resources:
                     Amount: !Ref MonthlyBudget
                     Unit: USD
                 BudgetType: COST
+                CostFilters:
+                    TagKeyValue:
+                      - user:Project$ReaverOS
                 TimeUnit: MONTHLY
             NotificationsWithSubscribers:
               - Notification:

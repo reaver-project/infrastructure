@@ -260,6 +260,14 @@ then
     exit 1
 fi
 
+if ! grep --fixed-strings --quiet \
+    'user:Project$ReaverOS' \
+    "${self_dir}/runner-stack.yaml"
+then
+    printf 'The ReaverOS budget is not scoped by its cost allocation tag.\n' >&2
+    exit 1
+fi
+
 test_directory=$(mktemp -d)
 mkdir "${test_directory}/bin"
 ln -s "${self_dir}/test-infrastructure" "${test_directory}/bin/aws"
