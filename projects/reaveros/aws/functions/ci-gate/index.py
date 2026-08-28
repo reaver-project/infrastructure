@@ -84,9 +84,10 @@ def resolve_revision(token, repository, revision):
 
 def set_copied_revision(token, repository, number, sha):
     branch = copied_branch(number)
-    path = f"/repos/{repository}/git/refs/heads/{branch}"
+    get_path = f"/repos/{repository}/git/ref/heads/{branch}"
+    update_path = f"/repos/{repository}/git/refs/heads/{branch}"
     try:
-        github_request(path, token, "PATCH", {"sha": sha, "force": True})
+        current = github_request(get_path, token)
     except GitHubRequestError as error:
         if error.status != 404:
             raise
@@ -96,6 +97,14 @@ def set_copied_revision(token, repository, number, sha):
             "POST",
             {"ref": f"refs/heads/{branch}", "sha": sha},
         )
+        return
+
+    current_object = current.get("object") if isinstance(current, dict) else None
+    current_sha = current_object.get("sha") if isinstance(current_object, dict) else None
+    if not isinstance(current_sha, str) or re.fullmatch(r"[0-9a-f]{40}", current_sha) is None:
+        raise ValueError("GitHub returned an invalid copied ref")
+    if current_sha != sha:
+        github_request(update_path, token, "PATCH", {"sha": sha, "force": True})
 
 
 def delete_copied_revision(token, repository, number):

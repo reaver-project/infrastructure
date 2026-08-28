@@ -175,11 +175,16 @@ class CiGateIndexTests(unittest.TestCase):
             ci_gate.resolve_revision("token", repository, full_sha[:7])
 
     def test_creates_a_missing_copy_ref_and_updates_an_existing_ref(self):
-        not_found = github_app.GitHubRequestError("PATCH", "/ref", 404, "missing")
+        not_found = github_app.GitHubRequestError("GET", "/ref", 404, "missing")
         with mock.patch.object(
             ci_gate,
             "github_request",
-            side_effect=[not_found, {"ref": "created"}, {"ref": "updated"}],
+            side_effect=[
+                not_found,
+                {"ref": "created"},
+                {"object": {"sha": full_sha}},
+                {"ref": "updated"},
+            ],
         ) as github_request:
             ci_gate.set_copied_revision("token", repository, 12, full_sha)
             ci_gate.set_copied_revision("token", repository, 12, new_sha)
@@ -188,10 +193,8 @@ class CiGateIndexTests(unittest.TestCase):
             github_request.call_args_list,
             [
                 mock.call(
-                    f"/repos/{repository}/git/refs/heads/pull-request/12",
+                    f"/repos/{repository}/git/ref/heads/pull-request/12",
                     "token",
-                    "PATCH",
-                    {"sha": full_sha, "force": True},
                 ),
                 mock.call(
                     f"/repos/{repository}/git/refs",
@@ -200,12 +203,29 @@ class CiGateIndexTests(unittest.TestCase):
                     {"ref": "refs/heads/pull-request/12", "sha": full_sha},
                 ),
                 mock.call(
+                    f"/repos/{repository}/git/ref/heads/pull-request/12",
+                    "token",
+                ),
+                mock.call(
                     f"/repos/{repository}/git/refs/heads/pull-request/12",
                     "token",
                     "PATCH",
                     {"sha": new_sha, "force": True},
                 ),
             ],
+        )
+
+    def test_does_not_republish_an_identical_copy_ref(self):
+        with mock.patch.object(
+            ci_gate,
+            "github_request",
+            return_value={"object": {"sha": full_sha}},
+        ) as github_request:
+            ci_gate.set_copied_revision("token", repository, 12, full_sha)
+
+        github_request.assert_called_once_with(
+            f"/repos/{repository}/git/ref/heads/pull-request/12",
+            "token",
         )
 
     def test_ignores_a_missing_copy_ref_during_deletion(self):
