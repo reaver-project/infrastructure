@@ -49,6 +49,21 @@ def decrypt(path, passphrase):
 
 
 class CreateAppTests(unittest.TestCase):
+    def test_activates_a_supplied_https_webhook(self):
+        manifest = create_app.configured_manifest(
+            {"hook_attributes": {"active": False}},
+            "https://example.lambda-url.us-west-2.on.aws/",
+        )
+        self.assertEqual(
+            manifest["hook_attributes"],
+            {
+                "active": True,
+                "url": "https://example.lambda-url.us-west-2.on.aws/",
+            },
+        )
+        with self.assertRaisesRegex(ValueError, "HTTPS"):
+            create_app.configured_manifest({}, "http://example.com/webhook")
+
     def test_encrypts_credentials_only_on_memory_backed_storage(self):
         with tempfile.TemporaryDirectory(dir="/dev/shm") as directory:
             os.chmod(directory, 0o700)

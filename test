@@ -18,9 +18,11 @@ shell_scripts=(
     github/configure-organization
     github/configure-repository
     github/apps/configure-app-environment
+    github/apps/configure-ci-gate-app
     github/apps/configure-infrastructure-app
     github/apps/configure-maintenance-app
     github/apps/test-configure-app-environments
+    github/apps/test-configure-ci-gate-app
     github/test-configure-organization
     github/test-configure-repository
     projects/reaveros/aws/configure-runner-app
@@ -91,6 +93,7 @@ python3 aws/organization/test_cost_controls.py
 github/test-configure-organization
 github/test-configure-repository
 github/apps/test-configure-app-environments
+github/apps/test-configure-ci-gate-app
 python3 github/apps/test-create.py
 node github/apps/test-configure-runner-group.js
 projects/reaveros/aws/test-infrastructure

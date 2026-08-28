@@ -363,11 +363,6 @@ Resources:
         Properties:
             Name: !Sub ${AWS::StackName}/github-ci-gate-app
             Description: GitHub App credentials and webhook secret for exact-revision CI admission
-            GenerateSecretString:
-                SecretStringTemplate: '{"schema_version":1}'
-                GenerateStringKey: webhook_secret
-                PasswordLength: 64
-                ExcludePunctuation: true
             Tags:
               - Key: Project
                 Value: ReaverOS

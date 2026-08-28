@@ -1,0 +1,75 @@
+#!/usr/bin/env bash
+
+set -euo pipefail
+
+if [[ $(basename -- "$0") == aws ]]; then
+    if [[ $1 == cloudformation && $2 == describe-stacks ]]; then
+        printf 'reaveros-github-runners/github-ci-gate-app\n'
+    elif [[ $1 == secretsmanager && $2 == put-secret-value ]]; then
+        cp /dev/stdin "${CI_GATE_TEST_SECRET}"
+    else
+        printf 'Unexpected AWS call: %s\n' "$*" >&2
+        exit 2
+    fi
+    exit
+fi
+
+if [[ $(basename -- "$0") == gh ]]; then
+    {
+        printf 'CALL'
+        printf '\t%s' "$@"
+        printf '\n'
+    } >> "${CI_GATE_TEST_LOG}"
+    exit
+fi
+
+self_dir=$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)
+test_directory=$(mktemp -d)
+mkdir "${test_directory}/bin"
+ln -s "${self_dir}/test-configure-ci-gate-app" "${test_directory}/bin/aws"
+ln -s "${self_dir}/test-configure-ci-gate-app" "${test_directory}/bin/gh"
+export PATH="${test_directory}/bin:${PATH}"
+export CI_GATE_TEST_LOG="${test_directory}/calls"
+export CI_GATE_TEST_SECRET="${test_directory}/secret"
+: > "${CI_GATE_TEST_LOG}"
+
+cleanup()
+{
+    rm -rf "${test_directory}"
+}
+trap cleanup EXIT
+
+credential_bundle=$(jq --null-input \
+    --arg webhook_secret "$(printf 'w%.0s' {1..32})" \
+    '{id: 271828, slug: "reaver-project-ci-gate", pem: "private-key", webhook_secret: $webhook_secret}')
+"${self_dir}/configure-ci-gate-app" --credentials - <<< "${credential_bundle}" > /dev/null
+
+jq --exit-status '
+    .app_id == "271828"
+    and .app_slug == "reaver-project-ci-gate"
+    and .private_key == "private-key"
+    and (.webhook_secret | length == 32)
+' "${CI_GATE_TEST_SECRET}" > /dev/null
+
+for expected_call in \
+    $'CALL\tvariable\tset\tCI_GATE_APP_ID\t--repo\treaver-project/infrastructure\t--env\tgithub-production\t--body\t271828' \
+    $'CALL\tvariable\tset\tCI_GATE_APP_SLUG\t--repo\treaver-project/infrastructure\t--env\tgithub-production\t--body\treaver-project-ci-gate'; do
+    if ! grep --fixed-strings --quiet "${expected_call}" "${CI_GATE_TEST_LOG}"; then
+        printf 'Expected GitHub call: %s\n' "${expected_call}" >&2
+        exit 1
+    fi
+done
+
+if grep --fixed-strings --quiet 'private-key' "${CI_GATE_TEST_LOG}"; then
+    printf 'CI gate credentials leaked into command arguments.\n' >&2
+    exit 1
+fi
+
+if "${self_dir}/configure-ci-gate-app" --credentials - \
+    <<< '{"id":271828,"slug":"reaver-project-ci-gate","pem":"private-key"}' \
+    > /dev/null 2>&1; then
+    printf 'CI gate configuration accepted a missing webhook secret.\n' >&2
+    exit 1
+fi
+
+printf 'CI gate App configuration tests passed.\n'

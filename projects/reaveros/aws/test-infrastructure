@@ -216,7 +216,7 @@ if [[ $(grep --fixed-strings --count \
 fi
 
 for ci_gate_invariant in \
-    'GenerateStringKey: webhook_secret' \
+    'Name: !Sub ${AWS::StackName}/github-ci-gate-app' \
     'Action: lambda:InvokeFunctionUrl' \
     'InvokedViaFunctionUrl: true' \
     'Code: ../../../build/reaveros-lambda/ci-gate.zip' \

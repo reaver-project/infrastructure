@@ -31,7 +31,25 @@ def parse_arguments():
         help="encrypted credential bundle on a private tmpfs or ramfs directory",
     )
     parser.add_argument("--port", default=8976, type=int)
+    parser.add_argument(
+        "--webhook-url",
+        help="activate the App webhook at this HTTPS endpoint",
+    )
     return parser.parse_args()
+
+
+def configured_manifest(manifest, webhook_url=None):
+    manifest = dict(manifest)
+    if webhook_url is None:
+        return manifest
+    parsed = urllib.parse.urlparse(webhook_url)
+    if parsed.scheme != "https" or not parsed.netloc or parsed.username is not None:
+        raise ValueError("webhook URL must be an absolute HTTPS URL")
+    manifest["hook_attributes"] = {
+        "active": True,
+        "url": webhook_url,
+    }
+    return manifest
 
 
 def memory_filesystem(path):
@@ -123,7 +141,10 @@ def main():
     confirmation = getpass.getpass("Confirm passphrase: ")
     if not passphrase or passphrase != confirmation:
         raise SystemExit("Passphrases are empty or do not match.")
-    manifest = json.loads(arguments.manifest.read_text(encoding="utf-8"))
+    manifest = configured_manifest(
+        json.loads(arguments.manifest.read_text(encoding="utf-8")),
+        arguments.webhook_url,
+    )
     state = secrets.token_urlsafe(32)
     redirect_url = f"http://127.0.0.1:{arguments.port}/callback"
     manifest["redirect_url"] = redirect_url

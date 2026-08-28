@@ -36,6 +36,11 @@
             "properties": {
                 "active": {
                     "type": "boolean"
+                },
+                "url": {
+                    "type": "string",
+                    "format": "uri",
+                    "pattern": "^https://"
                 }
             }
         },

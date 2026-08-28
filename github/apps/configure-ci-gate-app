@@ -1,0 +1,105 @@
+#!/usr/bin/env bash
+
+set -euo pipefail
+
+input_source=
+region=us-west-2
+repository=reaver-project/infrastructure
+stack_name=reaveros-github-runners
+
+usage()
+{
+    printf '%s\n' \
+        "usage: $0 --credentials - [--region <region>]" \
+        '    [--repository <owner/repository>] [--stack-name <name>]'
+}
+
+while [[ $# -gt 0 ]]; do
+    case $1 in
+        --credentials)
+            input_source=$2
+            shift 2
+            ;;
+        --region)
+            region=$2
+            shift 2
+            ;;
+        --repository)
+            repository=$2
+            shift 2
+            ;;
+        --stack-name)
+            stack_name=$2
+            shift 2
+            ;;
+        --help | -h)
+            usage
+            exit 0
+            ;;
+        *)
+            usage >&2
+            exit 2
+            ;;
+    esac
+done
+
+if [[ ${input_source} != - ||
+    ! ${repository} =~ ^[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+$ ||
+    ! ${region} =~ ^[a-z]{2}(-[a-z]+)+-[0-9]+$ ||
+    ! ${stack_name} =~ ^[A-Za-z][-A-Za-z0-9]*$ ]]; then
+    printf 'Credentials must be decrypted into standard input.\n' >&2
+    usage >&2
+    exit 2
+fi
+
+credential_json=$(cat)
+app_id=$(jq --exit-status --raw-output '.id | select(type == "number")' \
+    <<< "${credential_json}")
+app_slug=$(jq --exit-status --raw-output \
+    '.slug | select(type == "string" and test("^[a-z0-9]+(-[a-z0-9]+)*$"))' \
+    <<< "${credential_json}")
+if ! jq --exit-status \
+    '.pem | select(type == "string" and length > 0)' \
+    <<< "${credential_json}" > /dev/null ||
+    ! jq --exit-status \
+        '.webhook_secret | select(type == "string" and length >= 32)' \
+        <<< "${credential_json}" > /dev/null; then
+    printf 'GitHub App credentials omit a private key or webhook secret.\n' >&2
+    exit 2
+fi
+
+secret_id=$(aws cloudformation describe-stacks \
+    --region "${region}" \
+    --stack-name "${stack_name}" \
+    --query 'Stacks[0].Outputs[?OutputKey==`CiGateAppSecretId`].OutputValue | [0]' \
+    --output text)
+if [[ -z ${secret_id} || ${secret_id} == None ]]; then
+    printf 'CiGateAppSecretId is missing from stack %s.\n' "${stack_name}" >&2
+    exit 1
+fi
+
+jq \
+    '{
+        app_id: (.id | tostring),
+        app_slug: .slug,
+        private_key: .pem,
+        webhook_secret: .webhook_secret
+    }' \
+    <<< "${credential_json}" |
+    aws secretsmanager put-secret-value \
+        --region "${region}" \
+        --secret-id "${secret_id}" \
+        --secret-string file:///dev/stdin \
+        > /dev/null
+
+gh variable set CI_GATE_APP_ID \
+    --repo "${repository}" \
+    --env github-production \
+    --body "${app_id}"
+gh variable set CI_GATE_APP_SLUG \
+    --repo "${repository}" \
+    --env github-production \
+    --body "${app_slug}"
+
+printf 'Configured CI gate App %s (%s) in %s.\n' \
+    "${app_id}" "${app_slug}" "${secret_id}"
