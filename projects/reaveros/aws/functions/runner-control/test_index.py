@@ -524,7 +524,7 @@ class RunnerControlIndexTests(unittest.TestCase):
         )
         self.assertEqual(result, {"terminated": ["i-123abc"]})
 
-    def test_reap_reports_cleanup_failure_without_terminating_runner(self):
+    def test_reap_reports_cleanup_failure_after_terminating_runner(self):
         old_runner = {
             "InstanceId": "i-old",
             "LaunchTime": datetime.datetime(2000, 1, 1, tzinfo=datetime.UTC),
@@ -555,7 +555,9 @@ class RunnerControlIndexTests(unittest.TestCase):
         ):
             runner_control.reap({})
 
-        clients["ec2"].terminate_instances.assert_not_called()
+        clients["ec2"].terminate_instances.assert_called_once_with(
+            InstanceIds=["i-old"],
+        )
 
     def test_handler_dispatches_supported_actions(self):
         event = {"action": "status"}

@@ -347,8 +347,7 @@ def reap(_event):
             cleanup_registration(runner["jit_parameter"], runner["runner_id"])
         except RuntimeError as error:
             failures.append((runner["instance_id"], error))
-        else:
-            terminated.append(runner["instance_id"])
+        terminated.append(runner["instance_id"])
     if terminated:
         ec2.terminate_instances(
             InstanceIds=terminated
