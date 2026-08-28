@@ -1,0 +1,133 @@
+---
+- name: hardened resources pass
+  input:
+    Resources:
+      Bucket:
+        Type: AWS::S3::Bucket
+        Properties:
+          BucketEncryption:
+            ServerSideEncryptionConfiguration:
+              - ServerSideEncryptionByDefault:
+                  SSEAlgorithm: AES256
+          PublicAccessBlockConfiguration:
+            BlockPublicAcls: true
+            BlockPublicPolicy: true
+            IgnorePublicAcls: true
+            RestrictPublicBuckets: true
+          VersioningConfiguration:
+            Status: Enabled
+      Repository:
+        Type: AWS::ECR::Repository
+        Properties:
+          EncryptionConfiguration:
+            EncryptionType: AES256
+          ImageScanningConfiguration:
+            ScanOnPush: true
+          ImageTagMutability: IMMUTABLE
+      SecurityGroup:
+        Type: AWS::EC2::SecurityGroup
+        Properties: {}
+      LaunchTemplate:
+        Type: AWS::EC2::LaunchTemplate
+        Properties:
+          LaunchTemplateData:
+            BlockDeviceMappings:
+              - Ebs:
+                  DeleteOnTermination: true
+                  Encrypted: true
+            MetadataOptions:
+              HttpPutResponseHopLimit: 1
+              HttpTokens: required
+      Function:
+        Type: AWS::Lambda::Function
+        Properties:
+          ReservedConcurrentExecutions: 1
+          Timeout: 300
+      LogGroup:
+        Type: AWS::Logs::LogGroup
+        Properties:
+          RetentionInDays: 30
+      Trail:
+        Type: AWS::CloudTrail::Trail
+        Properties:
+          EnableLogFileValidation: true
+          IncludeGlobalServiceEvents: false
+          IsLogging: true
+          IsMultiRegionTrail: false
+  expectations:
+    rules:
+      s3_buckets_are_private_and_recoverable: PASS
+      ecr_repositories_protect_images: PASS
+      security_groups_have_no_ingress: PASS
+      runner_launch_templates_harden_instances: PASS
+      lambda_functions_are_bounded: PASS
+      log_groups_have_bounded_retention: PASS
+      trails_are_logging_with_validation: PASS
+
+- name: weakened resources fail
+  input:
+    Resources:
+      Bucket:
+        Type: AWS::S3::Bucket
+        Properties:
+          BucketEncryption:
+            ServerSideEncryptionConfiguration:
+              - ServerSideEncryptionByDefault:
+                  SSEAlgorithm: AES256
+          PublicAccessBlockConfiguration:
+            BlockPublicAcls: false
+            BlockPublicPolicy: false
+            IgnorePublicAcls: false
+            RestrictPublicBuckets: false
+          VersioningConfiguration:
+            Status: Suspended
+      Repository:
+        Type: AWS::ECR::Repository
+        Properties:
+          EncryptionConfiguration:
+            EncryptionType: AES256
+          ImageScanningConfiguration:
+            ScanOnPush: false
+          ImageTagMutability: MUTABLE
+      SecurityGroup:
+        Type: AWS::EC2::SecurityGroup
+        Properties:
+          SecurityGroupIngress:
+            - IpProtocol: '-1'
+              CidrIp: 0.0.0.0/0
+      LaunchTemplate:
+        Type: AWS::EC2::LaunchTemplate
+        Properties:
+          LaunchTemplateData:
+            BlockDeviceMappings:
+              - Ebs:
+                  DeleteOnTermination: false
+                  Encrypted: false
+            MetadataOptions:
+              HttpPutResponseHopLimit: 2
+              HttpTokens: optional
+      Function:
+        Type: AWS::Lambda::Function
+        Properties:
+          ReservedConcurrentExecutions: 5
+          Timeout: 600
+      LogGroup:
+        Type: AWS::Logs::LogGroup
+        Properties:
+          RetentionInDays: 0
+      Trail:
+        Type: AWS::CloudTrail::Trail
+        Properties:
+          EnableLogFileValidation: false
+          IncludeGlobalServiceEvents: false
+          IsLogging: false
+          IsMultiRegionTrail: false
+  expectations:
+    rules:
+      s3_buckets_are_private_and_recoverable: FAIL
+      ecr_repositories_protect_images: FAIL
+      security_groups_have_no_ingress: FAIL
+      runner_launch_templates_harden_instances: FAIL
+      lambda_functions_are_bounded: FAIL
+      log_groups_have_bounded_retention: FAIL
+      trails_are_logging_with_validation: FAIL

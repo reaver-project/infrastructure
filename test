@@ -14,6 +14,7 @@ shell_scripts=(
     aws/bootstrap/test
     aws/organization/log-archive/deploy
     aws/organization/log-archive/test
+    aws/validate-guard-rules
     github/configure-organization
     github/configure-repository
     github/apps/configure-app-environment

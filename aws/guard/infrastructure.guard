@@ -1,0 +1,67 @@
+let s3_buckets = Resources.*[ Type == 'AWS::S3::Bucket' ]
+let ecr_repositories = Resources.*[ Type == 'AWS::ECR::Repository' ]
+let security_groups = Resources.*[ Type == 'AWS::EC2::SecurityGroup' ]
+let launch_templates = Resources.*[ Type == 'AWS::EC2::LaunchTemplate' ]
+let lambda_functions = Resources.*[ Type == 'AWS::Lambda::Function' ]
+let log_groups = Resources.*[ Type == 'AWS::Logs::LogGroup' ]
+let trails = Resources.*[ Type == 'AWS::CloudTrail::Trail' ]
+
+rule s3_buckets_are_private_and_recoverable when %s3_buckets !empty {
+    %s3_buckets {
+        Properties {
+            BucketEncryption.ServerSideEncryptionConfiguration[*].ServerSideEncryptionByDefault.SSEAlgorithm IN ['AES256', 'aws:kms']
+            PublicAccessBlockConfiguration.BlockPublicAcls == true
+            PublicAccessBlockConfiguration.BlockPublicPolicy == true
+            PublicAccessBlockConfiguration.IgnorePublicAcls == true
+            PublicAccessBlockConfiguration.RestrictPublicBuckets == true
+            VersioningConfiguration.Status == 'Enabled'
+        }
+    }
+}
+
+rule ecr_repositories_protect_images when %ecr_repositories !empty {
+    %ecr_repositories {
+        Properties {
+            EncryptionConfiguration.EncryptionType IN ['AES256', 'KMS', 'KMS_DSSE']
+            ImageScanningConfiguration.ScanOnPush == true
+            ImageTagMutability IN ['IMMUTABLE', 'IMMUTABLE_WITH_EXCLUSION']
+        }
+    }
+}
+
+rule security_groups_have_no_ingress when %security_groups !empty {
+    %security_groups.Properties.SecurityGroupIngress not exists
+}
+
+rule runner_launch_templates_harden_instances when %launch_templates !empty {
+    %launch_templates {
+        Properties.LaunchTemplateData {
+            BlockDeviceMappings[*].Ebs.Encrypted == true
+            BlockDeviceMappings[*].Ebs.DeleteOnTermination == true
+            MetadataOptions.HttpTokens == 'required'
+            MetadataOptions.HttpPutResponseHopLimit == 1
+        }
+    }
+}
+
+rule lambda_functions_are_bounded when %lambda_functions !empty {
+    %lambda_functions {
+        Properties {
+            ReservedConcurrentExecutions == 1
+            Timeout <= 300
+        }
+    }
+}
+
+rule log_groups_have_bounded_retention when %log_groups !empty {
+    %log_groups.Properties.RetentionInDays IN [1, 3, 5, 7, 14, 30, 60, 90, 120, 150, 180, 365]
+}
+
+rule trails_are_logging_with_validation when %trails !empty {
+    %trails {
+        Properties {
+            EnableLogFileValidation == true
+            IsLogging == true
+        }
+    }
+}

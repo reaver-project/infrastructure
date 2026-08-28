@@ -1,0 +1,23 @@
+#!/usr/bin/env bash
+
+set -euo pipefail
+
+if [[ $# -ne 0 ]]
+then
+    printf 'usage: %s\n' "$0" >&2
+    exit 2
+fi
+
+self_dir=$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)
+repo_root=$(git -C "${self_dir}" rev-parse --show-toplevel)
+
+cfn-guard test \
+    --rules-file "${self_dir}/guard/infrastructure.guard" \
+    --test-data "${self_dir}/guard/infrastructure_tests.yaml"
+
+cfn-guard validate \
+    --rules "${self_dir}/guard" \
+    --data "${self_dir}/bootstrap/template.yaml" \
+    --data "${self_dir}/organization/log-archive/template.yaml" \
+    --data "${repo_root}/projects/reaveros/aws/runner-stack.yaml" \
+    --show-summary fail
