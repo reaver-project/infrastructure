@@ -162,9 +162,15 @@ Resources:
             RepositoryName: !Ref BuildEnvironmentRepositoryName
             ImageScanningConfiguration:
                 ScanOnPush: true
-            ImageTagMutability: MUTABLE
+            ImageTagMutability: IMMUTABLE_WITH_EXCLUSION
+            ImageTagMutabilityExclusionFilters:
+              - ImageTagMutabilityExclusionFilterType: WILDCARD
+                ImageTagMutabilityExclusionFilterValue: latest
             EncryptionConfiguration:
                 EncryptionType: AES256
+            Tags:
+              - Key: Project
+                Value: ReaverOS
             LifecyclePolicy:
                 LifecyclePolicyText: |
                     {
@@ -188,9 +194,15 @@ Resources:
             RepositoryName: !Sub ${BuildEnvironmentRepositoryName}-unpruned
             ImageScanningConfiguration:
                 ScanOnPush: true
-            ImageTagMutability: MUTABLE
+            ImageTagMutability: IMMUTABLE_WITH_EXCLUSION
+            ImageTagMutabilityExclusionFilters:
+              - ImageTagMutabilityExclusionFilterType: WILDCARD
+                ImageTagMutabilityExclusionFilterValue: latest
             EncryptionConfiguration:
                 EncryptionType: AES256
+            Tags:
+              - Key: Project
+                Value: ReaverOS
             LifecyclePolicy:
                 LifecyclePolicyText: |
                     {
@@ -217,6 +229,9 @@ Resources:
             ImageTagMutability: IMMUTABLE
             EncryptionConfiguration:
                 EncryptionType: AES256
+            Tags:
+              - Key: Project
+                Value: ReaverOS
             LifecyclePolicy:
                 LifecyclePolicyText: |
                     {
@@ -244,6 +259,9 @@ Resources:
             ImageTagMutability: IMMUTABLE
             EncryptionConfiguration:
                 EncryptionType: AES256
+            Tags:
+              - Key: Project
+                Value: ReaverOS
             LifecyclePolicy:
                 LifecyclePolicyText: |
                     {
@@ -271,6 +289,9 @@ Resources:
             ImageTagMutability: IMMUTABLE
             EncryptionConfiguration:
                 EncryptionType: AES256
+            Tags:
+              - Key: Project
+                Value: ReaverOS
             LifecyclePolicy:
                 LifecyclePolicyText: |
                     {
@@ -298,6 +319,9 @@ Resources:
             ImageTagMutability: IMMUTABLE
             EncryptionConfiguration:
                 EncryptionType: AES256
+            Tags:
+              - Key: Project
+                Value: ReaverOS
             LifecyclePolicy:
                 LifecyclePolicyText: |
                     {

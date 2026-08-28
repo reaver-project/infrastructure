@@ -241,6 +241,25 @@ then
     exit 1
 fi
 
+if [[ $(grep --fixed-strings --count \
+    'ImageTagMutability: IMMUTABLE_WITH_EXCLUSION' \
+    "${self_dir}/runner-stack.yaml") -ne 2 \
+    || $(grep --fixed-strings --count \
+        'ImageTagMutabilityExclusionFilterValue: latest' \
+        "${self_dir}/runner-stack.yaml") -ne 2 ]]
+then
+    printf 'Production image tags are not immutable except for latest.\n' >&2
+    exit 1
+fi
+
+if [[ $(grep --fixed-strings --count \
+    'ImageTagMutability: IMMUTABLE' \
+    "${self_dir}/runner-stack.yaml") -ne 6 ]]
+then
+    printf 'Every ECR repository must default to immutable tags.\n' >&2
+    exit 1
+fi
+
 test_directory=$(mktemp -d)
 mkdir "${test_directory}/bin"
 ln -s "${self_dir}/test-infrastructure" "${test_directory}/bin/aws"
