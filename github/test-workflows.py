@@ -27,29 +27,21 @@ all_workflows = "\n".join(
     for workflow in sorted((root / ".github" / "workflows").glob("*.yml"))
 )
 
-security_workflow = (
-    root / ".github" / "workflows" / "security-analysis.yml"
-).read_text(encoding="utf-8")
+security_workflow = (root / ".github" / "workflows" / "security-analysis.yml").read_text(
+    encoding="utf-8"
+)
 if "publish_results: true" in security_workflow:
     infrastructure_profile = json.loads(
-        (root / "github" / "repositories" / "infrastructure.json").read_text(
-            encoding="utf-8"
-        )
+        (root / "github" / "repositories" / "infrastructure.json").read_text(encoding="utf-8")
     )["profile"]
     if infrastructure_profile["visibility"] != "public":
         sys.exit("OpenSSF Scorecard results may be published only for a public repository.")
 if "actions/upload-artifact@" in security_workflow:
     sys.exit("Security findings belong in code scanning, not public workflow artifacts.")
 
-validate_workflow = (
-    root / ".github" / "workflows" / "validate.yml"
-).read_text(encoding="utf-8")
-infrastructure_configuration = (
-    root / "github" / "repositories" / "infrastructure.json"
-)
-repository = json.loads(
-    infrastructure_configuration.read_text(encoding="utf-8")
-)
+validate_workflow = (root / ".github" / "workflows" / "validate.yml").read_text(encoding="utf-8")
+infrastructure_configuration = root / "github" / "repositories" / "infrastructure.json"
+repository = json.loads(infrastructure_configuration.read_text(encoding="utf-8"))
 for ruleset in repository["rulesets"]:
     for rule in ruleset["rules"]:
         if rule["type"] != "required_status_checks":
@@ -76,9 +68,7 @@ validator_install = plan_workflow.find("Install the IAM policy validator")
 aws_authentication = plan_workflow.find("Authenticate to AWS for planning")
 policy_validation = plan_workflow.find("Validate IAM policies with Access Analyzer")
 infrastructure_plan = plan_workflow.find("Create the reviewed change set")
-if not (
-    -1 < validator_install < aws_authentication < policy_validation < infrastructure_plan
-):
+if not (-1 < validator_install < aws_authentication < policy_validation < infrastructure_plan):
     sys.exit(
         "The AWS planning workflow does not install and run policy validation "
         "at the credential boundary."
@@ -88,9 +78,9 @@ if "--require-hashes" not in plan_workflow:
 if "--only-binary=:all:" not in plan_workflow:
     sys.exit("The IAM policy validator installation may execute source builds.")
 
-deploy_workflow = (
-    root / ".github" / "workflows" / "aws-infrastructure-deploy.yml"
-).read_text(encoding="utf-8")
+deploy_workflow = (root / ".github" / "workflows" / "aws-infrastructure-deploy.yml").read_text(
+    encoding="utf-8"
+)
 if "plan_run_id" in deploy_workflow or "plan_key" not in deploy_workflow:
     sys.exit("The deployment workflow does not consume the opaque plan key.")
 
@@ -125,8 +115,8 @@ for workflow_name in [
 
 def job_contents(workflow_name: str, job_name: str) -> str:
     lines = (
-        root / ".github" / "workflows" / workflow_name
-    ).read_text(encoding="utf-8").splitlines()
+        (root / ".github" / "workflows" / workflow_name).read_text(encoding="utf-8").splitlines()
+    )
     marker = f"    {job_name}:"
     try:
         start = lines.index(marker)
@@ -136,9 +126,7 @@ def job_contents(workflow_name: str, job_name: str) -> str:
         (
             index
             for index, line in enumerate(lines[start + 1 :], start=start + 1)
-            if line.startswith("    ")
-            and not line.startswith("        ")
-            and line.endswith(":")
+            if line.startswith("    ") and not line.startswith("        ") and line.endswith(":")
         ),
         len(lines),
     )

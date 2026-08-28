@@ -33,9 +33,7 @@ class RunnerControlTests(unittest.TestCase):
                 "0123456789abcdef0123456789abcdef",
             ),
             {
-                "jit_parameter": (
-                    "/jit/123-2-unit-tests-amd64-0123456789abcdef0123456789abcdef"
-                ),
+                "jit_parameter": ("/jit/123-2-unit-tests-amd64-0123456789abcdef0123456789abcdef"),
                 "run_id": "123",
                 "runner_name": "reaveros-123-2-unit-tests-amd64",
             },
@@ -124,34 +122,40 @@ class RunnerControlTests(unittest.TestCase):
                 180,
                 "/jit/",
             ),
-            [{
-                "instance_id": "i-old",
-                "jit_parameter": "/jit/123-1-tests",
-                "runner_id": 42,
-            }],
+            [
+                {
+                    "instance_id": "i-old",
+                    "jit_parameter": "/jit/123-1-tests",
+                    "runner_id": 42,
+                }
+            ],
         )
 
     def test_ignores_untrusted_cleanup_tags(self):
         now = datetime.datetime(2026, 8, 20, tzinfo=datetime.UTC)
         self.assertEqual(
             runner_control.expired_runner_cleanup(
-                [{
-                    "InstanceId": "i-old",
-                    "LaunchTime": now - datetime.timedelta(minutes=181),
-                    "Tags": [
-                        {"Key": "GitHubRunnerId", "Value": "not-a-number"},
-                        {"Key": "ReaverOSRunnerParameter", "Value": "/other/value"},
-                    ],
-                }],
+                [
+                    {
+                        "InstanceId": "i-old",
+                        "LaunchTime": now - datetime.timedelta(minutes=181),
+                        "Tags": [
+                            {"Key": "GitHubRunnerId", "Value": "not-a-number"},
+                            {"Key": "ReaverOSRunnerParameter", "Value": "/other/value"},
+                        ],
+                    }
+                ],
                 now,
                 180,
                 "/jit/",
             ),
-            [{
-                "instance_id": "i-old",
-                "jit_parameter": None,
-                "runner_id": None,
-            }],
+            [
+                {
+                    "instance_id": "i-old",
+                    "jit_parameter": None,
+                    "runner_id": None,
+                }
+            ],
         )
 
     def test_derives_normal_cleanup_from_instance_tags(self):

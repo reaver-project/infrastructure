@@ -40,15 +40,17 @@ primitives.serialization = mock.Mock()
 asymmetric = types.ModuleType("cryptography.hazmat.primitives.asymmetric")
 asymmetric.padding = mock.Mock()
 
-sys.modules.update({
-    "boto3": boto3,
-    "botocore": botocore,
-    "botocore.exceptions": botocore_exceptions,
-    "cryptography": types.ModuleType("cryptography"),
-    "cryptography.hazmat": types.ModuleType("cryptography.hazmat"),
-    "cryptography.hazmat.primitives": primitives,
-    "cryptography.hazmat.primitives.asymmetric": asymmetric,
-})
+sys.modules.update(
+    {
+        "boto3": boto3,
+        "botocore": botocore,
+        "botocore.exceptions": botocore_exceptions,
+        "cryptography": types.ModuleType("cryptography"),
+        "cryptography.hazmat": types.ModuleType("cryptography.hazmat"),
+        "cryptography.hazmat.primitives": primitives,
+        "cryptography.hazmat.primitives.asymmetric": asymmetric,
+    }
+)
 
 module_directory = pathlib.Path(__file__).parent
 lib_specification = importlib.util.spec_from_file_location(
@@ -75,21 +77,24 @@ class RunnerControlIndexTests(unittest.TestCase):
         asymmetric.padding.reset_mock(return_value=True, side_effect=True)
         runner_control.cached_github_token = None
         runner_control.cached_github_token_expiry = 0
-        self.environment = mock.patch.dict(os.environ, {
-            "ALLOWED_REPOSITORIES": "reaver-project/reaveros",
-            "BUILDER_PROFILE_ARN": "arn:builder",
-            "GITHUB_ORGANIZATION": "reaver-project",
-            "GITHUB_RUNNER_GROUP_ID": "7",
-            "GITHUB_APP_SECRET_ID": "runner-app-secret",
-            "JIT_PARAMETER_PREFIX": "/jit/",
-            "LARGE_INSTANCE_TYPE": "c8i.8xlarge",
-            "LAUNCH_TEMPLATE_ID": "lt-123",
-            "MAXIMUM_CONCURRENT_RUNNERS": "4",
-            "MAXIMUM_AGE_MINUTES": "180",
-            "MEDIUM_INSTANCE_TYPE": "c8i.4xlarge",
-            "RUNNER_INSTANCE_NAME": "reaveros-runner",
-            "VALIDATION_PROFILE_ARN": "arn:validation",
-        })
+        self.environment = mock.patch.dict(
+            os.environ,
+            {
+                "ALLOWED_REPOSITORIES": "reaver-project/reaveros",
+                "BUILDER_PROFILE_ARN": "arn:builder",
+                "GITHUB_ORGANIZATION": "reaver-project",
+                "GITHUB_RUNNER_GROUP_ID": "7",
+                "GITHUB_APP_SECRET_ID": "runner-app-secret",
+                "JIT_PARAMETER_PREFIX": "/jit/",
+                "LARGE_INSTANCE_TYPE": "c8i.8xlarge",
+                "LAUNCH_TEMPLATE_ID": "lt-123",
+                "MAXIMUM_CONCURRENT_RUNNERS": "4",
+                "MAXIMUM_AGE_MINUTES": "180",
+                "MEDIUM_INSTANCE_TYPE": "c8i.4xlarge",
+                "RUNNER_INSTANCE_NAME": "reaveros-runner",
+                "VALIDATION_PROFILE_ARN": "arn:validation",
+            },
+        )
         self.environment.start()
 
     def tearDown(self):
@@ -106,10 +111,9 @@ class RunnerControlIndexTests(unittest.TestCase):
         )
 
         header, payload, signature = token.split(".")
+
         def decode(value):
-            return json.loads(base64.urlsafe_b64decode(
-                value + "=" * (-len(value) % 4)
-            ))
+            return json.loads(base64.urlsafe_b64decode(value + "=" * (-len(value) % 4)))
 
         self.assertEqual(decode(header), {"alg": "RS256", "typ": "JWT"})
         self.assertEqual(
@@ -260,11 +264,13 @@ class RunnerControlIndexTests(unittest.TestCase):
 
     def test_github_token_is_created_and_cached(self):
         clients["secretsmanager"].get_secret_value.return_value = {
-            "SecretString": json.dumps({
-                "app_id": 1234,
-                "installation_id": 5678,
-                "private_key": "test-private-key",
-            }),
+            "SecretString": json.dumps(
+                {
+                    "app_id": 1234,
+                    "installation_id": 5678,
+                    "private_key": "test-private-key",
+                }
+            ),
         }
         installation_token = {
             "expires_at": "2030-01-01T00:00:00Z",
@@ -313,10 +319,12 @@ class RunnerControlIndexTests(unittest.TestCase):
             runner_control.runner_instances(["i-first", "i-second"]),
             [first, second],
         )
-        filters = [{
-            "Name": "tag:ReaverOSPurpose",
-            "Values": ["GitHubActionsRunner"],
-        }]
+        filters = [
+            {
+                "Name": "tag:ReaverOSPurpose",
+                "Values": ["GitHubActionsRunner"],
+            }
+        ]
         self.assertEqual(
             clients["ec2"].describe_instances.call_args_list,
             [
@@ -342,11 +350,13 @@ class RunnerControlIndexTests(unittest.TestCase):
 
         self.assertEqual(
             policy,
-            [{
-                "Type": "Expiration",
-                "Version": "1.0",
-                "Attributes": {"Timestamp": "2030-01-01T04:00:00Z"},
-            }],
+            [
+                {
+                    "Type": "Expiration",
+                    "Version": "1.0",
+                    "Attributes": {"Timestamp": "2030-01-01T04:00:00Z"},
+                }
+            ],
         )
 
     def test_launches_a_valid_runner(self):
@@ -371,24 +381,29 @@ class RunnerControlIndexTests(unittest.TestCase):
                 return_value="0123456789abcdef0123456789abcdef",
             ),
         ):
-            result = runner_control.launch({
-                "github_run_attempt": 2,
-                "github_run_id": 123,
-                "repository": "reaver-project/reaveros",
-                "runner_key": "unit-tests-amd64",
-                "runner_profile": "validation",
-                "runner_size": "medium",
-            })
+            result = runner_control.launch(
+                {
+                    "github_run_attempt": 2,
+                    "github_run_id": 123,
+                    "repository": "reaver-project/reaveros",
+                    "runner_key": "unit-tests-amd64",
+                    "runner_profile": "validation",
+                    "runner_size": "medium",
+                }
+            )
 
-        self.assertEqual(result, {
-            "instance_id": "i-launched",
-            "labels": [
-                "self-hosted",
-                "reaveros-aws",
-                "reaveros-123-2-unit-tests-amd64",
-            ],
-            "runner_name": "reaveros-123-2-unit-tests-amd64",
-        })
+        self.assertEqual(
+            result,
+            {
+                "instance_id": "i-launched",
+                "labels": [
+                    "self-hosted",
+                    "reaveros-aws",
+                    "reaveros-123-2-unit-tests-amd64",
+                ],
+                "runner_name": "reaveros-123-2-unit-tests-amd64",
+            },
+        )
         github_request.assert_called_once()
         put_parameter = clients["ssm"].put_parameter.call_args.kwargs
         self.assertEqual(put_parameter["Tier"], "Advanced")
@@ -441,14 +456,16 @@ class RunnerControlIndexTests(unittest.TestCase):
             ),
             self.assertRaises(IndexError),
         ):
-            runner_control.launch({
-                "github_run_attempt": 2,
-                "github_run_id": 123,
-                "repository": "reaver-project/reaveros",
-                "runner_key": "unit-tests-amd64",
-                "runner_profile": "validation",
-                "runner_size": "medium",
-            })
+            runner_control.launch(
+                {
+                    "github_run_attempt": 2,
+                    "github_run_id": 123,
+                    "repository": "reaver-project/reaveros",
+                    "runner_key": "unit-tests-amd64",
+                    "runner_profile": "validation",
+                    "runner_size": "medium",
+                }
+            )
 
         cleanup.assert_called_once_with(
             "/jit/123-2-unit-tests-amd64-0123456789abcdef0123456789abcdef",
@@ -487,10 +504,14 @@ class RunnerControlIndexTests(unittest.TestCase):
         ):
             github_request.side_effect = [
                 {"runners": []},
-                {"runners": [{
-                    "name": "reaveros-123-1-tests",
-                    "status": "offline",
-                }]},
+                {
+                    "runners": [
+                        {
+                            "name": "reaveros-123-1-tests",
+                            "status": "offline",
+                        }
+                    ]
+                },
             ]
             event = {"runner_name": "reaveros-123-1-tests"}
             self.assertEqual(runner_control.status(event), {"online": False})
@@ -504,9 +525,7 @@ class RunnerControlIndexTests(unittest.TestCase):
         )
 
     def test_cleanup_tolerates_resources_that_are_already_absent(self):
-        clients["ssm"].delete_parameter.side_effect = ClientError(
-            "ParameterNotFound"
-        )
+        clients["ssm"].delete_parameter.side_effect = ClientError("ParameterNotFound")
         not_found = runner_control.GitHubRequestError(
             "DELETE",
             "/runner/42",
@@ -545,24 +564,34 @@ class RunnerControlIndexTests(unittest.TestCase):
 
     def test_terminate_uses_instance_tags_for_registration_cleanup(self):
         clients["ec2"].describe_instances.return_value = {
-            "Reservations": [{"Instances": [{
-                "InstanceId": "i-123abc",
-                "Tags": [
-                    {"Key": "GitHubRunnerId", "Value": "42"},
-                    {"Key": "ReaverOSRunnerParameter", "Value": "/jit/real"},
-                ],
-            }]}],
+            "Reservations": [
+                {
+                    "Instances": [
+                        {
+                            "InstanceId": "i-123abc",
+                            "Tags": [
+                                {"Key": "GitHubRunnerId", "Value": "42"},
+                                {"Key": "ReaverOSRunnerParameter", "Value": "/jit/real"},
+                            ],
+                        }
+                    ]
+                }
+            ],
         }
         clients["ec2"].get_console_output.return_value = {
             "Output": base64.b64encode(b"runner output").decode(),
         }
-        with mock.patch.object(runner_control, "github_token", return_value="token"), \
-            mock.patch.object(runner_control, "github_request") as github_request:
-            result = runner_control.terminate({
-                "instance_id": "i-123abc",
-                "jit_parameter": "/jit/untrusted",
-                "runner_id": 99,
-            })
+        with (
+            mock.patch.object(runner_control, "github_token", return_value="token"),
+            mock.patch.object(runner_control, "github_request") as github_request,
+        ):
+            result = runner_control.terminate(
+                {
+                    "instance_id": "i-123abc",
+                    "jit_parameter": "/jit/untrusted",
+                    "runner_id": 99,
+                }
+            )
 
         self.assertEqual(result["console_output"], "runner output")
         clients["ssm"].delete_parameter.assert_called_once_with(Name="/jit/real")
@@ -619,8 +648,10 @@ class RunnerControlIndexTests(unittest.TestCase):
                 {"Key": "ReaverOSRunnerParameter", "Value": "/jit/real"},
             ],
         }
-        with mock.patch.object(runner_control, "runner_instances", return_value=[instance]), \
-            mock.patch.object(runner_control, "cleanup_registration") as cleanup:
+        with (
+            mock.patch.object(runner_control, "runner_instances", return_value=[instance]),
+            mock.patch.object(runner_control, "cleanup_registration") as cleanup,
+        ):
             result = runner_control.reap({})
 
         cleanup.assert_called_once_with("/jit/real", 42)
@@ -714,14 +745,16 @@ class RunnerControlIndexTests(unittest.TestCase):
             ),
             self.assertRaises(ClientError),
         ):
-            runner_control.launch({
-                "github_run_attempt": 2,
-                "github_run_id": 123,
-                "repository": "reaver-project/reaveros",
-                "runner_key": "unit-tests-amd64",
-                "runner_profile": "validation",
-                "runner_size": "medium",
-            })
+            runner_control.launch(
+                {
+                    "github_run_attempt": 2,
+                    "github_run_id": 123,
+                    "repository": "reaver-project/reaveros",
+                    "runner_key": "unit-tests-amd64",
+                    "runner_profile": "validation",
+                    "runner_size": "medium",
+                }
+            )
 
         cleanup.assert_called_once_with(
             "/jit/123-2-unit-tests-amd64-0123456789abcdef0123456789abcdef",

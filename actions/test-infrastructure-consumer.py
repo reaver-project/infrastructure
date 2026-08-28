@@ -5,9 +5,7 @@ import unittest
 from pathlib import Path
 
 module_path = Path(__file__).with_name("lib") / "infrastructure_consumer.py"
-specification = importlib.util.spec_from_file_location(
-    "infrastructure_consumer", module_path
-)
+specification = importlib.util.spec_from_file_location("infrastructure_consumer", module_path)
 infrastructure_consumer = importlib.util.module_from_spec(specification)
 specification.loader.exec_module(infrastructure_consumer)
 
@@ -39,9 +37,7 @@ jobs:
             encoding="utf-8",
         )
         subprocess.run(["git", "init", "--quiet", "-b", "main"], cwd=self.root, check=True)
-        subprocess.run(
-            ["git", "config", "user.name", "Test"], cwd=self.root, check=True
-        )
+        subprocess.run(["git", "config", "user.name", "Test"], cwd=self.root, check=True)
         subprocess.run(
             ["git", "config", "user.email", "test@example.com"],
             cwd=self.root,
@@ -155,9 +151,7 @@ jobs:
     def test_rejects_a_mutable_shared_action_reference(self):
         workflow = self.root / ".github" / "workflows" / "ci.yml"
         workflow.write_text(
-            workflow.read_text(encoding="utf-8").replace(
-                f"@{old_revision}", "@main"
-            ),
+            workflow.read_text(encoding="utf-8").replace(f"@{old_revision}", "@main"),
             encoding="utf-8",
         )
         with self.assertRaisesRegex(ValueError, "not pinned by full Git SHA"):

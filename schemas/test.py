@@ -35,9 +35,7 @@ invalid_organization = copy.deepcopy(organization)
 invalid_organization["actions"]["unknown_setting"] = True
 require_rejection(organization_validator, invalid_organization, "organization setting")
 invalid_code_security = copy.deepcopy(organization)
-invalid_code_security["code_security"]["configuration"]["secret_scanning"] = (
-    "sometimes"
-)
+invalid_code_security["code_security"]["configuration"]["secret_scanning"] = "sometimes"
 require_rejection(
     organization_validator,
     invalid_code_security,
@@ -51,9 +49,9 @@ for repository_path in (
 ):
     repository_validator.validate(load(repository_path))
 invalid_repository = load("github/repositories/infrastructure.json")
-invalid_repository["rulesets"][0]["rules"][-1]["parameters"]["required_status_checks"][
-    0
-].pop("context")
+invalid_repository["rulesets"][0]["rules"][-1]["parameters"]["required_status_checks"][0].pop(
+    "context"
+)
 require_rejection(repository_validator, invalid_repository, "required status check")
 
 manifest_validator = validator("schemas/github-app-manifest.schema.json")

@@ -43,18 +43,22 @@ def base64_url(value):
 def create_app_jwt(credentials, now=None):
     if now is None:
         now = int(time.time())
-    header = base64_url(json.dumps(
-        {"alg": "RS256", "typ": "JWT"},
-        separators=(",", ":"),
-    ).encode())
-    payload = base64_url(json.dumps(
-        {
-            "exp": now + 540,
-            "iat": now - 60,
-            "iss": credentials["app_id"],
-        },
-        separators=(",", ":"),
-    ).encode())
+    header = base64_url(
+        json.dumps(
+            {"alg": "RS256", "typ": "JWT"},
+            separators=(",", ":"),
+        ).encode()
+    )
+    payload = base64_url(
+        json.dumps(
+            {
+                "exp": now + 540,
+                "iat": now - 60,
+                "iss": credentials["app_id"],
+            },
+            separators=(",", ":"),
+        ).encode()
+    )
     unsigned_token = f"{header}.{payload}".encode()
     private_key = serialization.load_pem_private_key(
         credentials["private_key"].encode(),
@@ -139,10 +143,12 @@ def github_token():
         {},
     )
     cached_github_token = installation_token["token"]
-    cached_github_token_expiry = calendar.timegm(time.strptime(
-        installation_token["expires_at"],
-        "%Y-%m-%dT%H:%M:%SZ",
-    ))
+    cached_github_token_expiry = calendar.timegm(
+        time.strptime(
+            installation_token["expires_at"],
+            "%Y-%m-%dT%H:%M:%SZ",
+        )
+    )
     return cached_github_token
 
 
@@ -151,23 +157,27 @@ def parameter_expiration_policy(maximum_age_minutes, now=None):
         now = datetime.datetime.now(datetime.UTC)
     expiration = now + datetime.timedelta(minutes=maximum_age_minutes + 60)
     return json.dumps(
-        [{
-            "Type": "Expiration",
-            "Version": "1.0",
-            "Attributes": {
-                "Timestamp": expiration.strftime("%Y-%m-%dT%H:%M:%SZ"),
-            },
-        }],
+        [
+            {
+                "Type": "Expiration",
+                "Version": "1.0",
+                "Attributes": {
+                    "Timestamp": expiration.strftime("%Y-%m-%dT%H:%M:%SZ"),
+                },
+            }
+        ],
         separators=(",", ":"),
     )
 
 
 def runner_instances(instance_ids=None):
     arguments = {
-        "Filters": [{
-            "Name": "tag:ReaverOSPurpose",
-            "Values": ["GitHubActionsRunner"],
-        }],
+        "Filters": [
+            {
+                "Name": "tag:ReaverOSPurpose",
+                "Values": ["GitHubActionsRunner"],
+            }
+        ],
     }
     if instance_ids is not None:
         arguments["InstanceIds"] = instance_ids
@@ -209,9 +219,7 @@ def launch(event):
 
     live_states = {"pending", "running", "stopping", "stopped"}
     live_runners = [
-        instance
-        for instance in runner_instances()
-        if instance["State"]["Name"] in live_states
+        instance for instance in runner_instances() if instance["State"]["Name"] in live_states
     ]
     if len(live_runners) >= int(os.environ["MAXIMUM_CONCURRENT_RUNNERS"]):
         raise RuntimeError("ephemeral ReaverOS runner limit reached")
@@ -292,11 +300,7 @@ def status(event):
         github_token(),
     )
     runner = next(
-        (
-            candidate
-            for candidate in response["runners"]
-            if candidate["name"] == runner_name
-        ),
+        (candidate for candidate in response["runners"] if candidate["name"] == runner_name),
         None,
     )
     return {"online": runner is not None and runner["status"] == "online"}
@@ -305,9 +309,7 @@ def status(event):
 def console_output(instance_id):
     try:
         response = ec2.get_console_output(InstanceId=instance_id, Latest=True)
-        return base64.b64decode(response.get("Output", "")).decode(
-            errors="replace"
-        )
+        return base64.b64decode(response.get("Output", "")).decode(errors="replace")
     except (BotoCoreError, ClientError) as error:
         return f"Could not read EC2 console output: {type(error).__name__}"
 
@@ -346,8 +348,7 @@ def cleanup_registration(jit_parameter, runner_id):
             failures.append(error)
     if failures:
         summary = "; ".join(str(error) for error in failures)
-        raise RuntimeError(f"runner registration cleanup failed: {summary}") \
-            from failures[0]
+        raise RuntimeError(f"runner registration cleanup failed: {summary}") from failures[0]
 
 
 def terminate(event):
@@ -381,11 +382,7 @@ def terminate(event):
 def reap(_event):
     live_states = {"pending", "running", "stopping", "stopped"}
     cleanup = expired_runner_cleanup(
-        [
-            instance
-            for instance in runner_instances()
-            if instance["State"]["Name"] in live_states
-        ],
+        [instance for instance in runner_instances() if instance["State"]["Name"] in live_states],
         datetime.datetime.now(datetime.UTC),
         int(os.environ["MAXIMUM_AGE_MINUTES"]),
         os.environ["JIT_PARAMETER_PREFIX"],
@@ -399,16 +396,10 @@ def reap(_event):
             failures.append((runner["instance_id"], error))
         terminated.append(runner["instance_id"])
     if terminated:
-        ec2.terminate_instances(
-            InstanceIds=terminated
-        )
+        ec2.terminate_instances(InstanceIds=terminated)
     if failures:
-        summary = "; ".join(
-            f"{instance_id}: {error}"
-            for instance_id, error in failures
-        )
-        raise RuntimeError(f"expired runner cleanup failed: {summary}") \
-            from failures[0][1]
+        summary = "; ".join(f"{instance_id}: {error}" for instance_id, error in failures)
+        raise RuntimeError(f"expired runner cleanup failed: {summary}") from failures[0][1]
     return {"terminated": terminated}
 
 

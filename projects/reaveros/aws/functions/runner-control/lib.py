@@ -72,13 +72,9 @@ def runner_tag_specifications(
 
 
 def runner_cleanup(instance, parameter_prefix):
-    tags = {
-        tag["Key"]: tag["Value"]
-        for tag in instance.get("Tags", [])
-    }
+    tags = {tag["Key"]: tag["Value"] for tag in instance.get("Tags", [])}
     jit_parameter = tags.get("ReaverOSRunnerParameter")
-    if not isinstance(jit_parameter, str) \
-        or not jit_parameter.startswith(parameter_prefix):
+    if not isinstance(jit_parameter, str) or not jit_parameter.startswith(parameter_prefix):
         jit_parameter = None
     runner_id = tags.get("GitHubRunnerId")
     if not isinstance(runner_id, str) or not runner_id.isdecimal():

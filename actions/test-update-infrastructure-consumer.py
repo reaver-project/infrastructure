@@ -42,12 +42,8 @@ jobs:
 """,
                 encoding="utf-8",
             )
-            subprocess.run(
-                ["git", "init", "--quiet", "-b", "main"], cwd=source, check=True
-            )
-            subprocess.run(
-                ["git", "config", "user.name", "Test"], cwd=source, check=True
-            )
+            subprocess.run(["git", "init", "--quiet", "-b", "main"], cwd=source, check=True)
+            subprocess.run(["git", "config", "user.name", "Test"], cwd=source, check=True)
             subprocess.run(
                 ["git", "config", "user.email", "test@example.com"],
                 cwd=source,

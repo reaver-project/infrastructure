@@ -65,23 +65,19 @@ def workflow_paths(root: pathlib.Path) -> list[pathlib.Path]:
         or not workflow_directory.is_dir()
     ):
         raise ValueError("consumer workflow directory is missing or is a symlink")
-    paths = sorted(
-        [*workflow_directory.glob("*.yml"), *workflow_directory.glob("*.yaml")]
-    )
+    paths = sorted([*workflow_directory.glob("*.yml"), *workflow_directory.glob("*.yaml")])
     for path in paths:
         if path.resolve() != path.absolute() or not path.is_file():
             raise ValueError(f"consumer workflow is not a regular file: {path.name}")
     return paths
 
 
-def read_state(
-    root: pathlib.Path, revision_file: str, contract_version_file: str
-) -> ConsumerState:
+def read_state(root: pathlib.Path, revision_file: str, contract_version_file: str) -> ConsumerState:
     root = root.resolve()
     revision = relative_file(root, revision_file).read_text(encoding="utf-8").strip()
-    contract_version = relative_file(root, contract_version_file).read_text(
-        encoding="utf-8"
-    ).strip()
+    contract_version = (
+        relative_file(root, contract_version_file).read_text(encoding="utf-8").strip()
+    )
     if not revision_pattern.fullmatch(revision):
         raise ValueError(f"invalid recorded infrastructure revision: {revision}")
     if not contract_version_pattern.fullmatch(contract_version):
@@ -95,12 +91,10 @@ def read_state(
     for workflow_path in workflow_paths(root):
         contents = workflow_path.read_text(encoding="utf-8")
         workflow_revisions = [
-            match.group("revision")
-            for match in action_reference_pattern.finditer(contents)
+            match.group("revision") for match in action_reference_pattern.finditer(contents)
         ]
         workflow_contract_versions = [
-            match.group("version")
-            for match in contract_input_pattern.finditer(contents)
+            match.group("version") for match in contract_input_pattern.finditer(contents)
         ]
         workflow_infrastructure_reference_count = len(
             infrastructure_reference_pattern.findall(contents)
@@ -145,22 +139,20 @@ def require_expected_state(
     if not contract_version_pattern.fullmatch(expected_contract_version):
         raise ValueError(f"invalid expected contract version: {expected_contract_version}")
     if state.revision != expected_revision:
-        raise ValueError(
-            "recorded infrastructure revision does not match the deployed revision"
-        )
+        raise ValueError("recorded infrastructure revision does not match the deployed revision")
     if state.contract_version != expected_contract_version:
         raise ValueError("recorded contract version does not match the deployed contract")
 
 
 def replace_workflow_values(contents: str, revision: str, contract_version: str) -> str:
     contents = action_reference_pattern.sub(
-        lambda match: f'{match.group("prefix")}{revision}{match.group("suffix")}',
+        lambda match: f"{match.group('prefix')}{revision}{match.group('suffix')}",
         contents,
     )
     return contract_input_pattern.sub(
         lambda match: (
-            f'{match.group("prefix")}{match.group("quote")}{contract_version}'
-            f'{match.group("quote")}{match.group("suffix")}'
+            f"{match.group('prefix')}{match.group('quote')}{contract_version}"
+            f"{match.group('quote')}{match.group('suffix')}"
         ),
         contents,
     )
@@ -253,8 +245,7 @@ def validate_strict_update(
     unrelated_files = changed_files - allowed_files
     if unrelated_files:
         raise ValueError(
-            "infrastructure update changes unrelated files: "
-            + ", ".join(sorted(unrelated_files))
+            "infrastructure update changes unrelated files: " + ", ".join(sorted(unrelated_files))
         )
     if revision_file not in changed_files:
         raise ValueError("infrastructure update does not change its recorded revision")
@@ -263,9 +254,7 @@ def validate_strict_update(
         base_contents = git_output(root, ["show", f"{base_revision}:{workflow_file}"])
         candidate_contents = (root / workflow_file).read_text(encoding="utf-8")
         if normalized_workflow(base_contents) != normalized_workflow(candidate_contents):
-            raise ValueError(
-                f"infrastructure update makes non-contract changes to {workflow_file}"
-            )
+            raise ValueError(f"infrastructure update makes non-contract changes to {workflow_file}")
 
 
 def parse_arguments():
