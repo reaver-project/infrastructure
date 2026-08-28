@@ -70,6 +70,7 @@ python3 -m py_compile \
     projects/reaveros/aws/functions/runner-control/lib.py \
     projects/reaveros/aws/functions/runner-control/test.py \
     projects/reaveros/aws/functions/runner-control/test_index.py
+python3 test-runtime-boundaries.py
 node --check github/apps/configure-runner-group
 node --check github/apps/test-configure-runner-group.js
 python3 github/test-workflows.py

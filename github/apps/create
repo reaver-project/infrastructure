@@ -35,8 +35,11 @@ def parse_arguments():
 
 
 def memory_filesystem(path):
-    result = subprocess.run(
-        ["stat", "--file-system", "--format=%T", path],
+    stat = shutil.which("stat")
+    if stat is None:
+        raise RuntimeError("stat is required")
+    result = subprocess.run(  # noqa: S603 - path is passed as a separate argument.
+        [stat, "--file-system", "--format=%T", path],
         check=True,
         capture_output=True,
         text=True,
@@ -61,9 +64,12 @@ def encrypt_credentials(path, credentials, passphrase):
         finally:
             os.close(passphrase_writer)
         try:
-            subprocess.run(
+            gpg = shutil.which("gpg")
+            if gpg is None:
+                raise RuntimeError("gpg is required")
+            subprocess.run(  # noqa: S603 - fixed gpg command with isolated descriptors.
                 [
-                    "gpg",
+                    gpg,
                     "--batch",
                     "--quiet",
                     "--no-options",
@@ -104,7 +110,10 @@ def exchange_manifest_code(code):
             "X-GitHub-Api-Version": "2026-03-10",
         },
     )
-    with urllib.request.urlopen(request, timeout=30) as response:
+    with urllib.request.urlopen(  # noqa: S310 - request URL is fixed to GitHub HTTPS.
+        request,
+        timeout=30,
+    ) as response:
         return json.load(response)
 
 

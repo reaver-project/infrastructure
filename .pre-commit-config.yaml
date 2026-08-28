@@ -22,6 +22,7 @@ repos:
     rev: aab412d509121cb5f7533134b7e67f9fab59c682  # v0.16.4
     hooks:
       - id: ruff-check
+      - id: ruff-format
 
   - repo: https://github.com/shellcheck-py/shellcheck-py
     rev: 745eface02aef23e168a8afb6b5737818efbea95  # v0.11.0.1

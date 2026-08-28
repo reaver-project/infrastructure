@@ -96,7 +96,10 @@ def github_request(path, token, method="GET", body=None):
     )
     for attempt in range(github_request_attempts):
         try:
-            with urllib.request.urlopen(request, timeout=30) as response:
+            with urllib.request.urlopen(  # noqa: S310 - request URL is fixed to GitHub HTTPS.
+                request,
+                timeout=30,
+            ) as response:
                 if response.status == 204:
                     return None
                 return json.load(response)

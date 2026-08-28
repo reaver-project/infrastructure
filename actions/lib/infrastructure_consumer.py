@@ -4,6 +4,7 @@ import argparse
 import dataclasses
 import pathlib
 import re
+import shutil
 import subprocess
 import sys
 
@@ -207,8 +208,11 @@ def rewrite_consumer(
 
 
 def git_output(root: pathlib.Path, arguments: list[str]) -> str:
-    return subprocess.run(
-        ["git", "-C", str(root), *arguments],
+    git = shutil.which("git")
+    if git is None:
+        raise RuntimeError("git is required")
+    return subprocess.run(  # noqa: S603 - arguments are internal git subcommands.
+        [git, "-C", str(root), *arguments],
         check=True,
         capture_output=True,
         text=True,
