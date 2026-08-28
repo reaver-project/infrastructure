@@ -246,6 +246,13 @@ if ! grep --fixed-strings --quiet \
     exit 1
 fi
 
+if ! grep --fixed-strings --quiet \
+    'ecr:DescribeImageScanFindings' \
+    "${self_dir}/runner-stack.yaml"; then
+    printf 'The promotion role cannot inspect image vulnerability scans.\n' >&2
+    exit 1
+fi
+
 test_directory=$(mktemp -d)
 mkdir "${test_directory}/bin"
 ln -s "${self_dir}/test-infrastructure" "${test_directory}/bin/aws"

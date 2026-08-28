@@ -386,6 +386,7 @@ Resources:
                           - ecr:BatchCheckLayerAvailability
                           - ecr:BatchGetImage
                           - ecr:DescribeImages
+                          - ecr:DescribeImageScanFindings
                           - ecr:GetDownloadUrlForLayer
                         Resource:
                           - !GetAtt BuildEnvironmentRepository.Arn
