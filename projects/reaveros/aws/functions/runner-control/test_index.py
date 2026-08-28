@@ -175,6 +175,89 @@ class RunnerControlIndexTests(unittest.TestCase):
             "2026-03-10",
         )
 
+    def test_github_request_retries_transient_failures(self):
+        rate_limit = urllib.error.HTTPError(
+            "https://api.github.com/test",
+            429,
+            "rate limited",
+            {"Retry-After": "2.5"},
+            io.BytesIO(b"rate limited"),
+        )
+        server_error = urllib.error.HTTPError(
+            "https://api.github.com/test",
+            503,
+            "unavailable",
+            {},
+            io.BytesIO(b"unavailable"),
+        )
+        response = mock.MagicMock()
+        response.status = 200
+        response.read.return_value = b'{"answer":42}'
+
+        with (
+            mock.patch.object(
+                runner_control.urllib.request,
+                "urlopen",
+                side_effect=[
+                    rate_limit,
+                    server_error,
+                    mock.MagicMock(__enter__=mock.Mock(return_value=response)),
+                ],
+            ),
+            mock.patch.object(runner_control.time, "sleep") as sleep,
+        ):
+            self.assertEqual(
+                runner_control.github_request("/test", "token"),
+                {"answer": 42},
+            )
+
+        self.assertEqual(sleep.call_args_list, [mock.call(2.5), mock.call(2)])
+
+    def test_github_request_limits_retries(self):
+        failures = [
+            urllib.error.URLError("temporary failure"),
+            urllib.error.URLError("temporary failure"),
+            urllib.error.URLError("permanent failure"),
+        ]
+        with (
+            mock.patch.object(
+                runner_control.urllib.request,
+                "urlopen",
+                side_effect=failures,
+            ) as urlopen,
+            mock.patch.object(runner_control.time, "sleep") as sleep,
+            self.assertRaisesRegex(
+                runner_control.GitHubRequestError,
+                "network error permanent failure",
+            ),
+        ):
+            runner_control.github_request("/test", "token")
+
+        self.assertEqual(urlopen.call_count, 3)
+        self.assertEqual(sleep.call_args_list, [mock.call(1), mock.call(2)])
+
+    def test_github_request_does_not_retry_client_errors(self):
+        error = urllib.error.HTTPError(
+            "https://api.github.com/test",
+            422,
+            "unprocessable",
+            {},
+            io.BytesIO(b"invalid request"),
+        )
+        with (
+            mock.patch.object(
+                runner_control.urllib.request,
+                "urlopen",
+                side_effect=error,
+            ) as urlopen,
+            mock.patch.object(runner_control.time, "sleep") as sleep,
+            self.assertRaises(runner_control.GitHubRequestError),
+        ):
+            runner_control.github_request("/test", "token")
+
+        urlopen.assert_called_once()
+        sleep.assert_not_called()
+
     def test_github_token_is_created_and_cached(self):
         clients["secretsmanager"].get_secret_value.return_value = {
             "SecretString": json.dumps({
