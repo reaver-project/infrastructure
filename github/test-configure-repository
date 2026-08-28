@@ -33,6 +33,7 @@ mkdir "${test_directory}/bin"
 ln -s "${self_dir}/test-configure-repository" "${test_directory}/bin/gh"
 export PATH="${test_directory}/bin:${PATH}"
 export GH_TEST_LOG="${test_directory}/calls"
+export CI_GATE_APP_ID=271828
 : > "${GH_TEST_LOG}"
 
 cleanup()
@@ -69,6 +70,10 @@ assert_log_contains $'BODY\t{"name":"protect-default-branch","target":"branch","
 assert_log_contains '"required_approving_review_count":0'
 assert_log_contains '"context":"Test infrastructure code and policy"'
 assert_log_contains $'POST\trepos/reaver-project/reaveros/rulesets'
+assert_log_contains '"name":"reserve-ci-gate-branches"'
+assert_log_contains '"bypass_actors":[{"actor_type":"Integration","bypass_mode":"always","actor_id":271828}]'
+assert_log_contains '"type":"creation"'
+assert_log_contains '"type":"update"'
 assert_log_contains '"context":"CI result"'
 assert_log_contains '"context":"Dependency review"'
 assert_log_contains 'repos/reaver-project/reaveros/actions/permissions/fork-pr-contributor-approval'

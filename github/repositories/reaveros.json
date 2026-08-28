@@ -83,6 +83,37 @@
                 }
             ],
             "bypass_actors": []
+        },
+        {
+            "name": "reserve-ci-gate-branches",
+            "target": "branch",
+            "enforcement": "active",
+            "conditions": {
+                "ref_name": {
+                    "include": [
+                        "refs/heads/pull-request/*"
+                    ],
+                    "exclude": []
+                }
+            },
+            "rules": [
+                {
+                    "type": "creation"
+                },
+                {
+                    "type": "update"
+                },
+                {
+                    "type": "deletion"
+                }
+            ],
+            "bypass_actors": [
+                {
+                    "actor_type": "Integration",
+                    "actor_id_variable": "CI_GATE_APP_ID",
+                    "bypass_mode": "always"
+                }
+            ]
         }
     ],
     "environments": [

@@ -46,6 +46,7 @@ bash -n "${shell_scripts[@]}"
 json_files=(
     aws/organization/cost-controls.json
     aws/organization/reaver-project.json
+    github/apps/ci-gate/manifest.json
     github/apps/infrastructure/manifest.json
     github/apps/maintenance/manifest.json
     github/apps/runner/manifest.json

@@ -53,6 +53,7 @@ jobs:
 
           - name: Converge repository policy
             env:
+                CI_GATE_APP_ID: ${{ vars.CI_GATE_APP_ID }}
                 GH_TOKEN: ${{ steps.app.outputs.token }}
             run: |
                 github/configure-repository github/repositories/infrastructure.json

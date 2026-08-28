@@ -95,6 +95,21 @@ existing_rulesets=$(github_api --paginate \
     --jq '.[] | [.id, .name] | @tsv')
 while IFS= read -r ruleset; do
     name=$(jq --exit-status --raw-output '.name' <<< "${ruleset}")
+    while IFS= read -r actor_id_variable; do
+        actor_id=${!actor_id_variable:-}
+        if [[ ! ${actor_id} =~ ^[1-9][0-9]*$ ]]; then
+            printf 'Ruleset %s requires numeric environment variable %s.\n' \
+                "${name}" "${actor_id_variable}" >&2
+            exit 2
+        fi
+        ruleset=$(jq --compact-output \
+            --arg variable "${actor_id_variable}" \
+            --argjson actor_id "${actor_id}" \
+            '(.bypass_actors[] | select(.actor_id_variable == $variable)) |=
+                (del(.actor_id_variable) + {actor_id: $actor_id})' \
+            <<< "${ruleset}")
+    done < <(jq --raw-output '.bypass_actors[].actor_id_variable // empty' \
+        <<< "${ruleset}")
     ruleset_id=$(awk -F $'\t' -v name="${name}" '$2 == name {print $1; exit}' \
         <<< "${existing_rulesets}")
     if [[ -n ${ruleset_id} ]]; then
