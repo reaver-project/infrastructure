@@ -4,7 +4,7 @@ This directory owns the cloud resources and shared integration contract used by
 ReaverOS. ReaverOS itself continues to own build commands, CI task matrices,
 spending authorization, build-environment cache keys, and image promotion.
 
-An approved AWS deployment publishes six non-secret repository variables to
+An approved AWS deployment publishes seven non-secret repository variables to
 `reaver-project/reaveros` through the infrastructure GitHub App:
 
 - `AWS_REGION` identifies the region containing the runner stack;
@@ -16,6 +16,8 @@ An approved AWS deployment publishes six non-secret repository variables to
   contract;
 - `AWS_RUNNER_ROLE_ARN` is the narrowly trusted OIDC role used by ReaverOS
   workflows; and
+- `CI_GATE_APP_SLUG` identifies the App actor allowed to publish an approved
+  pull request revision to a protected CI branch; and
 - `MAINTENANCE_APP_SLUG` identifies the only App actor allowed to propose an
   automatic infrastructure update.
 

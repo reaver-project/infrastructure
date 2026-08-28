@@ -27,6 +27,7 @@ trap cleanup EXIT
 
 "${self_dir}/configure-ci" \
     --contract-version 1 \
+    --ci-gate-app-slug reaver-project-ci-gate \
     --infrastructure-revision 0123456789abcdef0123456789abcdef01234567 \
     --maintenance-app-slug reaver-project-maintenance \
     --region us-west-2 \
@@ -48,10 +49,12 @@ assert_log_contains $'gh\tvariable\tset\tAWS_INFRASTRUCTURE_CONTRACT_VERSION\t--
 assert_log_contains $'gh\tvariable\tset\tAWS_INFRASTRUCTURE_REVISION\t--repo\treaver-project/reaveros\t--body\t0123456789abcdef0123456789abcdef01234567'
 assert_log_contains $'gh\tvariable\tset\tAWS_RUNNER_STACK_NAME\t--repo\treaver-project/reaveros\t--body\treaveros-github-runners'
 assert_log_contains $'gh\tvariable\tset\tAWS_RUNNER_ROLE_ARN\t--repo\treaver-project/reaveros\t--body\tarn:aws:iam::123456789012:role/reaveros-github-runners-actions'
+assert_log_contains $'gh\tvariable\tset\tCI_GATE_APP_SLUG\t--repo\treaver-project/reaveros\t--body\treaver-project-ci-gate'
 assert_log_contains $'gh\tvariable\tset\tMAINTENANCE_APP_SLUG\t--repo\treaver-project/reaveros\t--body\treaver-project-maintenance'
 
 if "${self_dir}/configure-ci" \
     --contract-version 1 \
+    --ci-gate-app-slug reaver-project-ci-gate \
     --infrastructure-revision 0123456789abcdef0123456789abcdef01234567 \
     --maintenance-app-slug reaver-project-maintenance \
     --region not-a-region \

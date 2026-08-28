@@ -3,6 +3,7 @@
 set -euo pipefail
 
 contract_version=
+ci_gate_app_slug=
 infrastructure_revision=
 maintenance_app_slug=
 region=
@@ -14,7 +15,8 @@ usage()
 {
     printf '%s\n' \
         "usage: $0 --contract-version <version> --infrastructure-revision <sha>" \
-        '    --maintenance-app-slug <slug> --region <region>' \
+        '    --ci-gate-app-slug <slug> --maintenance-app-slug <slug>' \
+        '    --region <region>' \
         '    --runner-role-arn <arn> --stack-name <name>' \
         '    [--repository <owner/repository>]'
 }
@@ -23,6 +25,10 @@ while [[ $# -gt 0 ]]; do
     case $1 in
         --contract-version)
             contract_version=$2
+            shift 2
+            ;;
+        --ci-gate-app-slug)
+            ci_gate_app_slug=$2
             shift 2
             ;;
         --infrastructure-revision)
@@ -61,6 +67,7 @@ while [[ $# -gt 0 ]]; do
 done
 
 if [[ ! ${contract_version} =~ ^[1-9][0-9]*$ ||
+    ! ${ci_gate_app_slug} =~ ^[a-z0-9]+(-[a-z0-9]+)*$ ||
     ! ${infrastructure_revision} =~ ^[0-9a-f]{40}$ ||
     ! ${maintenance_app_slug} =~ ^[a-z0-9]+(-[a-z0-9]+)*$ ||
     ! ${repository} =~ ^[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+$ ||
@@ -81,6 +88,7 @@ set_variable AWS_INFRASTRUCTURE_CONTRACT_VERSION "${contract_version}"
 set_variable AWS_INFRASTRUCTURE_REVISION "${infrastructure_revision}"
 set_variable AWS_RUNNER_ROLE_ARN "${runner_role_arn}"
 set_variable AWS_RUNNER_STACK_NAME "${stack_name}"
+set_variable CI_GATE_APP_SLUG "${ci_gate_app_slug}"
 set_variable MAINTENANCE_APP_SLUG "${maintenance_app_slug}"
 
 printf 'Configured the ReaverOS AWS CI contract for %s.\n' "${repository}"

@@ -83,6 +83,7 @@ jobs:
         env:
             AWS_REGION: ${{ vars.AWS_REGION }}
             AWS_RUNNER_STACK_NAME: ${{ vars.AWS_RUNNER_STACK_NAME }}
+            CI_GATE_APP_SLUG: ${{ vars.CI_GATE_APP_SLUG }}
 
         steps:
           - name: Harden the runner
@@ -127,6 +128,7 @@ jobs:
             run: |
                 projects/reaveros/configure-ci \
                     --contract-version "${CONTRACT_VERSION}" \
+                    --ci-gate-app-slug "${CI_GATE_APP_SLUG}" \
                     --infrastructure-revision "${INFRASTRUCTURE_REVISION}" \
                     --maintenance-app-slug "${MAINTENANCE_APP_SLUG}" \
                     --region "${AWS_REGION}" \
