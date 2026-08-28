@@ -225,6 +225,22 @@ then
     exit 1
 fi
 
+if [[ $(grep --fixed-strings --count \
+    'AlarmActions:' \
+    "${self_dir}/runner-stack.yaml") -ne 4 ]]
+then
+    printf 'Runner operational failures are not fully alarmed.\n' >&2
+    exit 1
+fi
+
+if ! grep --fixed-strings --quiet \
+    'Value: !Ref RunnerReaperSchedule' \
+    "${self_dir}/runner-stack.yaml"
+then
+    printf 'Runner reaper delivery failures are not alarmed.\n' >&2
+    exit 1
+fi
+
 test_directory=$(mktemp -d)
 mkdir "${test_directory}/bin"
 ln -s "${self_dir}/test-infrastructure" "${test_directory}/bin/aws"

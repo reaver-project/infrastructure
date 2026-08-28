@@ -385,6 +385,27 @@ Resources:
                         Resource: !Sub arn:${AWS::Partition}:events:${AWS::Region}:${AWS::AccountId}:rule/${RunnerStackName}-*
                       - Effect: Allow
                         Action:
+                          - cloudwatch:DeleteAlarms
+                          - cloudwatch:DescribeAlarms
+                          - cloudwatch:PutMetricAlarm
+                          - cloudwatch:TagResource
+                          - cloudwatch:UntagResource
+                        Resource: !Sub arn:${AWS::Partition}:cloudwatch:${AWS::Region}:${AWS::AccountId}:alarm:${RunnerStackName}-*
+                      - Effect: Allow
+                        Action:
+                          - sns:CreateTopic
+                          - sns:DeleteTopic
+                          - sns:GetTopicAttributes
+                          - sns:ListSubscriptionsByTopic
+                          - sns:ListTagsForResource
+                          - sns:SetTopicAttributes
+                          - sns:Subscribe
+                          - sns:TagResource
+                          - sns:Unsubscribe
+                          - sns:UntagResource
+                        Resource: !Sub arn:${AWS::Partition}:sns:${AWS::Region}:${AWS::AccountId}:${RunnerStackName}-*
+                      - Effect: Allow
+                        Action:
                           - budgets:ListTagsForResource
                           - budgets:ModifyBudget
                           - budgets:TagResource

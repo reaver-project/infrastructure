@@ -58,6 +58,8 @@ workflows whose credentials it creates.
 11. Let the main-branch AWS planning workflow create a private change set and
    metadata record in AWS. Inspect it in AWS, then manually dispatch the
    deployment workflow with the opaque lookup key and approve the environment.
+   After the runner stack is deployed, confirm the SNS subscription sent to the
+   budget email address so controller and reaper alarms can notify you.
 12. Stream the Runner App credential bundle into
    `projects/reaveros/aws/configure-runner-app` after the runner stack exists.
 13. Run the GitHub configuration workflow to converge organization and
