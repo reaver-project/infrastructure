@@ -21,6 +21,9 @@ Parameters:
     GitHubAllowedRepositories:
         Type: CommaDelimitedList
         Default: reaver-project/reaveros
+    CiGateAutomaticActors:
+        Type: CommaDelimitedList
+        Default: griwes,reaver-project-maintenance[bot]
     RunnerRolePermissionsBoundaryArn:
         Type: String
         Description: ARN of the permissions boundary owned by the bootstrap stack.
@@ -353,6 +356,22 @@ Resources:
               - Key: Project
                 Value: ReaverOS
 
+    CiGateAppSecret:
+        Type: AWS::SecretsManager::Secret
+        DeletionPolicy: Retain
+        UpdateReplacePolicy: Retain
+        Properties:
+            Name: !Sub ${AWS::StackName}/github-ci-gate-app
+            Description: GitHub App credentials and webhook secret for exact-revision CI admission
+            GenerateSecretString:
+                SecretStringTemplate: '{"schema_version":1}'
+                GenerateStringKey: webhook_secret
+                PasswordLength: 64
+                ExcludePunctuation: true
+            Tags:
+              - Key: Project
+                Value: ReaverOS
+
     RunnerRole:
         Type: AWS::IAM::Role
         Properties:
@@ -646,6 +665,81 @@ Resources:
               - Key: Project
                 Value: ReaverOS
 
+    CiGateRole:
+        Type: AWS::IAM::Role
+        Properties:
+            PermissionsBoundary: !Ref RunnerRolePermissionsBoundaryArn
+            AssumeRolePolicyDocument:
+                Version: '2012-10-17'
+                Statement:
+                  - Effect: Allow
+                    Principal:
+                        Service: lambda.amazonaws.com
+                    Action: sts:AssumeRole
+            ManagedPolicyArns:
+              - !Sub arn:${AWS::Partition}:iam::aws:policy/service-role/AWSLambdaBasicExecutionRole
+            Policies:
+              - PolicyName: ReadCiGateCredentials
+                PolicyDocument:
+                    Version: '2012-10-17'
+                    Statement:
+                      - Effect: Allow
+                        Action: secretsmanager:GetSecretValue
+                        Resource: !Ref CiGateAppSecret
+            Tags:
+              - Key: Project
+                Value: ReaverOS
+
+    CiGateFunction:
+        Type: AWS::Lambda::Function
+        Properties:
+            Runtime: python3.13
+            Handler: index.handler
+            Role: !GetAtt CiGateRole.Arn
+            Timeout: 15
+            ReservedConcurrentExecutions: 1
+            Environment:
+                Variables:
+                    ALLOWED_REPOSITORIES: !Join [',', !Ref GitHubAllowedRepositories]
+                    AUTOMATIC_ACTORS: !Join [',', !Ref CiGateAutomaticActors]
+                    GITHUB_APP_SECRET_ID: !Ref CiGateAppSecret
+            Code: ../../../build/reaveros-lambda/ci-gate.zip
+            Tags:
+              - Key: Project
+                Value: ReaverOS
+
+    CiGateFunctionUrl:
+        Type: AWS::Lambda::Url
+        Properties:
+            AuthType: NONE
+            InvokeMode: BUFFERED
+            TargetFunctionArn: !GetAtt CiGateFunction.Arn
+
+    CiGateFunctionUrlPermission:
+        Type: AWS::Lambda::Permission
+        Properties:
+            Action: lambda:InvokeFunctionUrl
+            FunctionName: !Ref CiGateFunction
+            FunctionUrlAuthType: NONE
+            Principal: '*'
+
+    CiGateFunctionInvokePermission:
+        Type: AWS::Lambda::Permission
+        Properties:
+            Action: lambda:InvokeFunction
+            FunctionName: !Ref CiGateFunction
+            InvokedViaFunctionUrl: true
+            Principal: '*'
+
+    CiGateLogGroup:
+        Type: AWS::Logs::LogGroup
+        Properties:
+            LogGroupName: !Sub /aws/lambda/${CiGateFunction}
+            RetentionInDays: 30
+            Tags:
+              - Key: Project
+                Value: ReaverOS
+
     RunnerReaperSchedule:
         Type: AWS::Events::Rule
         Properties:
@@ -689,6 +783,52 @@ Resources:
             Dimensions:
               - Name: FunctionName
                 Value: !Ref RunnerControlFunction
+            Statistic: Sum
+            Period: 300
+            EvaluationPeriods: 1
+            DatapointsToAlarm: 1
+            Threshold: 1
+            ComparisonOperator: GreaterThanOrEqualToThreshold
+            TreatMissingData: notBreaching
+            AlarmActions:
+              - !Ref RunnerOperationsTopic
+            Tags:
+              - Key: Project
+                Value: ReaverOS
+
+    CiGateErrorsAlarm:
+        Type: AWS::CloudWatch::Alarm
+        Properties:
+            AlarmName: !Sub ${AWS::StackName}-ci-gate-errors
+            AlarmDescription: CI gate webhook controller invocation failures
+            Namespace: AWS/Lambda
+            MetricName: Errors
+            Dimensions:
+              - Name: FunctionName
+                Value: !Ref CiGateFunction
+            Statistic: Sum
+            Period: 300
+            EvaluationPeriods: 1
+            DatapointsToAlarm: 1
+            Threshold: 1
+            ComparisonOperator: GreaterThanOrEqualToThreshold
+            TreatMissingData: notBreaching
+            AlarmActions:
+              - !Ref RunnerOperationsTopic
+            Tags:
+              - Key: Project
+                Value: ReaverOS
+
+    CiGateThrottlesAlarm:
+        Type: AWS::CloudWatch::Alarm
+        Properties:
+            AlarmName: !Sub ${AWS::StackName}-ci-gate-throttles
+            AlarmDescription: CI gate webhook controller throttled deliveries
+            Namespace: AWS/Lambda
+            MetricName: Throttles
+            Dimensions:
+              - Name: FunctionName
+                Value: !Ref CiGateFunction
             Statistic: Sum
             Period: 300
             EvaluationPeriods: 1
@@ -882,11 +1022,15 @@ Resources:
 
 Outputs:
     InfrastructureContractVersion:
-        Value: '1'
+        Value: '2'
     GitHubActionsRoleArn:
         Value: !GetAtt GitHubActionsRole.Arn
     RunnerAppSecretId:
         Value: !Ref RunnerAppSecret
+    CiGateAppSecretId:
+        Value: !Ref CiGateAppSecret
+    CiGateWebhookUrl:
+        Value: !GetAtt CiGateFunctionUrl.FunctionUrl
     RunnerControlFunctionName:
         Value: !Ref RunnerControlFunction
     RunnerOperationsTopicArn:

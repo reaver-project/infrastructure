@@ -210,10 +210,24 @@ fi
 
 if [[ $(grep --fixed-strings --count \
     'AlarmActions:' \
-    "${self_dir}/runner-stack.yaml") -ne 4 ]]; then
-    printf 'Runner operational failures are not fully alarmed.\n' >&2
+    "${self_dir}/runner-stack.yaml") -ne 6 ]]; then
+    printf 'Runner and CI gate operational failures are not fully alarmed.\n' >&2
     exit 1
 fi
+
+for ci_gate_invariant in \
+    'GenerateStringKey: webhook_secret' \
+    'Action: lambda:InvokeFunctionUrl' \
+    'InvokedViaFunctionUrl: true' \
+    'Code: ../../../build/reaveros-lambda/ci-gate.zip' \
+    'ReservedConcurrentExecutions: 1'; do
+    if ! grep --fixed-strings --quiet \
+        "${ci_gate_invariant}" \
+        "${self_dir}/runner-stack.yaml"; then
+        printf 'CI gate stack invariant is missing: %s\n' "${ci_gate_invariant}" >&2
+        exit 1
+    fi
+done
 
 if ! grep --fixed-strings --quiet \
     'Value: !Ref RunnerReaperSchedule' \
@@ -276,12 +290,13 @@ export GITHUB_RUN_ATTEMPT=1
 export GITHUB_RUN_ID=101
 export GITHUB_REPOSITORY=reaver-project/infrastructure
 export GITHUB_SHA=0123456789abcdef0123456789abcdef01234567
+contract_version=$(< "${self_dir}/../infrastructure-contract-version")
 template=${test_directory}/template.yaml
 printf 'Resources: {}\n' > "${template}"
 export AWS_TEST_PRIVATE_PLAN=${test_directory}/private-plan.json
-jq --null-input '{
+jq --null-input --argjson contract_version "${contract_version}" '{
     schema_version: 1,
-    infrastructure_contract_version: 1,
+    infrastructure_contract_version: $contract_version,
     change_set_arn: "arn:aws:cloudformation:us-west-2:123456789012:changeSet/reaveros-github-runners-101-1/id",
     repository: "reaver-project/infrastructure",
     run_attempt: "1",
@@ -349,8 +364,9 @@ assert_log_contains $'s3api\tput-object\t--region\tus-west-2\t--bucket\treaver-p
 assert_log_contains $'\t--key\tplans/3de70c5a97f405e494ad4c294a439fb5eff5ba2a024c853ad2613dbf3a96d7b5.json'
 assert_log_contains $'\t--if-none-match\t*'
 jq --exit-status \
+    --argjson contract_version "${contract_version}" \
     '.schema_version == 1
-        and .infrastructure_contract_version == 1
+        and .infrastructure_contract_version == $contract_version
         and .repository == "reaver-project/infrastructure"
         and .source_revision == "0123456789abcdef0123456789abcdef01234567"
         and .run_id == "101"

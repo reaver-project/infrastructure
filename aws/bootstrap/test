@@ -302,6 +302,27 @@ if grep --fixed-strings --quiet \
     exit 1
 fi
 
+if ! grep --fixed-strings --quiet \
+    'secret:${RunnerStackName}/github-*-app-*' \
+    "${self_dir}/template.yaml"; then
+    printf 'The runner-stack boundary cannot read project App credentials.\n' >&2
+    exit 1
+fi
+
+for function_url_action in \
+    'lambda:CreateFunctionUrlConfig' \
+    'lambda:DeleteFunctionUrlConfig' \
+    'lambda:GetFunctionUrlConfig' \
+    'lambda:UpdateFunctionUrlConfig'; do
+    if ! grep --fixed-strings --quiet \
+        "${function_url_action}" \
+        "${self_dir}/template.yaml"; then
+        printf 'CloudFormation cannot converge function URLs: %s\n' \
+            "${function_url_action}" >&2
+        exit 1
+    fi
+done
+
 for required_audit_setting in \
     'EnableLogFileValidation: true' \
     'IncludeGlobalServiceEvents: false' \

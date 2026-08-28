@@ -23,6 +23,7 @@ if [[ $(basename -- "$0") == aws ]]; then
 fi
 
 self_dir=$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)
+contract_version=$(< "${self_dir}/../infrastructure-contract-version")
 test_directory=$(mktemp -d)
 mkdir "${test_directory}/bin"
 ln -s "${self_dir}/test-read-deployed-contract" "${test_directory}/bin/aws"
@@ -41,15 +42,17 @@ export GITHUB_SHA
 GITHUB_SHA=$(git -C "${self_dir}" rev-parse HEAD)
 : > "${GITHUB_OUTPUT}"
 
+export TEST_CONTRACT_VERSION=${contract_version}
 "${self_dir}/read-deployed-contract"
-grep --fixed-strings --line-regexp 'contract_version=1' "${GITHUB_OUTPUT}" > /dev/null
+grep --fixed-strings --line-regexp \
+    "contract_version=${contract_version}" "${GITHUB_OUTPUT}" > /dev/null
 grep --fixed-strings --line-regexp \
     "infrastructure_revision=${GITHUB_SHA}" "${GITHUB_OUTPUT}" > /dev/null
 grep --fixed-strings --line-regexp \
     'runner_role_arn=arn:aws:iam::123456789012:role/reaveros-actions' \
     "${GITHUB_OUTPUT}" > /dev/null
 
-export TEST_CONTRACT_VERSION=2
+export TEST_CONTRACT_VERSION=$((contract_version + 1))
 if "${self_dir}/read-deployed-contract" > /dev/null 2>&1; then
     printf 'A deployed contract that differs from its source was accepted.\n' >&2
     exit 1

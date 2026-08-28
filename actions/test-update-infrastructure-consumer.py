@@ -18,6 +18,11 @@ class UpdateInfrastructureConsumerTests(unittest.TestCase):
             capture_output=True,
             text=True,
         ).stdout.strip()
+        contract_version = (
+            (repository_root / "projects/reaveros/infrastructure-contract-version")
+            .read_text(encoding="utf-8")
+            .strip()
+        )
 
         with tempfile.TemporaryDirectory() as temporary_directory:
             temporary_path = Path(temporary_directory)
@@ -115,7 +120,7 @@ raise SystemExit(f"unexpected gh invocation: {arguments}")
                 {
                     "APP_SLUG": "reaver-project-maintenance",
                     "CONSUMER_REPOSITORY": "reaver-project/reaveros",
-                    "CONTRACT_VERSION": "1",
+                    "CONTRACT_VERSION": contract_version,
                     "CONTRACT_VERSION_FILE": "ci/aws/infrastructure-contract-version",
                     "GH_TOKEN": "test-token",
                     "GITHUB_OUTPUT": str(output),
@@ -152,6 +157,18 @@ raise SystemExit(f"unexpected gh invocation: {arguments}")
                 text=True,
             ).stdout.strip()
             self.assertEqual(published_revision, source_revision)
+            published_contract = subprocess.run(
+                [
+                    "git",
+                    f"--git-dir={remote}",
+                    "show",
+                    f"{branch}:ci/aws/infrastructure-contract-version",
+                ],
+                check=True,
+                capture_output=True,
+                text=True,
+            ).stdout.strip()
+            self.assertEqual(published_contract, contract_version)
             self.assertIn("pull_request_number=17", output.read_text(encoding="utf-8"))
             calls = gh_log.read_text(encoding="utf-8")
             self.assertIn("pr\tcreate", calls)
