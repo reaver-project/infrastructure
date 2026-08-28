@@ -115,6 +115,22 @@ def github_token():
     return cached_github_token
 
 
+def parameter_expiration_policy(maximum_age_minutes, now=None):
+    if now is None:
+        now = datetime.datetime.now(datetime.UTC)
+    expiration = now + datetime.timedelta(minutes=maximum_age_minutes + 60)
+    return json.dumps(
+        [{
+            "Type": "Expiration",
+            "Version": "1.0",
+            "Attributes": {
+                "Timestamp": expiration.strftime("%Y-%m-%dT%H:%M:%SZ"),
+            },
+        }],
+        separators=(",", ":"),
+    )
+
+
 def runner_instances(instance_ids=None):
     arguments = {
         "Filters": [{
@@ -192,6 +208,9 @@ def launch(event):
         ssm.put_parameter(
             Name=identity["jit_parameter"],
             Overwrite=True,
+            Policies=parameter_expiration_policy(
+                int(os.environ["MAXIMUM_AGE_MINUTES"]),
+            ),
             Tier="Advanced",
             Type="SecureString",
             Value=jit["encoded_jit_config"],

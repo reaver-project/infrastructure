@@ -249,6 +249,23 @@ class RunnerControlIndexTests(unittest.TestCase):
             ],
         )
 
+    def test_jit_parameter_expiration_outlives_the_runner(self):
+        policy = json.loads(
+            runner_control.parameter_expiration_policy(
+                180,
+                datetime.datetime(2030, 1, 1, tzinfo=datetime.UTC),
+            )
+        )
+
+        self.assertEqual(
+            policy,
+            [{
+                "Type": "Expiration",
+                "Version": "1.0",
+                "Attributes": {"Timestamp": "2030-01-01T04:00:00Z"},
+            }],
+        )
+
     def test_launches_a_valid_runner(self):
         clients["ec2"].run_instances.return_value = {
             "Instances": [{"InstanceId": "i-launched"}],
@@ -290,7 +307,12 @@ class RunnerControlIndexTests(unittest.TestCase):
             "runner_name": "reaveros-123-2-unit-tests-amd64",
         })
         github_request.assert_called_once()
-        clients["ssm"].put_parameter.assert_called_once()
+        put_parameter = clients["ssm"].put_parameter.call_args.kwargs
+        self.assertEqual(put_parameter["Tier"], "Advanced")
+        self.assertEqual(
+            json.loads(put_parameter["Policies"])[0]["Type"],
+            "Expiration",
+        )
         clients["ec2"].run_instances.assert_called_once()
 
     def test_launch_rejects_invalid_profiles_sizes_and_capacity(self):
