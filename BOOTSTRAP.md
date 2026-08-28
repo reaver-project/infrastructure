@@ -75,14 +75,21 @@ workflows whose credentials it creates.
 12. Let the main-branch AWS planning workflow create a private change set and
    metadata record in AWS. Inspect it in AWS, then manually dispatch the
    deployment workflow with the opaque lookup key and approve the environment.
-   After the runner stack is deployed, confirm the SNS subscription sent to the
+   The first deployment can finish AWS successfully and then stop when it tries
+   to publish the not-yet-created CI Gate App identity. Leave the successful
+   deployment job intact.
+13. Read the `CiGateWebhookUrl` stack output, create and install the CI Gate App,
+   and run `github/apps/configure-ci-gate-app` as documented in
+   `github/apps/README.md`. Re-run only the failed deployment-workflow jobs to
+   publish the complete ReaverOS contract.
+14. After the runner stack is deployed, confirm the SNS subscription sent to the
    budget email address so controller and reaper alarms can notify you.
-13. Rerun the organization cost-control plan. Once AWS Billing reports the
+15. Rerun the organization cost-control plan. Once AWS Billing reports the
    `Project` tag as inactive rather than unseen, apply the plan to activate it
    for the tag-filtered ReaverOS budget.
-14. Stream the Runner App credential bundle into
+16. Stream the Runner App credential bundle into
    `projects/reaveros/aws/configure-runner-app` after the runner stack exists.
-15. Run the GitHub configuration workflow to converge organization and
+17. Run the GitHub configuration workflow to converge organization and
    repository policy through the Infrastructure App.
 
 The bootstrap stack has termination protection. App keys must never be written

@@ -1,13 +1,16 @@
 # GitHub Apps
 
-The repository uses three private organization-owned GitHub Apps:
+The repository uses four private organization-owned GitHub Apps:
 
 - the runner manager has only organization self-hosted-runner permission and
   is installed into the central AWS runner controller; and
 - the infrastructure manager has the organization and repository permissions
   required to converge settings from this repository; and
 - the maintenance manager has only the repository permissions required to
-  publish maintenance branches and manage their pull requests.
+  publish maintenance branches and manage their pull requests; and
+- the CI gate receives pull-request and approval-comment webhooks and has only
+  the repository permissions required to copy an approved commit onto its
+  protected CI branch.
 
 The manifests are the reviewable source of truth for initial registration.
 GitHub App creation itself is an interactive manifest handshake and cannot be
@@ -15,9 +18,10 @@ made fully convergent through the built-in workflow token. App installation,
 permission changes, key rotation, and the resources that consume the keys are
 managed after that bootstrap.
 
-No webhook events are subscribed to. A direct manifest helper is sufficient;
-introducing a Probot service would add a persistent web application without
-providing a useful capability for this design.
+Only the CI gate subscribes to webhook events. A direct manifest helper and the
+small AWS-hosted controller are sufficient; introducing a Probot service would
+add another persistent application without providing a useful capability for
+this design.
 
 Create a private temporary directory on a memory-backed filesystem, then write
 only an encrypted credential bundle into it:
@@ -31,6 +35,9 @@ github/apps/create github/apps/maintenance/manifest.json \
 github/apps/create github/apps/runner/manifest.json \
     --output "${credential_directory}/runner-app.json.gpg"
 ```
+
+The CI gate is created later because its webhook URL is an output of the
+ReaverOS runner stack.
 
 The helper binds only to loopback, validates the manifest `state`, exchanges
 the one-hour GitHub code, and streams the response directly into symmetric
@@ -118,16 +125,48 @@ gpg --quiet --no-symkey-cache \
         --installation-id RUNNER_APP_INSTALLATION_ID
 ```
 
-Application repository workflows never receive the Runner or Infrastructure
-App credentials. Only a trusted default-branch maintenance job receives the
-repository-scoped maintenance credential. After all destination stores have
-been verified, remove the encrypted bundles and their temporary directory; no
-App key was written to persistent storage:
+After the runner stack exists, read its CI gate webhook URL and create the App
+with the webhook activated at that exact HTTPS endpoint:
+
+```console
+ci_gate_url=$(aws cloudformation describe-stacks \
+    --region us-west-2 \
+    --stack-name reaveros-github-runners \
+    --query 'Stacks[0].Outputs[?OutputKey==`CiGateWebhookUrl`].OutputValue | [0]' \
+    --output text)
+github/apps/create github/apps/ci-gate/manifest.json \
+    --webhook-url "${ci_gate_url}" \
+    --output "${credential_directory}/ci-gate-app.json.gpg"
+```
+
+Install that App only on `reaver-project/reaveros`. Stream its generated
+private key and webhook secret into the stack-owned Secrets Manager entry; the
+same configurator records the non-secret App ID and slug in the infrastructure
+repository's `github-production` environment:
+
+```console
+gpg --quiet --no-symkey-cache \
+    --decrypt "${credential_directory}/ci-gate-app.json.gpg" \
+    | github/apps/configure-ci-gate-app --credentials -
+```
+
+The next GitHub configuration run resolves the App ID and reserves
+`pull-request/*` for that App alone. The controller accepts
+`/ok to test <abbreviated-sha>` only from a repository writer, resolves the
+abbreviation through GitHub, and requires the result to equal the pull
+request's current full head commit before updating the copied branch.
+
+Application repository workflows never receive the Runner, Infrastructure, or
+CI Gate App credentials. Only a trusted default-branch maintenance job receives
+the repository-scoped maintenance credential. After all destination stores
+have been verified, remove the encrypted bundles and their temporary directory;
+no App key was written to persistent storage:
 
 ```console
 rm -- \
     "${credential_directory}/infrastructure-app.json.gpg" \
     "${credential_directory}/maintenance-app.json.gpg" \
-    "${credential_directory}/runner-app.json.gpg"
+    "${credential_directory}/runner-app.json.gpg" \
+    "${credential_directory}/ci-gate-app.json.gpg"
 rmdir -- "${credential_directory}"
 ```
