@@ -104,9 +104,14 @@ python3 projects/reaveros/aws/functions/runner-control/test_index.py
 python3 projects/reaveros/aws/functions/ci-gate/test.py
 python3 projects/reaveros/aws/functions/ci-gate/test_index.py
 projects/reaveros/aws/package-functions build/reaveros-lambda
+test -f build/reaveros-lambda/ci-gate.zip
 test -f build/reaveros-lambda/runner-control.zip
 test ! -e build/reaveros-lambda/runner-reaper.zip
-first_archive_hash=$(sha256sum build/reaveros-lambda/runner-control.zip)
+first_archive_hash=$(sha256sum \
+    build/reaveros-lambda/ci-gate.zip \
+    build/reaveros-lambda/runner-control.zip)
 projects/reaveros/aws/package-functions build/reaveros-lambda
-test "${first_archive_hash}" = "$(sha256sum build/reaveros-lambda/runner-control.zip)"
+test "${first_archive_hash}" = "$(sha256sum \
+    build/reaveros-lambda/ci-gate.zip \
+    build/reaveros-lambda/runner-control.zip)"
 printf 'Infrastructure tests passed.\n'

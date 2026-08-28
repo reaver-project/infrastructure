@@ -38,7 +38,29 @@ python3 -m pip install \
     --target "${staging_directory}/runner-control" \
     > /dev/null
 
-rm -f "${output_directory}/runner-reaper.zip"
+install -d "${staging_directory}/ci-gate"
+install \
+    "${self_dir}/functions/github_app.py" \
+    "${self_dir}/functions/ci-gate/index.py" \
+    "${self_dir}/functions/ci-gate/lib.py" \
+    "${staging_directory}/ci-gate/"
+python3 -m pip install \
+    --disable-pip-version-check \
+    --implementation cp \
+    --no-compile \
+    --only-binary=:all: \
+    --platform manylinux_2_34_x86_64 \
+    --platform manylinux2014_x86_64 \
+    --python-version 3.13 \
+    --require-hashes \
+    --requirement "${self_dir}/functions/runner-control/requirements.txt" \
+    --target "${staging_directory}/ci-gate" \
+    > /dev/null
+
+rm -f "${output_directory}/ci-gate.zip" "${output_directory}/runner-reaper.zip"
+"${self_dir}/create-function-archive" \
+    "${staging_directory}/ci-gate" \
+    "${output_directory}/ci-gate.zip"
 "${self_dir}/create-function-archive" \
     "${staging_directory}/runner-control" \
     "${output_directory}/runner-control.zip"
