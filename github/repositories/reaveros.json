@@ -73,6 +73,9 @@
                         "required_status_checks": [
                             {
                                 "context": "CI result"
+                            },
+                            {
+                                "context": "Dependency review"
                             }
                         ],
                         "strict_required_status_checks_policy": true
