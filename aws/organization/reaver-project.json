@@ -1,0 +1,88 @@
+{
+    "schema_version": 1,
+    "management_account_id": "339642961173",
+    "organization_feature_set": "ALL",
+    "home_region": "us-west-2",
+    "organizational_units": [
+        "Deployments",
+        "PolicyStaging",
+        "Sandbox",
+        "Security",
+        "Suspended"
+    ],
+    "accounts": [
+        {
+            "name": "reaver-project-ci",
+            "account_id": "560512681071",
+            "organizational_unit": "Deployments"
+        },
+        {
+            "name": "reaver-project-log-archive",
+            "account_id": "029096971971",
+            "organizational_unit": "Security"
+        },
+        {
+            "name": "reaver-project-security",
+            "account_id": "052530978706",
+            "organizational_unit": "Security"
+        }
+    ],
+    "root_access": {
+        "features": [
+            "RootCredentialsManagement",
+            "RootSessions"
+        ],
+        "delegated_administrator": "reaver-project-security"
+    },
+    "root_credentials": {
+        "management": {
+            "password": 1,
+            "access_keys": 0,
+            "signing_certificates": 0,
+            "mfa": 1
+        },
+        "members": {
+            "password": 0,
+            "access_keys": 0,
+            "signing_certificates": 0,
+            "mfa": 0
+        }
+    },
+    "service_control_policies": [
+        {
+            "name": "DenyLeaveAndCloseAccount",
+            "description": "Prevents member accounts from leaving the organization and self closure",
+            "targets": [
+                "$root"
+            ],
+            "document": {
+                "Version": "2012-10-17",
+                "Statement": [
+                    {
+                        "Effect": "Deny",
+                        "Action": [
+                            "organizations:LeaveOrganization",
+                            "account:CloseAccount"
+                        ],
+                        "Resource": "*"
+                    }
+                ]
+            }
+        }
+    ],
+    "control_tower": {
+        "version": "4.0",
+        "governed_regions": [
+            "us-west-2"
+        ],
+        "access_management_enabled": true,
+        "security_account": "reaver-project-security",
+        "config_account": "reaver-project-security",
+        "log_archive_account": "reaver-project-log-archive",
+        "log_retention_days": 365,
+        "backup_enabled": false,
+        "enabled_baseline_ous": {
+            "Deployments": "5.0"
+        }
+    }
+}
