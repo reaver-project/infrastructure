@@ -12,6 +12,8 @@ shell_scripts=(
     aws/bootstrap/plan
     aws/bootstrap/publish-github
     aws/bootstrap/test
+    aws/organization/log-archive/deploy
+    aws/organization/log-archive/test
     github/configure-organization
     github/configure-repository
     github/apps/configure-app-environment
@@ -41,6 +43,7 @@ shell_scripts=(
 bash -n "${shell_scripts[@]}"
 
 json_files=(
+    aws/organization/cost-controls.json
     aws/organization/reaver-project.json
     github/apps/infrastructure/manifest.json
     github/apps/maintenance/manifest.json
@@ -56,7 +59,9 @@ done
 
 python3 -m py_compile \
     aws/organization/configure.py \
+    aws/organization/cost_controls.py \
     aws/organization/test_configure.py \
+    aws/organization/test_cost_controls.py \
     github/apps/create \
     github/apps/test-create.py \
     projects/reaveros/aws/create-function-archive \
@@ -72,7 +77,9 @@ python3 actions/test-update-infrastructure-consumer.py
 
 actions/test
 aws/bootstrap/test
+aws/organization/log-archive/test
 python3 aws/organization/test_configure.py
+python3 aws/organization/test_cost_controls.py
 github/test-configure-organization
 github/test-configure-repository
 github/apps/test-configure-app-environments

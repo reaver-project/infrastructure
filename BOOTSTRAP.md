@@ -20,13 +20,25 @@ workflows whose credentials it creates.
 1. Audit the existing organization and inspect its proposed convergent actions:
 
    ```console
-   python3 aws/organization/configure.py plan \
-       --profile reaver-management-admin \
-       --expected-account-id <management-account-id>
+   uv run --project aws --frozen reaver-project-aws-organization plan \
+       --profile reaver-project-management-admin \
+       --plan-file /dev/shm/reaver-project-organization.plan.json
    ```
 
-   Apply the same revision only after reviewing that plan, replacing `plan`
-   with `apply`. This enrolls the Deployments OU before any CI trust exists.
+   Apply that exact plan file from the same revision, replacing `plan` with
+   `apply`. The command rejects changed live state, desired state, and source
+   revisions. This enrolls the Deployments OU before any CI trust exists. Then
+   run the cost-control plan with the same profile:
+
+   ```console
+   AWS_BUDGET_NOTIFICATION_EMAIL=<email> \
+       uv run --project aws --frozen reaver-project-aws-cost-controls plan \
+       --profile reaver-project-management-admin \
+       --plan-file /dev/shm/reaver-project-cost-controls.plan.json
+   ```
+
+   Apply any actions after review. The `Project` allocation tag is expected to
+   remain pending until AWS Billing observes the first tagged project resource.
 2. Create and install the Infrastructure, Maintenance, and Runner Apps using
    `github/apps/README.md`.
 3. Use the owner token once to run `github/configure-repository` with
@@ -41,30 +53,41 @@ workflows whose credentials it creates.
    `github/apps/configure-maintenance-app`.
 7. Configure the Runner App group with `github/apps/configure-runner-group` and
    retain its numeric group and installation IDs.
-8. Create and inspect the CI deployment-trust change set:
+8. In the log-archive account, run
+   `aws/organization/log-archive/deploy plan` with the
+   `reaver-project-log-archive-admin` profile. Account IDs come from the
+   reviewed organization configuration. Inspect and apply that exact change
+   set, then retain its `DeploymentPlanAuditLogBucketName` output.
+9. Create and inspect the CI deployment-trust change set:
 
    ```console
    aws/bootstrap/plan \
-       --profile reaver-ci-admin \
-       --expected-account-id <ci-account-id>
+       --profile reaver-project-ci-admin \
+       --deployment-plan-audit-bucket <central-audit-bucket>
    ```
 
-9. Run `aws/bootstrap/apply` with the same profile, account ID, and exact
+10. Run `aws/bootstrap/apply` with the same profile and exact
    repository revision. It rejects a missing, altered, or stale change set and
    enables termination protection after the stack completes.
-10. Run `aws/bootstrap/publish-github` with the same profile and account ID,
+11. Run `aws/bootstrap/publish-github` with the same profile,
    together with the budget email and runner group ID. This is a separate
    GitHub mutation and does not modify AWS.
-11. Let the main-branch AWS planning workflow create a private change set and
+12. Let the main-branch AWS planning workflow create a private change set and
    metadata record in AWS. Inspect it in AWS, then manually dispatch the
    deployment workflow with the opaque lookup key and approve the environment.
    After the runner stack is deployed, confirm the SNS subscription sent to the
    budget email address so controller and reaper alarms can notify you.
-12. Stream the Runner App credential bundle into
+13. Rerun the organization cost-control plan. Once AWS Billing reports the
+   `Project` tag as inactive rather than unseen, apply the plan to activate it
+   for the tag-filtered ReaverOS budget.
+14. Stream the Runner App credential bundle into
    `projects/reaveros/aws/configure-runner-app` after the runner stack exists.
-13. Run the GitHub configuration workflow to converge organization and
+15. Run the GitHub configuration workflow to converge organization and
    repository policy through the Infrastructure App.
 
 The bootstrap stack has termination protection. App keys must never be written
 to persistent plaintext storage, and neither normal workflow has access to an
-owner credential.
+owner credential. Control Tower records organization-wide management activity.
+The bootstrap's separate, single-Region trail records only deployment-plan
+object access in an Object Lock-protected bucket owned by the log-archive
+account, with one year of default retention and log-file integrity validation.
