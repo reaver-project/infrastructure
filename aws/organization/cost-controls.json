@@ -1,0 +1,61 @@
+{
+    "schema_version": 1,
+    "notification_email_environment": "AWS_BUDGET_NOTIFICATION_EMAIL",
+    "budgets": [
+        {
+            "name": "reaver-project-organization-monthly",
+            "amount": 150
+        },
+        {
+            "name": "reaver-project-management-monthly",
+            "amount": 25,
+            "linked_account": "$management"
+        },
+        {
+            "name": "reaver-project-ci-monthly",
+            "amount": 100,
+            "linked_account": "reaver-project-ci"
+        },
+        {
+            "name": "reaver-project-security-monthly",
+            "amount": 25,
+            "linked_account": "reaver-project-security"
+        },
+        {
+            "name": "reaver-project-log-archive-monthly",
+            "amount": 25,
+            "linked_account": "reaver-project-log-archive"
+        }
+    ],
+    "notifications": [
+        {
+            "type": "ACTUAL",
+            "threshold": 50
+        },
+        {
+            "type": "ACTUAL",
+            "threshold": 80
+        },
+        {
+            "type": "ACTUAL",
+            "threshold": 100
+        },
+        {
+            "type": "FORECASTED",
+            "threshold": 100
+        }
+    ],
+    "anomaly_detection": {
+        "monitor_name": "reaver-project-aws-services",
+        "subscription_name": "reaver-project-daily-cost-anomalies",
+        "frequency": "DAILY",
+        "threshold": 5,
+        "resource_tags": {
+            "managed-by": "reaver-project-infrastructure",
+            "purpose": "organization-cost-monitoring"
+        }
+    },
+    "cost_allocation_tags": [
+        "Project"
+    ]
+}

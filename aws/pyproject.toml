@@ -8,6 +8,7 @@ dependencies = [
 
 [project.scripts]
 reaver-project-aws-organization = "reaver_project_aws.organization:main"
+reaver-project-aws-cost-controls = "reaver_project_aws.cost_controls:main"
 
 [build-system]
 requires = ["hatchling>=1.27,<2"]
