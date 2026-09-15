@@ -69,11 +69,13 @@ jobs:
             run: |
                 pre-commit run lambda-dependency-lock --all-files
                 pre-commit run policy-validation-dependency-lock --all-files
+                pre-commit run aws-sdk-lock --all-files
 
           - name: Audit Python dependencies
             run: |
                 pre-commit run lambda-dependency-audit --all-files
                 pre-commit run policy-validation-dependency-audit --all-files
+                pre-commit run aws-sdk-dependency-audit --all-files
 
           - name: Scan the worktree for secrets
             run: pre-commit run gitleaks --all-files

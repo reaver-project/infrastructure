@@ -66,6 +66,12 @@ python3 -m py_compile \
     aws/organization/cost_controls.py \
     aws/organization/test_configure.py \
     aws/organization/test_cost_controls.py \
+    aws/organization/test_plan_contract.py \
+    aws/src/reaver_project_aws/__init__.py \
+    aws/src/reaver_project_aws/api.py \
+    aws/src/reaver_project_aws/cost_controls.py \
+    aws/src/reaver_project_aws/organization.py \
+    aws/src/reaver_project_aws/plan_contract.py \
     github/apps/create \
     github/apps/test-create.py \
     projects/reaveros/aws/create-function-archive \
@@ -88,8 +94,9 @@ python3 actions/test-update-infrastructure-consumer.py
 actions/test
 aws/bootstrap/test
 aws/organization/log-archive/test
-python3 aws/organization/test_configure.py
-python3 aws/organization/test_cost_controls.py
+uv run --project aws --frozen python aws/organization/test_configure.py
+uv run --project aws --frozen python aws/organization/test_cost_controls.py
+uv run --project aws --frozen python aws/organization/test_plan_contract.py
 github/test-configure-organization
 github/test-configure-repository
 github/apps/test-configure-app-environments

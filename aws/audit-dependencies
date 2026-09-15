@@ -1,0 +1,23 @@
+#!/usr/bin/env bash
+
+set -euo pipefail
+
+requirements=$(mktemp)
+cleanup()
+{
+    rm -f "${requirements}"
+}
+trap cleanup EXIT
+
+uv export \
+    --project aws \
+    --frozen \
+    --no-dev \
+    --no-emit-project \
+    --format requirements-txt \
+    --output-file "${requirements}" \
+    > /dev/null
+pip-audit \
+    --requirement "${requirements}" \
+    --require-hashes \
+    --progress-spinner off

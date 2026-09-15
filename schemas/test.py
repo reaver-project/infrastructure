@@ -28,6 +28,29 @@ def require_rejection(schema_validator, document, description):
     raise SystemExit(f"Schema accepted invalid {description}.")
 
 
+aws_organization_validator = validator("schemas/aws-organization.schema.json")
+aws_organization = load("aws/organization/reaver-project.json")
+aws_organization_validator.validate(aws_organization)
+invalid_aws_organization = copy.deepcopy(aws_organization)
+invalid_aws_organization["control_tower"]["version"] = "latest"
+require_rejection(
+    aws_organization_validator,
+    invalid_aws_organization,
+    "Control Tower version",
+)
+
+aws_cost_controls_validator = validator("schemas/aws-cost-controls.schema.json")
+aws_cost_controls = load("aws/organization/cost-controls.json")
+aws_cost_controls_validator.validate(aws_cost_controls)
+invalid_aws_cost_controls = copy.deepcopy(aws_cost_controls)
+invalid_aws_cost_controls["budgets"][0]["amount"] = 0
+require_rejection(
+    aws_cost_controls_validator,
+    invalid_aws_cost_controls,
+    "AWS budget limit",
+)
+
+
 organization_validator = validator("schemas/github-organization.schema.json")
 organization = load("github/organizations/reaver-project.json")
 organization_validator.validate(organization)

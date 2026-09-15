@@ -1,0 +1,244 @@
+{
+    "$schema": "https://json-schema.org/draft/2020-12/schema",
+    "$id": "https://reaver-project.org/schemas/aws-organization.schema.json",
+    "type": "object",
+    "additionalProperties": false,
+    "required": [
+        "schema_version",
+        "management_account_id",
+        "organization_feature_set",
+        "home_region",
+        "organizational_units",
+        "accounts",
+        "root_access",
+        "root_credentials",
+        "service_control_policies",
+        "control_tower"
+    ],
+    "properties": {
+        "schema_version": {
+            "const": 1
+        },
+        "management_account_id": {
+            "$ref": "#/$defs/account_id"
+        },
+        "organization_feature_set": {
+            "const": "ALL"
+        },
+        "home_region": {
+            "type": "string",
+            "pattern": "^[a-z]{2}(?:-gov)?-[a-z]+-[0-9]+$"
+        },
+        "organizational_units": {
+            "type": "array",
+            "minItems": 1,
+            "uniqueItems": true,
+            "items": {
+                "type": "string",
+                "minLength": 1
+            }
+        },
+        "accounts": {
+            "type": "array",
+            "minItems": 1,
+            "items": {
+                "type": "object",
+                "additionalProperties": false,
+                "required": [
+                    "name",
+                    "account_id",
+                    "organizational_unit"
+                ],
+                "properties": {
+                    "name": {
+                        "type": "string",
+                        "pattern": "^reaver-project-[a-z0-9-]+$"
+                    },
+                    "account_id": {
+                        "$ref": "#/$defs/account_id"
+                    },
+                    "organizational_unit": {
+                        "type": "string",
+                        "minLength": 1
+                    }
+                }
+            }
+        },
+        "root_access": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": [
+                "features",
+                "delegated_administrator"
+            ],
+            "properties": {
+                "features": {
+                    "type": "array",
+                    "minItems": 2,
+                    "uniqueItems": true,
+                    "items": {
+                        "enum": [
+                            "RootCredentialsManagement",
+                            "RootSessions"
+                        ]
+                    }
+                },
+                "delegated_administrator": {
+                    "type": "string",
+                    "pattern": "^reaver-project-[a-z0-9-]+$"
+                }
+            }
+        },
+        "root_credentials": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": [
+                "management",
+                "members"
+            ],
+            "properties": {
+                "management": {
+                    "$ref": "#/$defs/root_credential_state"
+                },
+                "members": {
+                    "$ref": "#/$defs/root_credential_state"
+                }
+            }
+        },
+        "service_control_policies": {
+            "type": "array",
+            "minItems": 1,
+            "items": {
+                "type": "object",
+                "additionalProperties": false,
+                "required": [
+                    "name",
+                    "description",
+                    "targets",
+                    "document"
+                ],
+                "properties": {
+                    "name": {
+                        "type": "string",
+                        "minLength": 1
+                    },
+                    "description": {
+                        "type": "string",
+                        "minLength": 1
+                    },
+                    "targets": {
+                        "type": "array",
+                        "minItems": 1,
+                        "uniqueItems": true,
+                        "items": {
+                            "const": "$root"
+                        }
+                    },
+                    "document": {
+                        "type": "object",
+                        "minProperties": 1
+                    }
+                }
+            }
+        },
+        "control_tower": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": [
+                "version",
+                "governed_regions",
+                "access_management_enabled",
+                "security_account",
+                "config_account",
+                "log_archive_account",
+                "log_retention_days",
+                "backup_enabled",
+                "enabled_baseline_ous"
+            ],
+            "properties": {
+                "version": {
+                    "type": "string",
+                    "pattern": "^[0-9]+\\.[0-9]+$"
+                },
+                "governed_regions": {
+                    "type": "array",
+                    "minItems": 1,
+                    "uniqueItems": true,
+                    "items": {
+                        "$ref": "#/$defs/region"
+                    }
+                },
+                "access_management_enabled": {
+                    "type": "boolean"
+                },
+                "security_account": {
+                    "$ref": "#/$defs/account_name"
+                },
+                "config_account": {
+                    "$ref": "#/$defs/account_name"
+                },
+                "log_archive_account": {
+                    "$ref": "#/$defs/account_name"
+                },
+                "log_retention_days": {
+                    "type": "integer",
+                    "minimum": 1
+                },
+                "backup_enabled": {
+                    "type": "boolean"
+                },
+                "enabled_baseline_ous": {
+                    "type": "object",
+                    "minProperties": 1,
+                    "additionalProperties": {
+                        "type": "string",
+                        "pattern": "^[0-9]+\\.[0-9]+$"
+                    }
+                }
+            }
+        }
+    },
+    "$defs": {
+        "account_id": {
+            "type": "string",
+            "pattern": "^[0-9]{12}$"
+        },
+        "account_name": {
+            "type": "string",
+            "pattern": "^reaver-project-[a-z0-9-]+$"
+        },
+        "region": {
+            "type": "string",
+            "pattern": "^[a-z]{2}(?:-gov)?-[a-z]+-[0-9]+$"
+        },
+        "root_credential_state": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": [
+                "password",
+                "access_keys",
+                "signing_certificates",
+                "mfa"
+            ],
+            "properties": {
+                "password": {
+                    "type": "integer",
+                    "minimum": 0,
+                    "maximum": 1
+                },
+                "access_keys": {
+                    "type": "integer",
+                    "minimum": 0
+                },
+                "signing_certificates": {
+                    "type": "integer",
+                    "minimum": 0
+                },
+                "mfa": {
+                    "type": "integer",
+                    "minimum": 0
+                }
+            }
+        }
+    }
+}

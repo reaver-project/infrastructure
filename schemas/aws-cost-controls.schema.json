@@ -1,0 +1,122 @@
+{
+    "$schema": "https://json-schema.org/draft/2020-12/schema",
+    "$id": "https://reaver-project.org/schemas/aws-cost-controls.schema.json",
+    "type": "object",
+    "additionalProperties": false,
+    "required": [
+        "schema_version",
+        "notification_email_environment",
+        "budgets",
+        "notifications",
+        "anomaly_detection",
+        "cost_allocation_tags"
+    ],
+    "properties": {
+        "schema_version": {
+            "const": 1
+        },
+        "notification_email_environment": {
+            "type": "string",
+            "pattern": "^[A-Z][A-Z0-9_]+$"
+        },
+        "budgets": {
+            "type": "array",
+            "minItems": 1,
+            "items": {
+                "type": "object",
+                "additionalProperties": false,
+                "required": [
+                    "name",
+                    "amount"
+                ],
+                "properties": {
+                    "name": {
+                        "type": "string",
+                        "pattern": "^reaver-project-[a-z0-9-]+-monthly$"
+                    },
+                    "amount": {
+                        "type": "number",
+                        "exclusiveMinimum": 0
+                    },
+                    "linked_account": {
+                        "type": "string",
+                        "pattern": "^(?:\\$management|reaver-project-[a-z0-9-]+)$"
+                    }
+                }
+            }
+        },
+        "notifications": {
+            "type": "array",
+            "minItems": 1,
+            "uniqueItems": true,
+            "items": {
+                "type": "object",
+                "additionalProperties": false,
+                "required": [
+                    "type",
+                    "threshold"
+                ],
+                "properties": {
+                    "type": {
+                        "enum": [
+                            "ACTUAL",
+                            "FORECASTED"
+                        ]
+                    },
+                    "threshold": {
+                        "type": "number",
+                        "minimum": 0
+                    }
+                }
+            }
+        },
+        "anomaly_detection": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": [
+                "monitor_name",
+                "subscription_name",
+                "frequency",
+                "threshold",
+                "resource_tags"
+            ],
+            "properties": {
+                "monitor_name": {
+                    "type": "string",
+                    "minLength": 1
+                },
+                "subscription_name": {
+                    "type": "string",
+                    "minLength": 1
+                },
+                "frequency": {
+                    "enum": [
+                        "DAILY",
+                        "IMMEDIATE",
+                        "WEEKLY"
+                    ]
+                },
+                "threshold": {
+                    "type": "number",
+                    "exclusiveMinimum": 0
+                },
+                "resource_tags": {
+                    "type": "object",
+                    "minProperties": 1,
+                    "additionalProperties": {
+                        "type": "string"
+                    }
+                }
+            }
+        },
+        "cost_allocation_tags": {
+            "type": "array",
+            "minItems": 1,
+            "uniqueItems": true,
+            "items": {
+                "type": "string",
+                "minLength": 1
+            }
+        }
+    }
+}

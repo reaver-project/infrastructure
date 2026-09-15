@@ -68,6 +68,18 @@ repos:
           - --schemafile
           - schemas/github-app-manifest.schema.json
       - id: check-jsonschema
+        name: Validate AWS organization configuration
+        files: ^aws/organization/reaver-project\.json$
+        args:
+          - --schemafile
+          - schemas/aws-organization.schema.json
+      - id: check-jsonschema
+        name: Validate AWS cost controls
+        files: ^aws/organization/cost-controls\.json$
+        args:
+          - --schemafile
+          - schemas/aws-cost-controls.schema.json
+      - id: check-jsonschema
         name: Validate GitHub organization configuration
         files: ^github/organizations/.*\.json$
         args:
@@ -89,7 +101,7 @@ repos:
         alias: repository-json-schema-tests
         name: Test repository JSON schemas
         entry: python schemas/test.py
-        files: ^(schemas/.*\.schema\.json|github/apps/[^/]+/manifest\.json|github/organizations/.*\.json|github/repositories/.*\.json|projects/reaveros/aws/testdata/private-plan.*\.json)$
+        files: ^(schemas/.*\.schema\.json|aws/organization/.*\.json|github/apps/[^/]+/manifest\.json|github/organizations/.*\.json|github/repositories/.*\.json|projects/reaveros/aws/testdata/private-plan.*\.json)$
         pass_filenames: false
       - id: check-jsonschema
         name: Validate CodeRabbit configuration
@@ -143,6 +155,12 @@ repos:
           - 'off'
         files: ^aws/policy-validation-requirements\.(in|txt)$
         pass_filenames: false
+      - id: pip-audit
+        name: Audit AWS SDK dependencies
+        alias: aws-sdk-dependency-audit
+        entry: aws/audit-dependencies
+        files: ^aws/(pyproject\.toml|uv\.lock)$
+        pass_filenames: false
 
   - repo: https://github.com/astral-sh/uv-pre-commit
     rev: 5900cba2cfe6d20f562458d4d308ac55569f92eb  # 0.12.0
@@ -166,6 +184,12 @@ repos:
 
   - repo: local
     hooks:
+      - id: aws-sdk-lock
+        name: Verify the AWS SDK lock
+        entry: uv lock --project aws --check
+        language: system
+        files: ^aws/(pyproject\.toml|uv\.lock)$
+        pass_filenames: false
       - id: cloudformation-guard
         name: Enforce CloudFormation security invariants
         entry: aws/validate-guard-rules
