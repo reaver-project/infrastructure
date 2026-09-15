@@ -1,0 +1,102 @@
+AWSTemplateFormatVersion: '2010-09-09'
+Description: Central audit storage for Reaver Project CI deployment plans
+
+Parameters:
+    InfrastructureRevision:
+        Type: String
+        AllowedPattern: '[0-9a-f]{40}'
+    TemplateSha256:
+        Type: String
+        AllowedPattern: '[0-9a-f]{64}'
+    CiAccountId:
+        Type: String
+        AllowedPattern: '[0-9]{12}'
+    CiBootstrapStackName:
+        Type: String
+        Default: reaver-project-ci-deployment-trust
+        AllowedPattern: '[a-zA-Z][-a-zA-Z0-9]*'
+
+Resources:
+    DeploymentPlanAuditLogBucket:
+        Type: AWS::S3::Bucket
+        DeletionPolicy: Retain
+        UpdateReplacePolicy: Retain
+        Properties:
+            BucketEncryption:
+                ServerSideEncryptionConfiguration:
+                  - ServerSideEncryptionByDefault:
+                        SSEAlgorithm: AES256
+            LifecycleConfiguration:
+                Rules:
+                  - Id: ExpireDeploymentPlanAuditLogs
+                    Status: Enabled
+                    ExpirationInDays: 400
+                    NoncurrentVersionExpiration:
+                        NoncurrentDays: 400
+            ObjectLockConfiguration:
+                ObjectLockEnabled: Enabled
+                Rule:
+                    DefaultRetention:
+                        Days: 365
+                        Mode: COMPLIANCE
+            ObjectLockEnabled: true
+            OwnershipControls:
+                Rules:
+                  - ObjectOwnership: BucketOwnerEnforced
+            PublicAccessBlockConfiguration:
+                BlockPublicAcls: true
+                BlockPublicPolicy: true
+                IgnorePublicAcls: true
+                RestrictPublicBuckets: true
+            VersioningConfiguration:
+                Status: Enabled
+            Tags:
+              - Key: Project
+                Value: ReaverProjectInfrastructure
+
+    DeploymentPlanAuditLogBucketPolicy:
+        Type: AWS::S3::BucketPolicy
+        Properties:
+            Bucket: !Ref DeploymentPlanAuditLogBucket
+            PolicyDocument:
+                Version: '2012-10-17'
+                Statement:
+                  - Sid: RequireTransportEncryption
+                    Effect: Deny
+                    Principal: '*'
+                    Action: s3:*
+                    Resource:
+                      - !GetAtt DeploymentPlanAuditLogBucket.Arn
+                      - !Sub ${DeploymentPlanAuditLogBucket.Arn}/*
+                    Condition:
+                        Bool:
+                            aws:SecureTransport: false
+                  - Sid: AWSCloudTrailAclCheck
+                    Effect: Allow
+                    Principal:
+                        Service: cloudtrail.amazonaws.com
+                    Action: s3:GetBucketAcl
+                    Resource: !GetAtt DeploymentPlanAuditLogBucket.Arn
+                    Condition:
+                        StringEquals:
+                            aws:SourceAccount: !Ref CiAccountId
+                            aws:SourceArn: !Sub arn:${AWS::Partition}:cloudtrail:${AWS::Region}:${CiAccountId}:trail/${CiBootstrapStackName}-deployment-plan-audit
+                  - Sid: AWSCloudTrailWrite
+                    Effect: Allow
+                    Principal:
+                        Service: cloudtrail.amazonaws.com
+                    Action: s3:PutObject
+                    Resource: !Sub ${DeploymentPlanAuditLogBucket.Arn}/cloudtrail/AWSLogs/${CiAccountId}/*
+                    Condition:
+                        StringEquals:
+                            aws:SourceAccount: !Ref CiAccountId
+                            aws:SourceArn: !Sub arn:${AWS::Partition}:cloudtrail:${AWS::Region}:${CiAccountId}:trail/${CiBootstrapStackName}-deployment-plan-audit
+                            s3:x-amz-acl: bucket-owner-full-control
+
+Outputs:
+    InfrastructureRevision:
+        Value: !Ref InfrastructureRevision
+    TemplateSha256:
+        Value: !Ref TemplateSha256
+    DeploymentPlanAuditLogBucketName:
+        Value: !Ref DeploymentPlanAuditLogBucket

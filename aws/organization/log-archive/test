@@ -1,0 +1,225 @@
+#!/usr/bin/env bash
+
+set -euo pipefail
+
+if [[ $(basename -- "$0") == git ]]; then
+    if [[ $* == *"rev-parse --show-toplevel"* ]]; then
+        printf '%s\n' "${LOG_ARCHIVE_TEST_REPOSITORY_ROOT}"
+    elif [[ $* == *"rev-parse HEAD"* ]]; then
+        printf '%s\n' "${LOG_ARCHIVE_TEST_REVISION}"
+    elif [[ $* == *"status --porcelain"* && ${LOG_ARCHIVE_TEST_DIRTY:-0} == 1 ]]; then
+        printf ' M aws/organization/log-archive/template.yaml\n'
+    fi
+    exit
+fi
+
+if [[ $(basename -- "$0") == aws ]]; then
+    {
+        printf 'aws'
+        printf '\t%s' "$@"
+        printf '\n'
+    } >> "${LOG_ARCHIVE_TEST_LOG}"
+    arguments=("$@")
+    if [[ ${arguments[0]} == --profile ]]; then
+        arguments=("${arguments[@]:2}")
+    fi
+    service=${arguments[0]}
+    operation=${arguments[1]}
+    case "${service}:${operation}" in
+        sts:get-caller-identity)
+            printf '%s\n' "${LOG_ARCHIVE_TEST_ACCOUNT_ID:-029096971971}"
+            ;;
+        cloudformation:describe-stacks)
+            if [[ ${LOG_ARCHIVE_TEST_STACK_CURRENT:-0} == 1 ]]; then
+                jq --null-input \
+                    --arg revision "${LOG_ARCHIVE_TEST_REVISION}" \
+                    --arg template_sha256 "${LOG_ARCHIVE_TEST_TEMPLATE_SHA256}" \
+                    '{
+                        StackStatus: $ENV.LOG_ARCHIVE_TEST_STACK_STATUS,
+                        Parameters: (if $ENV.LOG_ARCHIVE_TEST_STACK_STATUS == "REVIEW_IN_PROGRESS" then null else [
+                            {ParameterKey: "CiAccountId", ParameterValue: "560512681071"},
+                            {
+                                ParameterKey: "CiBootstrapStackName",
+                                ParameterValue: "reaver-project-ci-deployment-trust"
+                            }
+                        ] end),
+                        Outputs: (if $ENV.LOG_ARCHIVE_TEST_STACK_STATUS == "REVIEW_IN_PROGRESS" then null else [
+                            {OutputKey: "InfrastructureRevision", OutputValue: $revision},
+                            {OutputKey: "TemplateSha256", OutputValue: $template_sha256}
+                        ] end)
+                    }'
+            elif [[ ${LOG_ARCHIVE_TEST_PHASE:-plan} == plan ]]; then
+                printf 'Stack with id test does not exist\n' >&2
+                exit 254
+            else
+                jq --null-input \
+                    --arg revision "${LOG_ARCHIVE_TEST_REVISION}" \
+                    --arg template_sha256 "${LOG_ARCHIVE_TEST_TEMPLATE_SHA256}" \
+                    '[
+                        {OutputKey: "InfrastructureRevision", OutputValue: $revision},
+                        {OutputKey: "TemplateSha256", OutputValue: $template_sha256},
+                        {
+                            OutputKey: "DeploymentPlanAuditLogBucketName",
+                            OutputValue: "central-audit-bucket"
+                        }
+                    ]'
+            fi
+            ;;
+        cloudformation:describe-change-set)
+            jq --null-input \
+                --arg revision "${LOG_ARCHIVE_TEST_REVISION}" \
+                --arg template_sha256 "${LOG_ARCHIVE_TEST_TEMPLATE_SHA256}" \
+                '{
+                    StackName: "reaver-project-central-audit",
+                    ChangeSetName: ("reaver-project-central-audit-" + $revision[0:12]),
+                    OnStackFailure: "DELETE",
+                    Status: "CREATE_COMPLETE",
+                    ExecutionStatus: "AVAILABLE",
+                    Description: ("Central audit storage revision " + $revision + "; template " + $template_sha256),
+                    Parameters: [
+                        {ParameterKey: "InfrastructureRevision", ParameterValue: $revision},
+                        {ParameterKey: "TemplateSha256", ParameterValue: $template_sha256},
+                        {ParameterKey: "CiAccountId", ParameterValue: "560512681071"},
+                        {
+                            ParameterKey: "CiBootstrapStackName",
+                            ParameterValue: "reaver-project-ci-deployment-trust"
+                        }
+                    ]
+                }'
+            ;;
+        cloudformation:create-change-set)
+            if [[ ${LOG_ARCHIVE_TEST_CHANGE_SET_EXISTS:-0} == 1 ]]; then
+                printf 'AlreadyExistsException: change set exists\n' >&2
+                exit 254
+            fi
+            ;;
+    esac
+    exit
+fi
+
+self_dir=$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)
+test_directory=$(mktemp -d)
+mkdir "${test_directory}/bin"
+ln -s "${self_dir}/test" "${test_directory}/bin/aws"
+ln -s "${self_dir}/test" "${test_directory}/bin/git"
+export PATH="${test_directory}/bin:${PATH}"
+export LOG_ARCHIVE_TEST_LOG="${test_directory}/calls"
+export LOG_ARCHIVE_TEST_REPOSITORY_ROOT="${self_dir}/../../.."
+export LOG_ARCHIVE_TEST_REVISION=bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb
+export LOG_ARCHIVE_TEST_TEMPLATE_SHA256
+LOG_ARCHIVE_TEST_TEMPLATE_SHA256=$(sha256sum "${self_dir}/template.yaml" | cut --delimiter=' ' --fields=1)
+export LOG_ARCHIVE_TEST_STACK_STATUS=CREATE_COMPLETE
+: > "${LOG_ARCHIVE_TEST_LOG}"
+
+cleanup()
+{
+    rm -rf "${test_directory}"
+}
+trap cleanup EXIT
+
+arguments=(
+    --profile reaver-project-log-archive-admin
+)
+"${self_dir}/deploy" plan "${arguments[@]}" > /dev/null
+grep --fixed-strings --quiet \
+    $'aws\t--profile\treaver-project-log-archive-admin\tcloudformation\tcreate-change-set' \
+    "${LOG_ARCHIVE_TEST_LOG}"
+grep --fixed-strings --quiet \
+    'ParameterKey=CiAccountId,ParameterValue=560512681071' \
+    "${LOG_ARCHIVE_TEST_LOG}"
+grep --fixed-strings --quiet \
+    'ParameterKey=CiBootstrapStackName,ParameterValue=reaver-project-ci-deployment-trust' \
+    "${LOG_ARCHIVE_TEST_LOG}"
+grep --fixed-strings --quiet \
+    "ParameterKey=InfrastructureRevision,ParameterValue=${LOG_ARCHIVE_TEST_REVISION}" \
+    "${LOG_ARCHIVE_TEST_LOG}"
+grep --fixed-strings --quiet \
+    "ParameterKey=TemplateSha256,ParameterValue=${LOG_ARCHIVE_TEST_TEMPLATE_SHA256}" \
+    "${LOG_ARCHIVE_TEST_LOG}"
+
+export LOG_ARCHIVE_TEST_STACK_CURRENT=1
+create_count=$(grep --fixed-strings --count $'cloudformation\tcreate-change-set' \
+    "${LOG_ARCHIVE_TEST_LOG}")
+current_output=$("${self_dir}/deploy" plan "${arguments[@]}")
+if [[ ${current_output} != *'already matches revision'* ||
+    $(grep --fixed-strings --count $'cloudformation\tcreate-change-set' \
+        "${LOG_ARCHIVE_TEST_LOG}") != "${create_count}" ]]; then
+    printf 'The central audit plan is not idempotent for its deployed revision.\n' >&2
+    exit 1
+fi
+unset LOG_ARCHIVE_TEST_STACK_CURRENT
+
+export LOG_ARCHIVE_TEST_STACK_CURRENT=1
+export LOG_ARCHIVE_TEST_STACK_STATUS=REVIEW_IN_PROGRESS
+create_count=$(grep --fixed-strings --count $'cloudformation\tcreate-change-set' \
+    "${LOG_ARCHIVE_TEST_LOG}")
+review_output=$("${self_dir}/deploy" plan "${arguments[@]}")
+if [[ ${review_output} == *'already matches revision'* ]]; then
+    printf 'The central audit plan reused a review placeholder as a deployed stack.\n' >&2
+    exit 1
+fi
+if [[ $(grep --fixed-strings --count $'cloudformation\tcreate-change-set' \
+    "${LOG_ARCHIVE_TEST_LOG}") -ne $((create_count + 1)) ]]; then
+    printf 'The central audit plan did not replace the review placeholder.\n' >&2
+    exit 1
+fi
+unset LOG_ARCHIVE_TEST_STACK_CURRENT
+export LOG_ARCHIVE_TEST_STACK_STATUS=CREATE_COMPLETE
+
+export LOG_ARCHIVE_TEST_CHANGE_SET_EXISTS=1
+export LOG_ARCHIVE_TEST_STACK_CURRENT=1
+if "${self_dir}/deploy" plan "${arguments[@]}" \
+    --ci-bootstrap-stack-name different-bootstrap \
+    > /dev/null 2>&1; then
+    printf 'The central audit plan reused a change set with different parameters.\n' >&2
+    exit 1
+fi
+unset LOG_ARCHIVE_TEST_CHANGE_SET_EXISTS LOG_ARCHIVE_TEST_STACK_CURRENT
+
+export LOG_ARCHIVE_TEST_STACK_CURRENT=1
+create_count=$(grep --fixed-strings --count $'cloudformation\tcreate-change-set' \
+    "${LOG_ARCHIVE_TEST_LOG}")
+different_output=$("${self_dir}/deploy" plan "${arguments[@]}" \
+    --ci-bootstrap-stack-name different-bootstrap)
+if [[ ${different_output} == *'already matches revision'* ||
+    $(grep --fixed-strings --count $'cloudformation\tcreate-change-set' \
+        "${LOG_ARCHIVE_TEST_LOG}") -ne $((create_count + 1)) ]]; then
+    printf 'The central audit plan reused a stack with different parameters.\n' >&2
+    exit 1
+fi
+unset LOG_ARCHIVE_TEST_STACK_CURRENT
+
+export LOG_ARCHIVE_TEST_PHASE=apply
+"${self_dir}/deploy" apply "${arguments[@]}" > /dev/null
+unset LOG_ARCHIVE_TEST_PHASE
+grep --fixed-strings --quiet \
+    $'aws\t--profile\treaver-project-log-archive-admin\tcloudformation\texecute-change-set' \
+    "${LOG_ARCHIVE_TEST_LOG}"
+grep --fixed-strings --quiet \
+    $'aws\t--profile\treaver-project-log-archive-admin\tcloudformation\tupdate-termination-protection' \
+    "${LOG_ARCHIVE_TEST_LOG}"
+
+export LOG_ARCHIVE_TEST_ACCOUNT_ID=999999999999
+if "${self_dir}/deploy" plan "${arguments[@]}" > /dev/null 2>&1; then
+    printf 'The central audit plan accepted the wrong AWS account.\n' >&2
+    exit 1
+fi
+unset LOG_ARCHIVE_TEST_ACCOUNT_ID
+
+export LOG_ARCHIVE_TEST_DIRTY=1
+if "${self_dir}/deploy" plan "${arguments[@]}" > /dev/null 2>&1; then
+    printf 'The central audit plan accepted a dirty infrastructure worktree.\n' >&2
+    exit 1
+fi
+unset LOG_ARCHIVE_TEST_DIRTY
+
+for required_setting in \
+    'ObjectLockEnabled: true' \
+    'Days: 365' \
+    'Mode: COMPLIANCE' \
+    'aws:SourceAccount: !Ref CiAccountId' \
+    'AWSLogs/${CiAccountId}/*'; do
+    grep --fixed-strings --quiet "${required_setting}" "${self_dir}/template.yaml"
+done
+
+printf 'Central audit storage tests passed.\n'

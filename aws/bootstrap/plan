@@ -10,6 +10,7 @@ source "${self_dir}/common"
 bootstrap_profile=
 bootstrap_stack_name=reaver-project-ci-deployment-trust
 default_branch=main
+deployment_plan_audit_bucket=
 expected_account_id=
 access_analyzer_arn=
 oidc_provider_arn=
@@ -22,6 +23,7 @@ usage()
 {
     printf '%s\n' \
         "usage: $0 --profile <profile>" \
+        '    --deployment-plan-audit-bucket <bucket>' \
         '    [--region <region>] [--bootstrap-stack-name <name>]' \
         '    [--runner-stack-name <name>] [--repository <owner/repository>]' \
         '    [--default-branch <branch>] [--oidc-provider-arn <arn>]' \
@@ -41,6 +43,10 @@ while [[ $# -gt 0 ]]; do
             ;;
         --default-branch)
             default_branch=$2
+            shift 2
+            ;;
+        --deployment-plan-audit-bucket)
+            deployment_plan_audit_bucket=$2
             shift 2
             ;;
         --organization-config)
@@ -78,6 +84,10 @@ while [[ $# -gt 0 ]]; do
     esac
 done
 
+if [[ -z ${deployment_plan_audit_bucket} ]]; then
+    usage >&2
+    exit 2
+fi
 expected_account_id=$(bootstrap_account_id "${organization_config}" reaver-project-ci)
 bootstrap_require_clean_repository
 bootstrap_require_account
@@ -102,15 +112,36 @@ if stack=$(bootstrap_aws cloudformation describe-stacks \
     --query 'Stacks[0]' \
     --output json \
     2> "${describe_error}"); then
-    change_set_type=UPDATE
+    stack_status=$(jq --exit-status --raw-output '.StackStatus' <<< "${stack}")
+    if [[ ${stack_status} == REVIEW_IN_PROGRESS ]]; then
+        change_set_type=CREATE
+    else
+        change_set_type=UPDATE
+    fi
     deployed_revision=$(jq --raw-output \
-        '.Outputs[] | select(.OutputKey == "BootstrapRevision") | .OutputValue' \
+        '.Outputs[]? | select(.OutputKey == "BootstrapRevision") | .OutputValue' \
         <<< "${stack}")
     deployed_template_sha256=$(jq --raw-output \
-        '.Outputs[] | select(.OutputKey == "BootstrapTemplateSha256") | .OutputValue' \
+        '.Outputs[]? | select(.OutputKey == "BootstrapTemplateSha256") | .OutputValue' \
         <<< "${stack}")
-    if [[ ${deployed_revision} == "${revision}" &&
-        ${deployed_template_sha256} == "${template_sha256}" ]]; then
+    stack_parameter()
+    {
+        jq --raw-output \
+            --arg key "$1" \
+            '[.Parameters[] | select(.ParameterKey == $key) | .ParameterValue]
+             | if length == 1 then .[0] else "<missing-or-duplicate>" end' \
+            <<< "${stack}"
+    }
+    if [[ ${change_set_type} == UPDATE &&
+        ${deployed_revision} == "${revision}" &&
+        ${deployed_template_sha256} == "${template_sha256}" &&
+        $(stack_parameter GitHubDefaultBranch) == "${default_branch}" &&
+        $(stack_parameter GitHubOidcPlanWorkflowReference) == "${plan_workflow_reference}" &&
+        $(stack_parameter GitHubOidcDeployWorkflowReference) == "${deploy_workflow_reference}" &&
+        $(stack_parameter DeploymentPlanAuditLogBucketName) == "${deployment_plan_audit_bucket}" &&
+        $(stack_parameter GitHubOidcProviderArn) == "${oidc_provider_arn}" &&
+        $(stack_parameter InfrastructureAccessAnalyzerArn) == "${access_analyzer_arn}" &&
+        $(stack_parameter RunnerStackName) == "${runner_stack_name}" ]]; then
         printf 'CI bootstrap stack %s already matches revision %s.\n' \
             "${bootstrap_stack_name}" "${revision}"
         exit
@@ -136,6 +167,7 @@ create_arguments=(
     "ParameterKey=GitHubDefaultBranch,ParameterValue=${default_branch}"
     "ParameterKey=GitHubOidcPlanWorkflowReference,ParameterValue=${plan_workflow_reference}"
     "ParameterKey=GitHubOidcDeployWorkflowReference,ParameterValue=${deploy_workflow_reference}"
+    "ParameterKey=DeploymentPlanAuditLogBucketName,ParameterValue=${deployment_plan_audit_bucket}"
     "ParameterKey=GitHubOidcProviderArn,ParameterValue=${oidc_provider_arn}"
     "ParameterKey=InfrastructureAccessAnalyzerArn,ParameterValue=${access_analyzer_arn}"
     "ParameterKey=RunnerStackName,ParameterValue=${runner_stack_name}"
@@ -144,6 +176,7 @@ if [[ ${change_set_type} == CREATE ]]; then
     create_arguments+=(--on-stack-failure DELETE)
 fi
 
+created_change_set=true
 if bootstrap_aws cloudformation create-change-set "${create_arguments[@]}" \
     > /dev/null 2> "${create_error}"; then
     bootstrap_aws cloudformation wait change-set-create-complete \
@@ -153,6 +186,8 @@ if bootstrap_aws cloudformation create-change-set "${create_arguments[@]}" \
 elif ! grep --fixed-strings --quiet 'AlreadyExists' "${create_error}"; then
     cat "${create_error}" >&2
     exit 1
+else
+    created_change_set=false
 fi
 
 change_set=$(bootstrap_aws cloudformation describe-change-set \
@@ -168,6 +203,27 @@ $(jq --raw-output '.Status' <<< "${change_set}") != CREATE_COMPLETE ||
 $(jq --raw-output '.ExecutionStatus' <<< "${change_set}") != AVAILABLE ||
 $(jq --raw-output '.Description' <<< "${change_set}") != "${expected_description}" ]]; then
     printf 'Refusing an unexpected or stale existing CI bootstrap change set.\n' >&2
+    exit 1
+fi
+change_set_parameter()
+{
+    jq --raw-output \
+        --arg key "$1" \
+        '[.Parameters[] | select(.ParameterKey == $key) | .ParameterValue]
+         | if length == 1 then .[0] else "<missing-or-duplicate>" end' \
+        <<< "${change_set}"
+}
+if [[ ${created_change_set} == false ]] &&
+    [[ $(change_set_parameter BootstrapRevision) != "${revision}" ||
+    $(change_set_parameter BootstrapTemplateSha256) != "${template_sha256}" ||
+    $(change_set_parameter GitHubDefaultBranch) != "${default_branch}" ||
+    $(change_set_parameter GitHubOidcPlanWorkflowReference) != "${plan_workflow_reference}" ||
+    $(change_set_parameter GitHubOidcDeployWorkflowReference) != "${deploy_workflow_reference}" ||
+    $(change_set_parameter DeploymentPlanAuditLogBucketName) != "${deployment_plan_audit_bucket}" ||
+    $(change_set_parameter GitHubOidcProviderArn) != "${oidc_provider_arn}" ||
+    $(change_set_parameter InfrastructureAccessAnalyzerArn) != "${access_analyzer_arn}" ||
+    $(change_set_parameter RunnerStackName) != "${runner_stack_name}" ]]; then
+    printf 'Refusing an existing CI bootstrap change set with different parameters.\n' >&2
     exit 1
 fi
 printf '%s\n' "${change_set}"

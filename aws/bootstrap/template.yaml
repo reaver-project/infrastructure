@@ -26,6 +26,9 @@ Parameters:
         Type: String
         Default: ''
         Description: Leave empty to create the regional account access analyzer.
+    DeploymentPlanAuditLogBucketName:
+        Type: String
+        AllowedPattern: '[a-z0-9][a-z0-9.-]{1,61}[a-z0-9]'
     BuildEnvironmentRepositoryName:
         Type: String
         Default: reaveros-build-env
@@ -101,6 +104,27 @@ Resources:
                     Condition:
                         'Null':
                             s3:if-none-match: true
+
+    DeploymentPlanAuditTrail:
+        Type: AWS::CloudTrail::Trail
+        Properties:
+            TrailName: !Sub ${AWS::StackName}-deployment-plan-audit
+            EnableLogFileValidation: true
+            EventSelectors:
+              - DataResources:
+                  - Type: AWS::S3::Object
+                    Values:
+                      - !Sub ${DeploymentArtifactBucket.Arn}/plans/
+                IncludeManagementEvents: false
+                ReadWriteType: All
+            IncludeGlobalServiceEvents: false
+            IsLogging: true
+            IsMultiRegionTrail: false
+            S3BucketName: !Ref DeploymentPlanAuditLogBucketName
+            S3KeyPrefix: cloudtrail
+            Tags:
+              - Key: Project
+                Value: ReaverProjectInfrastructure
 
     GitHubOidcProvider:
         Type: AWS::IAM::OIDCProvider

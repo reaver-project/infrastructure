@@ -43,8 +43,26 @@ if [[ $(basename -- "$0") == aws || $(basename -- "$0") == gh ]]; then
                 --arg revision "${BOOTSTRAP_TEST_REVISION}" \
                 --arg template_sha256 "${BOOTSTRAP_TEST_TEMPLATE_SHA256}" \
                 '{
-                StackStatus: "CREATE_COMPLETE",
-                Outputs: [
+                StackStatus: $ENV.BOOTSTRAP_TEST_STACK_STATUS,
+                Parameters: (if $ENV.BOOTSTRAP_TEST_STACK_STATUS == "REVIEW_IN_PROGRESS" then null else [
+                    {ParameterKey: "GitHubDefaultBranch", ParameterValue: "main"},
+                    {
+                        ParameterKey: "GitHubOidcPlanWorkflowReference",
+                        ParameterValue: "reaver-project/infrastructure/.github/workflows/aws-infrastructure.yml@refs/heads/main"
+                    },
+                    {
+                        ParameterKey: "GitHubOidcDeployWorkflowReference",
+                        ParameterValue: "reaver-project/infrastructure/.github/workflows/aws-infrastructure-deploy.yml@refs/heads/main"
+                    },
+                    {
+                        ParameterKey: "DeploymentPlanAuditLogBucketName",
+                        ParameterValue: "central-audit-logs"
+                    },
+                    {ParameterKey: "GitHubOidcProviderArn", ParameterValue: ""},
+                    {ParameterKey: "InfrastructureAccessAnalyzerArn", ParameterValue: ""},
+                    {ParameterKey: "RunnerStackName", ParameterValue: "reaveros-github-runners"}
+                ] end),
+                Outputs: (if $ENV.BOOTSTRAP_TEST_STACK_STATUS == "REVIEW_IN_PROGRESS" then null else [
                     {OutputKey: "CloudFormationExecutionRoleArn", OutputValue: "arn:execution"},
                     {OutputKey: "BootstrapRevision", OutputValue: $revision},
                     {OutputKey: "BootstrapTemplateSha256", OutputValue: $template_sha256},
@@ -54,7 +72,7 @@ if [[ $(basename -- "$0") == aws || $(basename -- "$0") == gh ]]; then
                     {OutputKey: "InfrastructurePlanRoleArn", OutputValue: "arn:plan"},
                     {OutputKey: "RunnerRolePermissionsBoundaryArn", OutputValue: "arn:boundary"},
                     {OutputKey: "RunnerStackName", OutputValue: "reaveros-github-runners"}
-                ]
+                ] end)
             }'
             ;;
         cloudformation:describe-change-set)
@@ -69,8 +87,34 @@ if [[ $(basename -- "$0") == aws || $(basename -- "$0") == gh ]]; then
                     Status: "CREATE_COMPLETE",
                     ExecutionStatus: "AVAILABLE",
                     Description: ("CI bootstrap revision " + $revision + "; template " + $template_sha256),
+                    Parameters: [
+                        {ParameterKey: "BootstrapRevision", ParameterValue: $revision},
+                        {ParameterKey: "BootstrapTemplateSha256", ParameterValue: $template_sha256},
+                        {ParameterKey: "GitHubDefaultBranch", ParameterValue: "main"},
+                        {
+                            ParameterKey: "GitHubOidcPlanWorkflowReference",
+                            ParameterValue: "reaver-project/infrastructure/.github/workflows/aws-infrastructure.yml@refs/heads/main"
+                        },
+                        {
+                            ParameterKey: "GitHubOidcDeployWorkflowReference",
+                            ParameterValue: "reaver-project/infrastructure/.github/workflows/aws-infrastructure-deploy.yml@refs/heads/main"
+                        },
+                        {
+                            ParameterKey: "DeploymentPlanAuditLogBucketName",
+                            ParameterValue: "central-audit-logs"
+                        },
+                        {ParameterKey: "GitHubOidcProviderArn", ParameterValue: ""},
+                        {ParameterKey: "InfrastructureAccessAnalyzerArn", ParameterValue: ""},
+                        {ParameterKey: "RunnerStackName", ParameterValue: "reaveros-github-runners"}
+                    ],
                     Changes: []
                 }'
+            ;;
+        cloudformation:create-change-set)
+            if [[ ${BOOTSTRAP_TEST_CHANGE_SET_EXISTS:-0} == 1 ]]; then
+                printf 'AlreadyExistsException: change set exists\n' >&2
+                exit 254
+            fi
             ;;
     esac
     exit
@@ -88,6 +132,7 @@ export BOOTSTRAP_TEST_REPOSITORY_ROOT="${self_dir}/../.."
 export BOOTSTRAP_TEST_REVISION=aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa
 export BOOTSTRAP_TEST_TEMPLATE_SHA256
 BOOTSTRAP_TEST_TEMPLATE_SHA256=$(sha256sum "${self_dir}/template.yaml" | cut --delimiter=' ' --fields=1)
+export BOOTSTRAP_TEST_STACK_STATUS=CREATE_COMPLETE
 : > "${BOOTSTRAP_TEST_LOG}"
 
 cleanup()
@@ -109,7 +154,10 @@ common_account_arguments=(
     --profile reaver-project-ci-admin
 )
 
-"${self_dir}/plan" "${common_account_arguments[@]}" > /dev/null
+"${self_dir}/plan" \
+    "${common_account_arguments[@]}" \
+    --deployment-plan-audit-bucket central-audit-logs \
+    > /dev/null
 assert_log_contains $'aws\t--profile\treaver-project-ci-admin\tsts\tget-caller-identity'
 assert_log_contains $'aws\t--profile\treaver-project-ci-admin\tcloudformation\tcreate-change-set'
 assert_log_contains "reaver-project-ci-deployment-trust-${BOOTSTRAP_TEST_REVISION:0:12}"
@@ -118,11 +166,14 @@ assert_log_contains "template ${BOOTSTRAP_TEST_TEMPLATE_SHA256}"
 assert_log_contains "ParameterKey=BootstrapRevision,ParameterValue=${BOOTSTRAP_TEST_REVISION}"
 assert_log_contains "ParameterKey=BootstrapTemplateSha256,ParameterValue=${BOOTSTRAP_TEST_TEMPLATE_SHA256}"
 assert_log_contains 'ParameterKey=GitHubDefaultBranch,ParameterValue=main'
+assert_log_contains 'ParameterKey=DeploymentPlanAuditLogBucketName,ParameterValue=central-audit-logs'
 
 export BOOTSTRAP_TEST_STACK_EXISTS=1
 create_count=$(grep --fixed-strings --count $'cloudformation\tcreate-change-set' \
     "${BOOTSTRAP_TEST_LOG}")
-current_output=$("${self_dir}/plan" "${common_account_arguments[@]}")
+current_output=$("${self_dir}/plan" \
+    "${common_account_arguments[@]}" \
+    --deployment-plan-audit-bucket central-audit-logs)
 if [[ ${current_output} != *'already matches revision'* ||
     $(grep --fixed-strings --count $'cloudformation\tcreate-change-set' \
         "${BOOTSTRAP_TEST_LOG}") != "${create_count}" ]]; then
@@ -131,9 +182,56 @@ if [[ ${current_output} != *'already matches revision'* ||
 fi
 unset BOOTSTRAP_TEST_STACK_EXISTS
 
+export BOOTSTRAP_TEST_STACK_EXISTS=1
+export BOOTSTRAP_TEST_STACK_STATUS=REVIEW_IN_PROGRESS
+create_count=$(grep --fixed-strings --count $'cloudformation\tcreate-change-set' \
+    "${BOOTSTRAP_TEST_LOG}")
+review_output=$("${self_dir}/plan" \
+    "${common_account_arguments[@]}" \
+    --deployment-plan-audit-bucket central-audit-logs)
+if [[ ${review_output} == *'already matches revision'* ]]; then
+    printf 'The bootstrap plan reused a review placeholder as a deployed stack.\n' >&2
+    exit 1
+fi
+if [[ $(grep --fixed-strings --count $'cloudformation\tcreate-change-set' \
+    "${BOOTSTRAP_TEST_LOG}") -ne $((create_count + 1)) ]]; then
+    printf 'The bootstrap plan did not replace the review placeholder.\n' >&2
+    exit 1
+fi
+unset BOOTSTRAP_TEST_STACK_EXISTS
+export BOOTSTRAP_TEST_STACK_STATUS=CREATE_COMPLETE
+
+export BOOTSTRAP_TEST_CHANGE_SET_EXISTS=1
+export BOOTSTRAP_TEST_STACK_EXISTS=1
+if "${self_dir}/plan" \
+    "${common_account_arguments[@]}" \
+    --default-branch next \
+    --deployment-plan-audit-bucket central-audit-logs \
+    > /dev/null 2>&1; then
+    printf 'The bootstrap plan reused a change set with different parameters.\n' >&2
+    exit 1
+fi
+unset BOOTSTRAP_TEST_CHANGE_SET_EXISTS BOOTSTRAP_TEST_STACK_EXISTS
+
+export BOOTSTRAP_TEST_STACK_EXISTS=1
+create_count=$(grep --fixed-strings --count $'cloudformation\tcreate-change-set' \
+    "${BOOTSTRAP_TEST_LOG}")
+different_output=$("${self_dir}/plan" \
+    "${common_account_arguments[@]}" \
+    --default-branch next \
+    --deployment-plan-audit-bucket central-audit-logs)
+if [[ ${different_output} == *'already matches revision'* ||
+    $(grep --fixed-strings --count $'cloudformation\tcreate-change-set' \
+        "${BOOTSTRAP_TEST_LOG}") -ne $((create_count + 1)) ]]; then
+    printf 'The bootstrap plan reused a stack with different parameters.\n' >&2
+    exit 1
+fi
+unset BOOTSTRAP_TEST_STACK_EXISTS
+
 "${self_dir}/plan" \
     "${common_account_arguments[@]}" \
     --access-analyzer-arn arn:aws:access-analyzer:us-west-2:123456789012:analyzer/existing \
+    --deployment-plan-audit-bucket central-audit-logs \
     > /dev/null
 assert_log_contains 'ParameterKey=InfrastructureAccessAnalyzerArn,ParameterValue=arn:aws:access-analyzer:us-west-2:123456789012:analyzer/existing'
 
@@ -153,14 +251,20 @@ assert_log_contains $'gh\tvariable\tset\tAWS_GITHUB_RUNNER_GROUP_ID\t--repo\trea
 assert_log_contains $'gh\tvariable\tset\tAWS_INFRASTRUCTURE_DEPLOY_ROLE_ARN\t--repo\treaver-project/infrastructure\t--body\tarn:deploy'
 
 export BOOTSTRAP_TEST_ACCOUNT_ID=999999999999
-if "${self_dir}/plan" "${common_account_arguments[@]}" > /dev/null 2>&1; then
+if "${self_dir}/plan" \
+    "${common_account_arguments[@]}" \
+    --deployment-plan-audit-bucket central-audit-logs \
+    > /dev/null 2>&1; then
     printf 'The bootstrap plan accepted the wrong AWS account.\n' >&2
     exit 1
 fi
 unset BOOTSTRAP_TEST_ACCOUNT_ID
 
 export BOOTSTRAP_TEST_DIRTY=1
-if "${self_dir}/plan" "${common_account_arguments[@]}" > /dev/null 2>&1; then
+if "${self_dir}/plan" \
+    "${common_account_arguments[@]}" \
+    --deployment-plan-audit-bucket central-audit-logs \
+    > /dev/null 2>&1; then
     printf 'The bootstrap plan accepted a dirty infrastructure worktree.\n' >&2
     exit 1
 fi
@@ -195,6 +299,30 @@ if grep --fixed-strings --quiet \
     'access-analyzer:CreateAnalyzer' \
     "${self_dir}/template.yaml"; then
     printf 'The planning role must not create account access analyzers.\n' >&2
+    exit 1
+fi
+
+for required_audit_setting in \
+    'EnableLogFileValidation: true' \
+    'IncludeGlobalServiceEvents: false' \
+    'IncludeManagementEvents: false' \
+    'IsMultiRegionTrail: false' \
+    'TrailName: !Sub ${AWS::StackName}-deployment-plan-audit' \
+    '!Sub ${DeploymentArtifactBucket.Arn}/plans/' \
+    'S3BucketName: !Ref DeploymentPlanAuditLogBucketName'; do
+    if ! grep --fixed-strings --quiet \
+        "${required_audit_setting}" \
+        "${self_dir}/template.yaml"; then
+        printf 'Deployment-plan audit trail omitted: %s\n' \
+            "${required_audit_setting}" >&2
+        exit 1
+    fi
+done
+
+if grep --fixed-strings --quiet \
+    'IncludeManagementEvents: true' \
+    "${self_dir}/template.yaml"; then
+    printf 'The CI bootstrap must not duplicate Control Tower management events.\n' >&2
     exit 1
 fi
 
