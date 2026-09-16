@@ -3,9 +3,7 @@
 set -euo pipefail
 
 guard_version=3.2.0
-guard_os=$(uname -s)
-guard_arch=$(uname -m)
-case "${guard_os}:${guard_arch}" in
+case "$(uname -s):$(uname -m)" in
     Linux:x86_64 | Linux:amd64)
         guard_asset=cfn-guard-v3-x86_64-linux-latest.tar.gz
         guard_sha256=c78f7a1a6c2674f7edbf0ebdc0590126487a14b103e434aea31205a4d1034d21
@@ -14,17 +12,9 @@ case "${guard_os}:${guard_arch}" in
         guard_asset=cfn-guard-v3-aarch64-linux-latest.tar.gz
         guard_sha256=d562e14831794a4859782f5609186970373e8e0a049fbded2c01612d2dcdb087
         ;;
-    Darwin:x86_64 | Darwin:amd64)
-        guard_asset=cfn-guard-v3-x86_64-macos-latest.tar.gz
-        guard_sha256=fc0eace59953685fc7ea59df3f5ab0178ee016b513582204ab49bc13278b5834
-        ;;
-    Darwin:aarch64 | Darwin:arm64)
-        guard_asset=cfn-guard-v3-aarch64-macos-latest.tar.gz
-        guard_sha256=6eb1d1693471499d47e453567a7d46f17171468ec31ff2aa98b91116b316b5c4
-        ;;
     *)
         printf 'CloudFormation Guard %s has no pinned binary for %s.\n' \
-            "${guard_version}" "${guard_os}:${guard_arch}" >&2
+            "${guard_version}" "$(uname -s):$(uname -m)" >&2
         exit 1
         ;;
 esac
@@ -51,17 +41,7 @@ if [[ ! -x ${guard} ]]; then
         --show-error \
         --output "${archive}" \
         "https://github.com/aws-cloudformation/cloudformation-guard/releases/download/${guard_version}/${guard_asset}"
-    if [[ ${guard_os} == Darwin ]]; then
-        actual_sha256=$(shasum -a 256 "${archive}")
-        actual_sha256=${actual_sha256%% *}
-        if [[ ${actual_sha256} != "${guard_sha256}" ]]; then
-            printf 'CloudFormation Guard release digest does not match %s.\n' \
-                "${guard_sha256}" >&2
-            exit 1
-        fi
-    else
-        printf '%s  %s\n' "${guard_sha256}" "${archive}" | sha256sum --check --status
-    fi
+    printf '%s  %s\n' "${guard_sha256}" "${archive}" | sha256sum --check --status
 
     tar \
         --extract \

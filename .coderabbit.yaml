@@ -35,6 +35,11 @@ reviews:
     - "!.ruff_cache/**"
     - "!**/__pycache__/**"
   path_instructions:
+    - path: "**"
+      instructions: |
+        This repository targets Linux hosts. macOS and Windows compatibility is
+        out of scope unless the repository requirements explicitly change; do
+        not report missing support for those platforms as a defect.
     - path: ".github/workflows/**"
       instructions: |
         Treat workflow changes as security-sensitive. Check event and actor
