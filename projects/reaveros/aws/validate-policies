@@ -12,6 +12,11 @@ if [[ $# -ne 1 ]]; then
     exit 2
 fi
 
+self_dir=$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)
+# The path is resolved relative to this script.
+# shellcheck disable=SC1091
+source "${self_dir}/cloudformation-parameters"
+
 required_environment=(
     AWS_BUDGET_NOTIFICATION_EMAIL
     AWS_GITHUB_OIDC_PROVIDER_ARN
@@ -27,12 +32,29 @@ for variable in "${required_environment[@]}"; do
     fi
 done
 
+workflow_reference_parameters=(
+    GitHubOidcCallerWorkflowReferencePattern
+    GitHubOidcWorkflowReference
+    GitHubOidcPullRequestCallerWorkflowReferencePattern
+    GitHubOidcPullRequestWorkflowReference
+)
+policy_parameters=()
+for parameter in "${workflow_reference_parameters[@]}"; do
+    if ! value=$(cloudformation_parameter_default "$1" "${parameter}"); then
+        printf 'CloudFormation parameter has no default: %s\n' "${parameter}" >&2
+        exit 2
+    fi
+    policy_parameters+=("${parameter}=${value}")
+done
+
 cfn-policy-validator validate \
     --template-path "$1" \
     --region "${AWS_REGION}" \
+    --allow-external-principals "${AWS_GITHUB_OIDC_PROVIDER_ARN}" \
     --parameters \
     "BudgetNotificationEmail=${AWS_BUDGET_NOTIFICATION_EMAIL}" \
     "GitHubOidcProviderArn=${AWS_GITHUB_OIDC_PROVIDER_ARN}" \
     "GitHubOidcImmutableRepositoryPattern=${AWS_GITHUB_OIDC_REPOSITORY_SUBJECT_PATTERN}" \
     "GitHubRunnerGroupId=${AWS_GITHUB_RUNNER_GROUP_ID}" \
-    "RunnerRolePermissionsBoundaryArn=${AWS_RUNNER_ROLE_PERMISSIONS_BOUNDARY_ARN}"
+    "RunnerRolePermissionsBoundaryArn=${AWS_RUNNER_ROLE_PERMISSIONS_BOUNDARY_ARN}" \
+    "${policy_parameters[@]}"

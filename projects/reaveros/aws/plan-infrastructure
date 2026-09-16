@@ -10,6 +10,9 @@ fi
 template=$1
 change_set_name=$2
 self_dir=$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)
+# The path is resolved relative to this script.
+# shellcheck disable=SC1091
+source "${self_dir}/cloudformation-parameters"
 
 required_environment=(
     AWS_REGION
@@ -89,11 +92,24 @@ parameters=(
     "ParameterKey=GitHubRunnerGroupId,ParameterValue=${AWS_GITHUB_RUNNER_GROUP_ID}"
     "ParameterKey=RunnerRolePermissionsBoundaryArn,ParameterValue=${AWS_RUNNER_ROLE_PERMISSIONS_BOUNDARY_ARN}"
 )
+workflow_reference_parameters=(
+    GitHubOidcCallerWorkflowReferencePattern
+    GitHubOidcWorkflowReference
+    GitHubOidcPullRequestCallerWorkflowReferencePattern
+    GitHubOidcPullRequestWorkflowReference
+)
+for parameter in "${workflow_reference_parameters[@]}"; do
+    if ! value=$(cloudformation_parameter_default "${template}" "${parameter}"); then
+        printf 'CloudFormation parameter has no default: %s\n' "${parameter}" >&2
+        exit 2
+    fi
+    parameters+=("ParameterKey=${parameter},ParameterValue=${value}")
+done
 
 if [[ ${change_set_type} == UPDATE ]]; then
     while read -r parameter; do
         case ${parameter} in
-            BudgetNotificationEmail | GitHubOidcProviderArn | GitHubOidcImmutableRepositoryPattern | GitHubRunnerGroupId | RunnerRolePermissionsBoundaryArn)
+            BudgetNotificationEmail | GitHubOidcProviderArn | GitHubOidcImmutableRepositoryPattern | GitHubOidcCallerWorkflowReferencePattern | GitHubOidcWorkflowReference | GitHubOidcPullRequestCallerWorkflowReferencePattern | GitHubOidcPullRequestWorkflowReference | GitHubRunnerGroupId | RunnerRolePermissionsBoundaryArn)
                 ;;
             *)
                 parameters+=("ParameterKey=${parameter},UsePreviousValue=true")

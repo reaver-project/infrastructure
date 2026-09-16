@@ -932,8 +932,8 @@ Resources:
                             token.actions.githubusercontent.com:aud: sts.amazonaws.com
                         StringLike:
                             token.actions.githubusercontent.com:sub:
-                              - !Sub repo:${GitHubOidcImmutableRepositoryPattern}:workflow_ref:${GitHubOidcCallerWorkflowReferencePattern}:*:job_workflow_ref:${GitHubOidcWorkflowReference}
-                              - !Sub repo:${GitHubOidcImmutableRepositoryPattern}:workflow_ref:${GitHubOidcPullRequestCallerWorkflowReferencePattern}:*:job_workflow_ref:${GitHubOidcPullRequestWorkflowReference}
+                              - !Sub repo:${GitHubOidcImmutableRepositoryPattern}:workflow_ref:${GitHubOidcCallerWorkflowReferencePattern}:ref:refs/heads/main:job_workflow_ref:${GitHubOidcWorkflowReference}
+                              - !Sub repo:${GitHubOidcImmutableRepositoryPattern}:workflow_ref:${GitHubOidcPullRequestCallerWorkflowReferencePattern}:pull_request:job_workflow_ref:${GitHubOidcPullRequestWorkflowReference}
             Policies:
               - PolicyName: ProvisionEphemeralRunner
                 PolicyDocument:
