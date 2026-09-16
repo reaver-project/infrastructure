@@ -16,7 +16,7 @@ region=us-west-2
 usage()
 {
     printf '%s\n' \
-        "usage: $0 --profile <profile>" \
+        "usage: $0 [--profile <profile>]" \
         '    [--region <region>] [--control-plane-stack-name <name>]' \
         '    [--organization-config <path>]'
 }

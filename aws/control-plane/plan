@@ -23,7 +23,7 @@ runner_stack_name=reaveros-github-runners
 usage()
 {
     printf '%s\n' \
-        "usage: $0 --profile <profile>" \
+        "usage: $0 [--profile <profile>]" \
         '    --deployment-plan-audit-bucket <bucket>' \
         '    [--region <region>] [--control-plane-stack-name <name>]' \
         '    [--runner-stack-name <name>] [--repository <owner/repository>]' \

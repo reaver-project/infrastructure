@@ -599,6 +599,8 @@ Resources:
                 Value: ReaverProjectInfrastructure
 
 Outputs:
+    ControlPlaneStackName:
+        Value: !Ref AWS::StackName
     ControlPlaneRevision:
         Value: !Ref ControlPlaneRevision
     ControlPlaneTemplateSha256:
@@ -609,6 +611,8 @@ Outputs:
         Value: !GetAtt CloudFormationExecutionRole.Arn
     DeploymentArtifactBucketName:
         Value: !Ref DeploymentArtifactBucket
+    DeploymentPlanAuditLogBucketName:
+        Value: !Ref DeploymentPlanAuditLogBucketName
     GitHubOidcProviderArn:
         Value: !If
           - CreateGitHubOidcProvider

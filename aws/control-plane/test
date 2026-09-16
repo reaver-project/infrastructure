@@ -68,9 +68,11 @@ if [[ $(basename -- "$0") == aws || $(basename -- "$0") == gh ]]; then
                 ] end),
                 Outputs: (if $ENV.CONTROL_PLANE_TEST_STACK_STATUS == "REVIEW_IN_PROGRESS" then null else [
                     {OutputKey: "CloudFormationExecutionRoleArn", OutputValue: "arn:execution"},
+                    {OutputKey: "ControlPlaneStackName", OutputValue: "reaver-project-ci-deployment-trust"},
                     {OutputKey: "ControlPlaneRevision", OutputValue: $revision},
                     {OutputKey: "ControlPlaneTemplateSha256", OutputValue: $template_sha256},
                     {OutputKey: "DeploymentArtifactBucketName", OutputValue: "artifacts"},
+                    {OutputKey: "DeploymentPlanAuditLogBucketName", OutputValue: "central-audit-logs"},
                     {OutputKey: "GitHubOidcProviderArn", OutputValue: "arn:oidc"},
                     {OutputKey: "InfrastructureDeployRoleArn", OutputValue: "arn:deploy"},
                     {OutputKey: "InfrastructurePlanRoleArn", OutputValue: "arn:plan"},
@@ -84,7 +86,7 @@ if [[ $(basename -- "$0") == aws || $(basename -- "$0") == gh ]]; then
                 --arg revision "${CONTROL_PLANE_TEST_REVISION}" \
                 --arg template_sha256 "${CONTROL_PLANE_TEST_TEMPLATE_SHA256}" \
                 '{
-                    ChangeSetId: "arn:change-set",
+                    ChangeSetId: "arn:aws:cloudformation:us-west-2:560512681071:changeSet/reaver-project-ci-deployment-trust-aaaaaaaaaaaa/01234567-89ab-cdef-0123-456789abcdef",
                     StackName: "reaver-project-ci-deployment-trust",
                     ChangeSetName: ("reaver-project-ci-deployment-trust-" + $revision[0:12]),
                     OnStackFailure: "DELETE",
@@ -124,6 +126,19 @@ if [[ $(basename -- "$0") == aws || $(basename -- "$0") == gh ]]; then
                 exit 254
             fi
             ;;
+        s3api:put-object)
+            previous=
+            for argument in "${arguments[@]}"; do
+                if [[ ${previous} == --body ]]; then
+                    cp "${argument}" "${CONTROL_PLANE_TEST_PLAN_RECORD}"
+                    break
+                fi
+                previous=${argument}
+            done
+            ;;
+        s3api:get-object)
+            cp "${CONTROL_PLANE_TEST_PLAN_RECORD}" "${arguments[-1]}"
+            ;;
     esac
     exit
 fi
@@ -141,6 +156,7 @@ export CONTROL_PLANE_TEST_REVISION=aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa
 export CONTROL_PLANE_TEST_TEMPLATE_SHA256
 CONTROL_PLANE_TEST_TEMPLATE_SHA256=$(sha256sum "${self_dir}/template.yaml" | cut --delimiter=' ' --fields=1)
 export CONTROL_PLANE_TEST_STACK_STATUS=CREATE_COMPLETE
+export CONTROL_PLANE_TEST_PLAN_RECORD="${test_directory}/private-plan.json"
 : > "${CONTROL_PLANE_TEST_LOG}"
 
 cleanup()
@@ -256,6 +272,8 @@ export CONTROL_PLANE_TEST_STACK_EXISTS=1
     > /dev/null
 unset CONTROL_PLANE_TEST_STACK_EXISTS
 assert_log_contains $'gh\tvariable\tset\tAWS_DEPLOYMENT_ARTIFACT_BUCKET\t--repo\treaver-project/infrastructure\t--body\tartifacts'
+assert_log_contains $'gh\tvariable\tset\tAWS_DEPLOYMENT_PLAN_AUDIT_BUCKET\t--repo\treaver-project/infrastructure\t--body\tcentral-audit-logs'
+assert_log_contains $'gh\tvariable\tset\tAWS_CONTROL_PLANE_STACK_NAME\t--repo\treaver-project/infrastructure\t--body\treaver-project-ci-deployment-trust'
 assert_log_contains $'gh\tvariable\tset\tAWS_GITHUB_RUNNER_GROUP_ID\t--repo\treaver-project/infrastructure\t--body\t7'
 assert_log_contains $'gh\tvariable\tset\tAWS_GITHUB_OIDC_REPOSITORY_SUBJECT_PATTERN\t--repo\treaver-project/infrastructure\t--body\treaver-project@1804403/reaveros@*'
 assert_log_contains $'gh\tvariable\tset\tAWS_INFRASTRUCTURE_DEPLOY_ROLE_ARN\t--repo\treaver-project/infrastructure\t--body\tarn:deploy'
@@ -279,6 +297,40 @@ if "${self_dir}/plan" \
     exit 1
 fi
 unset CONTROL_PLANE_TEST_DIRTY
+
+export AWS_CONTROL_PLANE_STACK_NAME=reaver-project-ci-deployment-trust
+export AWS_DEPLOYMENT_ARTIFACT_BUCKET=artifacts
+export AWS_DEPLOYMENT_PLAN_AUDIT_BUCKET=central-audit-logs
+export AWS_REGION=us-west-2
+export GITHUB_OUTPUT="${test_directory}/github-output"
+export GITHUB_REPOSITORY=reaver-project/infrastructure
+export GITHUB_RUN_ATTEMPT=1
+export GITHUB_RUN_ID=101
+export GITHUB_SHA=${CONTROL_PLANE_TEST_REVISION}
+export GITHUB_STEP_SUMMARY="${test_directory}/github-summary"
+: > "${GITHUB_OUTPUT}"
+: > "${GITHUB_STEP_SUMMARY}"
+
+"${self_dir}/plan-github"
+grep --fixed-strings --line-regexp 'has_changes=true' "${GITHUB_OUTPUT}" > /dev/null
+plan_key=$(sed -n 's/^plan_key=//p' "${GITHUB_OUTPUT}")
+if [[ ! ${plan_key} =~ ^plans/control-plane/[0-9a-f]{64}\.json$ ]]; then
+    printf 'GitHub planning did not return an opaque control-plane plan key.\n' >&2
+    exit 1
+fi
+jq --exit-status \
+    --arg revision "${CONTROL_PLANE_TEST_REVISION}" \
+    '(.target == "control-plane")
+        and (.repository == "reaver-project/infrastructure")
+        and (.source_revision == $revision)
+        and (.stack_name == "reaver-project-ci-deployment-trust")' \
+    "${CONTROL_PLANE_TEST_PLAN_RECORD}" > /dev/null
+
+: > "${GITHUB_OUTPUT}"
+"${self_dir}/read-plan" "${plan_key}"
+grep --extended-regexp --line-regexp \
+    'change_set_arn=arn:aws:cloudformation:us-west-2:560512681071:changeSet/reaver-project-ci-deployment-trust-aaaaaaaaaaaa/01234567-89ab-cdef-0123-456789abcdef' \
+    "${GITHUB_OUTPUT}" > /dev/null
 
 if [[ $(grep --fixed-strings --count \
     'Resource: !Sub ${DeploymentArtifactBucket.Arn}/${RunnerStackName}/*' \

@@ -1,0 +1,105 @@
+#!/usr/bin/env bash
+
+set -euo pipefail
+
+if [[ $# -ne 0 ]]; then
+    printf 'usage: %s\n' "$0" >&2
+    exit 2
+fi
+
+required_environment=(
+    AWS_CONTROL_PLANE_STACK_NAME
+    AWS_DEPLOYMENT_ARTIFACT_BUCKET
+    AWS_DEPLOYMENT_PLAN_AUDIT_BUCKET
+    AWS_REGION
+    GITHUB_OUTPUT
+    GITHUB_REPOSITORY
+    GITHUB_RUN_ATTEMPT
+    GITHUB_RUN_ID
+    GITHUB_SHA
+    GITHUB_STEP_SUMMARY
+)
+for variable in "${required_environment[@]}"; do
+    if [[ -z ${!variable:-} ]]; then
+        printf 'Required environment variable is empty: %s\n' "${variable}" >&2
+        exit 2
+    fi
+done
+
+self_dir=$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)
+plan_output=$(mktemp)
+plan_record=$(mktemp)
+cleanup()
+{
+    rm -f "${plan_output}" "${plan_record}"
+}
+trap cleanup EXIT
+
+"${self_dir}/plan" \
+    --control-plane-stack-name "${AWS_CONTROL_PLANE_STACK_NAME}" \
+    --deployment-plan-audit-bucket "${AWS_DEPLOYMENT_PLAN_AUDIT_BUCKET}" \
+    --region "${AWS_REGION}" \
+    > "${plan_output}"
+
+if grep --fixed-strings --quiet 'already matches revision' "${plan_output}"; then
+    printf 'has_changes=false\n' >> "${GITHUB_OUTPUT}"
+    printf '### AWS control plane\n\nNo CloudFormation changes are required.\n' \
+        >> "${GITHUB_STEP_SUMMARY}"
+    exit
+fi
+
+change_set_arn=$(jq --exit-status --raw-output '.ChangeSetId' "${plan_output}")
+template_sha256=$(sha256sum "${self_dir}/template.yaml" | cut -d ' ' -f 1)
+plan_key=$("${self_dir}/plan-key" \
+    "${GITHUB_REPOSITORY}" \
+    "${GITHUB_SHA}" \
+    "${GITHUB_RUN_ID}" \
+    "${GITHUB_RUN_ATTEMPT}" \
+    "${AWS_CONTROL_PLANE_STACK_NAME}")
+
+jq --null-input \
+    --arg change_set_arn "${change_set_arn}" \
+    --arg repository "${GITHUB_REPOSITORY}" \
+    --arg run_attempt "${GITHUB_RUN_ATTEMPT}" \
+    --arg run_id "${GITHUB_RUN_ID}" \
+    --arg source_revision "${GITHUB_SHA}" \
+    --arg stack_name "${AWS_CONTROL_PLANE_STACK_NAME}" \
+    --arg template_sha256 "${template_sha256}" \
+    '{
+        schema_version: 1,
+        target: "control-plane",
+        change_set_arn: $change_set_arn,
+        repository: $repository,
+        run_attempt: $run_attempt,
+        run_id: $run_id,
+        source_revision: $source_revision,
+        stack_name: $stack_name,
+        template_sha256: $template_sha256
+    }' > "${plan_record}"
+
+if ! aws s3api put-object \
+    --region "${AWS_REGION}" \
+    --bucket "${AWS_DEPLOYMENT_ARTIFACT_BUCKET}" \
+    --key "${plan_key}" \
+    --body "${plan_record}" \
+    --content-type application/json \
+    --if-none-match '*' \
+    > /dev/null 2>&1; then
+    aws cloudformation delete-change-set \
+        --region "${AWS_REGION}" \
+        --change-set-name "${change_set_arn}" \
+        > /dev/null 2>&1 || true
+    printf 'Could not preserve the private control-plane plan.\n' >&2
+    exit 1
+fi
+
+{
+    printf 'has_changes=true\n'
+    printf 'plan_key=%s\n' "${plan_key}"
+} >> "${GITHUB_OUTPUT}"
+
+{
+    printf '### AWS control-plane change set\n\n'
+    printf 'A private change set is ready for owner review in AWS.\n\n'
+    printf -- '- Lookup key: `%s`\n' "${plan_key}"
+} >> "${GITHUB_STEP_SUMMARY}"

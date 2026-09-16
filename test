@@ -17,7 +17,10 @@ shell_scripts=(
     aws/bootstrap/test
     aws/control-plane/apply
     aws/control-plane/plan
+    aws/control-plane/plan-github
+    aws/control-plane/plan-key
     aws/control-plane/publish-github
+    aws/control-plane/read-plan
     aws/control-plane/test
     aws/cfn-guard
     aws/organization/log-archive/deploy

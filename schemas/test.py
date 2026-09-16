@@ -112,4 +112,15 @@ invalid_plan = copy.deepcopy(plan)
 invalid_plan["run_id"] = 101
 require_rejection(plan_validator, invalid_plan, "private plan run ID")
 
+control_plane_plan_validator = validator("schemas/control-plane-plan.schema.json")
+control_plane_plan = load("aws/control-plane/testdata/private-plan.valid.json")
+control_plane_plan_validator.validate(control_plane_plan)
+invalid_control_plane_plan = copy.deepcopy(control_plane_plan)
+invalid_control_plane_plan["target"] = "reaveros"
+require_rejection(
+    control_plane_plan_validator,
+    invalid_control_plane_plan,
+    "control-plane plan target",
+)
+
 print("Repository JSON schema tests passed.")

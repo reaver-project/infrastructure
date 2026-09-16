@@ -20,7 +20,7 @@ runner_group_id=
 usage()
 {
     printf '%s\n' \
-        "usage: $0 --profile <profile>" \
+        "usage: $0 [--profile <profile>]" \
         '    --budget-email <email> --runner-group-id <id>' \
         '    [--region <region>] [--control-plane-stack-name <name>]' \
         '    [--repository <owner/repository>]' \
@@ -115,6 +115,8 @@ set_variable AWS_CLOUDFORMATION_EXECUTION_ROLE_ARN \
     "$(stack_output CloudFormationExecutionRoleArn)"
 set_variable AWS_DEPLOYMENT_ARTIFACT_BUCKET \
     "$(stack_output DeploymentArtifactBucketName)"
+set_variable AWS_DEPLOYMENT_PLAN_AUDIT_BUCKET \
+    "$(stack_output DeploymentPlanAuditLogBucketName)"
 set_variable AWS_GITHUB_OIDC_PROVIDER_ARN "$(stack_output GitHubOidcProviderArn)"
 set_variable AWS_GITHUB_OIDC_REPOSITORY_SUBJECT_PATTERN \
     "$(jq --exit-status --raw-output '.oidc_immutable_repository_pattern' \
@@ -125,6 +127,8 @@ set_variable AWS_INFRASTRUCTURE_DEPLOY_ROLE_ARN \
 set_variable AWS_INFRASTRUCTURE_PLAN_ROLE_ARN \
     "$(stack_output InfrastructurePlanRoleArn)"
 set_variable AWS_REGION "${region}"
+set_variable AWS_CONTROL_PLANE_STACK_NAME \
+    "$(stack_output ControlPlaneStackName)"
 set_variable AWS_RUNNER_ROLE_PERMISSIONS_BOUNDARY_ARN \
     "$(stack_output RunnerRolePermissionsBoundaryArn)"
 set_variable AWS_RUNNER_STACK_NAME "$(stack_output RunnerStackName)"

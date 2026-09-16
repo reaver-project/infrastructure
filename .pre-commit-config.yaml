@@ -106,6 +106,12 @@ repos:
           - --schemafile
           - schemas/github-repository.schema.json
       - id: check-jsonschema
+        name: Validate control-plane plan fixtures
+        files: ^aws/control-plane/testdata/private-plan.*\.json$
+        args:
+          - --schemafile
+          - schemas/control-plane-plan.schema.json
+      - id: check-jsonschema
         name: Validate private plan fixtures
         files: ^projects/reaveros/aws/testdata/private-plan.*\.json$
         args:
@@ -115,7 +121,7 @@ repos:
         alias: repository-json-schema-tests
         name: Test repository JSON schemas
         entry: python schemas/test.py
-        files: ^(schemas/.*\.schema\.json|aws/organization/.*\.json|github/apps/[^/]+/manifest\.json|github/organizations/.*\.json|github/repositories/.*\.json|projects/reaveros/aws/testdata/private-plan.*\.json)$
+        files: ^(schemas/.*\.schema\.json|aws/control-plane/testdata/private-plan.*\.json|aws/organization/.*\.json|github/apps/[^/]+/manifest\.json|github/organizations/.*\.json|github/repositories/.*\.json|projects/reaveros/aws/testdata/private-plan.*\.json)$
         pass_filenames: false
       - id: check-jsonschema
         alias: coderabbit-schema

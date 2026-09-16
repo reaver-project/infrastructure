@@ -4,7 +4,11 @@
 
 local_aws()
 {
-    aws --profile "${local_profile}" "$@"
+    if [[ -n ${local_profile} ]]; then
+        aws --profile "${local_profile}" "$@"
+    else
+        aws "$@"
+    fi
 }
 
 local_repository_revision()
@@ -37,8 +41,8 @@ organization_account_id()
 
 local_require_account()
 {
-    if [[ ! ${expected_account_id} =~ ^[0-9]{12}$ || -z ${local_profile} ]]; then
-        printf 'A profile and configured twelve-digit account ID are required.\n' >&2
+    if [[ ! ${expected_account_id} =~ ^[0-9]{12}$ ]]; then
+        printf 'A configured twelve-digit account ID is required.\n' >&2
         exit 2
     fi
 
