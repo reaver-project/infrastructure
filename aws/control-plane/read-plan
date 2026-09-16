@@ -82,4 +82,9 @@ if [[ ${plan_key} != "${expected_key}" ]]; then
 fi
 
 change_set_arn=$(jq --exit-status --raw-output '.change_set_arn' "${metadata}")
+expected_change_set_name="${AWS_CONTROL_PLANE_STACK_NAME}-${GITHUB_SHA:0:12}"
+if [[ ! ${change_set_arn} =~ ^arn:(aws|aws-us-gov|aws-cn):cloudformation:[a-z0-9-]+:[0-9]{12}:changeSet/${expected_change_set_name}/[A-Za-z0-9-]+$ ]]; then
+    printf 'The private plan references an unexpected control-plane change set.\n' >&2
+    exit 1
+fi
 printf 'change_set_arn=%s\n' "${change_set_arn}" >> "${GITHUB_OUTPUT}"

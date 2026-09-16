@@ -285,6 +285,13 @@ assert_log_contains 'ParameterKey=InfrastructureAccessAnalyzerArn,ParameterValue
 "${self_dir}/apply" "${common_account_arguments[@]}" > /dev/null
 assert_log_contains $'aws\t--profile\treaver-project-ci-admin\tcloudformation\texecute-change-set'
 assert_log_contains $'aws\t--profile\treaver-project-ci-admin\tcloudformation\tupdate-termination-protection'
+if "${self_dir}/apply" \
+    "${common_account_arguments[@]}" \
+    --change-set-arn arn:aws:cloudformation:us-west-2:560512681071:changeSet/wrong/id \
+    > /dev/null 2>&1; then
+    printf 'Control-plane apply accepted a different change-set ARN.\n' >&2
+    exit 1
+fi
 
 export CONTROL_PLANE_TEST_STACK_EXISTS=1
 "${self_dir}/publish-github" \

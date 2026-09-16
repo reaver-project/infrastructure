@@ -70,12 +70,16 @@ jobs:
                 role-session-name: control-plane-deploy-${{ github.run_id }}
 
           - name: Read and verify the private plan
+            id: plan
             run: aws/control-plane/read-plan "${PLAN_KEY}"
 
           - name: Execute the reviewed change set
+            env:
+                CHANGE_SET_ARN: ${{ steps.plan.outputs.change_set_arn }}
             run: |
                 aws/control-plane/apply \
-                    --control-plane-stack-name "${AWS_CONTROL_PLANE_STACK_NAME}"
+                    --control-plane-stack-name "${AWS_CONTROL_PLANE_STACK_NAME}" \
+                    --change-set-arn "${CHANGE_SET_ARN}"
 
           - name: Read the deployed control-plane outputs
             id: stack
