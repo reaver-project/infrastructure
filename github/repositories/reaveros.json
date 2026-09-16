@@ -27,6 +27,7 @@
     "oidc_use_immutable_subject": true,
     "oidc_immutable_repository_pattern": "reaver-project@1804403/reaveros@*",
     "oidc_subject_claims": [
+        "repo",
         "workflow_ref",
         "context",
         "job_workflow_ref"

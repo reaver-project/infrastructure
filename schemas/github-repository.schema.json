@@ -192,6 +192,7 @@
                     "job_workflow_sha",
                     "ref",
                     "ref_type",
+                    "repo",
                     "repository",
                     "repository_id",
                     "repository_owner",
