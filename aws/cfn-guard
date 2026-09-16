@@ -1,0 +1,57 @@
+#!/usr/bin/env bash
+
+set -euo pipefail
+
+guard_version=3.2.0
+case "$(uname -s):$(uname -m)" in
+    Linux:x86_64 | Linux:amd64)
+        guard_asset=cfn-guard-v3-x86_64-linux-latest.tar.gz
+        guard_sha256=c78f7a1a6c2674f7edbf0ebdc0590126487a14b103e434aea31205a4d1034d21
+        ;;
+    Linux:aarch64 | Linux:arm64)
+        guard_asset=cfn-guard-v3-aarch64-linux-latest.tar.gz
+        guard_sha256=d562e14831794a4859782f5609186970373e8e0a049fbded2c01612d2dcdb087
+        ;;
+    *)
+        printf 'CloudFormation Guard %s has no pinned binary for %s.\n' \
+            "${guard_version}" "$(uname -s):$(uname -m)" >&2
+        exit 1
+        ;;
+esac
+
+cache_root=${REAVER_PROJECT_TOOL_CACHE:-${XDG_CACHE_HOME:-${HOME}/.cache}/reaver-project}
+guard_dir=${cache_root}/cfn-guard/${guard_version}
+guard=${guard_dir}/cfn-guard
+
+if [[ ! -x ${guard} ]]; then
+    scratch_dir=$(mktemp -d)
+    cleanup()
+    {
+        rm -rf -- "${scratch_dir}"
+    }
+    trap cleanup EXIT
+
+    archive=${scratch_dir}/${guard_asset}
+    curl \
+        --proto '=https' \
+        --tlsv1.2 \
+        --fail \
+        --location \
+        --silent \
+        --show-error \
+        --output "${archive}" \
+        "https://github.com/aws-cloudformation/cloudformation-guard/releases/download/${guard_version}/${guard_asset}"
+    printf '%s  %s\n' "${guard_sha256}" "${archive}" | sha256sum --check --status
+
+    tar \
+        --extract \
+        --gzip \
+        --file "${archive}" \
+        --directory "${scratch_dir}" \
+        --strip-components 1 \
+        "${guard_asset%.tar.gz}/cfn-guard"
+    install -d "${guard_dir}"
+    install -m 0755 "${scratch_dir}/cfn-guard" "${guard}"
+fi
+
+exec "${guard}" "$@"
