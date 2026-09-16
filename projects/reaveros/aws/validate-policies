@@ -50,6 +50,7 @@ done
 cfn-policy-validator validate \
     --template-path "$1" \
     --region "${AWS_REGION}" \
+    --allow-external-principals "${AWS_GITHUB_OIDC_PROVIDER_ARN}" \
     --parameters \
     "BudgetNotificationEmail=${AWS_BUDGET_NOTIFICATION_EMAIL}" \
     "GitHubOidcProviderArn=${AWS_GITHUB_OIDC_PROVIDER_ARN}" \

@@ -57,6 +57,8 @@ expected_log=${test_directory}/expected
         "${template}" \
         --region \
         us-west-2 \
+        --allow-external-principals \
+        arn:aws:iam::123456789012:oidc-provider/token.actions.githubusercontent.com \
         --parameters \
         BudgetNotificationEmail=ci-billing@example.com \
         GitHubOidcProviderArn=arn:aws:iam::123456789012:oidc-provider/token.actions.githubusercontent.com \
