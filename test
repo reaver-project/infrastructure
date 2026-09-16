@@ -16,9 +16,11 @@ shell_scripts=(
     aws/bootstrap/plan
     aws/bootstrap/publish-github
     aws/bootstrap/test
+    aws/cfn-guard
     aws/organization/log-archive/deploy
     aws/organization/log-archive/test
     aws/validate-guard-rules
+    aws/test-cfn-guard
     github/configure-organization
     github/configure-repository
     github/apps/configure-app-environment
@@ -97,6 +99,7 @@ python3 actions/test-update-infrastructure-consumer.py
 
 actions/test
 aws/bootstrap/test
+aws/test-cfn-guard
 aws/organization/log-archive/test
 uv run --project aws --frozen python aws/organization/test_configure.py
 uv run --project aws --frozen python aws/organization/test_cost_controls.py

@@ -8,13 +8,13 @@ if [[ $# -ne 0 ]]; then
 fi
 
 self_dir=$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)
-repo_root=$(git -C "${self_dir}" rev-parse --show-toplevel)
+repo_root=$(cd -- "${self_dir}/.." && pwd)
 
-cfn-guard test \
+"${self_dir}/cfn-guard" test \
     --rules-file "${self_dir}/guard/infrastructure.guard" \
     --test-data "${self_dir}/guard/infrastructure_tests.yaml"
 
-cfn-guard validate \
+"${self_dir}/cfn-guard" validate \
     --rules "${self_dir}/guard" \
     --data "${self_dir}/bootstrap/template.yaml" \
     --data "${self_dir}/organization/log-archive/template.yaml" \
