@@ -1,8 +1,10 @@
 import importlib.util
+import os
 import subprocess
 import tempfile
 import unittest
 from pathlib import Path
+from unittest.mock import patch
 
 module_path = Path(__file__).with_name("lib") / "infrastructure_consumer.py"
 specification = importlib.util.spec_from_file_location("infrastructure_consumer", module_path)
@@ -12,6 +14,17 @@ specification.loader.exec_module(infrastructure_consumer)
 
 old_revision = "1" * 40
 new_revision = "2" * 40
+
+
+def git(root, *arguments, capture_output=False):
+    return subprocess.run(
+        ["git", "-c", "core.hooksPath=/dev/null", *arguments],
+        cwd=root,
+        check=True,
+        capture_output=capture_output,
+        env=infrastructure_consumer.isolated_git_environment(),
+        text=capture_output,
+    )
 
 
 class InfrastructureConsumerTests(unittest.TestCase):
@@ -36,26 +49,12 @@ jobs:
 """,
             encoding="utf-8",
         )
-        subprocess.run(["git", "init", "--quiet", "-b", "main"], cwd=self.root, check=True)
-        subprocess.run(["git", "config", "user.name", "Test"], cwd=self.root, check=True)
-        subprocess.run(
-            ["git", "config", "user.email", "test@example.com"],
-            cwd=self.root,
-            check=True,
-        )
-        subprocess.run(["git", "add", "--all"], cwd=self.root, check=True)
-        subprocess.run(
-            ["git", "commit", "--quiet", "--no-gpg-sign", "-m", "Base"],
-            cwd=self.root,
-            check=True,
-        )
-        self.base_revision = subprocess.run(
-            ["git", "rev-parse", "HEAD"],
-            cwd=self.root,
-            check=True,
-            capture_output=True,
-            text=True,
-        ).stdout.strip()
+        git(self.root, "init", "--quiet", "-b", "main")
+        git(self.root, "config", "user.name", "Test")
+        git(self.root, "config", "user.email", "test@example.com")
+        git(self.root, "add", "--all")
+        git(self.root, "commit", "--quiet", "--no-gpg-sign", "-m", "Base")
+        self.base_revision = git(self.root, "rev-parse", "HEAD", capture_output=True).stdout.strip()
 
     def tearDown(self):
         self.temporary_directory.cleanup()
@@ -76,12 +75,8 @@ jobs:
                 "ci/aws/infrastructure-revision",
             ],
         )
-        subprocess.run(["git", "add", "--all"], cwd=self.root, check=True)
-        subprocess.run(
-            ["git", "commit", "--quiet", "--no-gpg-sign", "-m", "Update"],
-            cwd=self.root,
-            check=True,
-        )
+        git(self.root, "add", "--all")
+        git(self.root, "commit", "--quiet", "--no-gpg-sign", "-m", "Update")
 
     def test_rewrites_and_strictly_validates_only_contract_changes(self):
         self.rewrite_and_commit()
@@ -102,12 +97,8 @@ jobs:
     def test_rejects_an_unrelated_change_in_an_automatic_update(self):
         self.rewrite_and_commit()
         (self.root / "README.md").write_text("unrelated\n", encoding="utf-8")
-        subprocess.run(["git", "add", "--all"], cwd=self.root, check=True)
-        subprocess.run(
-            ["git", "commit", "--quiet", "--no-gpg-sign", "-m", "Unrelated"],
-            cwd=self.root,
-            check=True,
-        )
+        git(self.root, "add", "--all")
+        git(self.root, "commit", "--quiet", "--no-gpg-sign", "-m", "Unrelated")
         state = infrastructure_consumer.read_state(
             self.root,
             "ci/aws/infrastructure-revision",
@@ -128,12 +119,8 @@ jobs:
         workflow.write_text(
             workflow.read_text(encoding="utf-8") + "# unexpected\n", encoding="utf-8"
         )
-        subprocess.run(["git", "add", "--all"], cwd=self.root, check=True)
-        subprocess.run(
-            ["git", "commit", "--quiet", "--no-gpg-sign", "-m", "Unexpected"],
-            cwd=self.root,
-            check=True,
-        )
+        git(self.root, "add", "--all")
+        git(self.root, "commit", "--quiet", "--no-gpg-sign", "-m", "Unexpected")
         state = infrastructure_consumer.read_state(
             self.root,
             "ci/aws/infrastructure-revision",
@@ -176,6 +163,16 @@ jobs:
                 "ci/aws/infrastructure-revision",
                 "ci/aws/infrastructure-contract-version",
             )
+
+    def test_strips_outer_repository_git_environment(self):
+        outer_environment = {
+            name: "outer-repository-value" for name in infrastructure_consumer.git_local_environment
+        }
+        with patch.dict(os.environ, outer_environment):
+            environment = infrastructure_consumer.isolated_git_environment()
+        self.assertTrue(
+            all(name not in environment for name in infrastructure_consumer.git_local_environment)
+        )
 
 
 if __name__ == "__main__":

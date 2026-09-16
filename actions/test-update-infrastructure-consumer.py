@@ -1,4 +1,4 @@
-import os
+import importlib.util
 import stat
 import subprocess
 import tempfile
@@ -7,16 +7,31 @@ from pathlib import Path
 
 old_revision = "1" * 40
 
+module_path = Path(__file__).with_name("lib") / "infrastructure_consumer.py"
+specification = importlib.util.spec_from_file_location("infrastructure_consumer", module_path)
+infrastructure_consumer = importlib.util.module_from_spec(specification)
+specification.loader.exec_module(infrastructure_consumer)
+
+
+def git(root, *arguments, capture_output=False):
+    return subprocess.run(
+        ["git", "-c", "core.hooksPath=/dev/null", *arguments],
+        cwd=root,
+        check=True,
+        capture_output=capture_output,
+        env=infrastructure_consumer.isolated_git_environment(),
+        text=capture_output,
+    )
+
 
 class UpdateInfrastructureConsumerTests(unittest.TestCase):
     def test_publishes_and_enables_auto_merge_for_a_contract_update(self):
         repository_root = Path(__file__).resolve().parents[1]
-        source_revision = subprocess.run(
-            ["git", "rev-parse", "HEAD"],
-            cwd=repository_root,
-            check=True,
+        source_revision = git(
+            repository_root,
+            "rev-parse",
+            "HEAD",
             capture_output=True,
-            text=True,
         ).stdout.strip()
         contract_version = (
             (repository_root / "projects/reaveros/infrastructure-contract-version")
@@ -47,23 +62,12 @@ jobs:
 """,
                 encoding="utf-8",
             )
-            subprocess.run(["git", "init", "--quiet", "-b", "main"], cwd=source, check=True)
-            subprocess.run(["git", "config", "user.name", "Test"], cwd=source, check=True)
-            subprocess.run(
-                ["git", "config", "user.email", "test@example.com"],
-                cwd=source,
-                check=True,
-            )
-            subprocess.run(["git", "add", "--all"], cwd=source, check=True)
-            subprocess.run(
-                ["git", "commit", "--quiet", "--no-gpg-sign", "-m", "Base"],
-                cwd=source,
-                check=True,
-            )
-            subprocess.run(
-                ["git", "clone", "--quiet", "--bare", str(source), str(remote)],
-                check=True,
-            )
+            git(source, "init", "--quiet", "-b", "main")
+            git(source, "config", "user.name", "Test")
+            git(source, "config", "user.email", "test@example.com")
+            git(source, "add", "--all")
+            git(source, "commit", "--quiet", "--no-gpg-sign", "-m", "Base")
+            git(temporary_path, "clone", "--quiet", "--bare", str(source), str(remote))
 
             mock_directory = temporary_path / "bin"
             mock_directory.mkdir()
@@ -115,7 +119,7 @@ raise SystemExit(f"unexpected gh invocation: {arguments}")
             output.touch()
             summary.touch()
             gh_log.touch()
-            environment = os.environ.copy()
+            environment = infrastructure_consumer.isolated_git_environment()
             environment.update(
                 {
                     "APP_SLUG": "reaver-project-maintenance",
@@ -145,28 +149,20 @@ raise SystemExit(f"unexpected gh invocation: {arguments}")
             )
 
             branch = f"maintenance/infrastructure/{source_revision}"
-            published_revision = subprocess.run(
-                [
-                    "git",
-                    f"--git-dir={remote}",
-                    "show",
-                    f"{branch}:ci/aws/infrastructure-revision",
-                ],
-                check=True,
+            published_revision = git(
+                temporary_path,
+                f"--git-dir={remote}",
+                "show",
+                f"{branch}:ci/aws/infrastructure-revision",
                 capture_output=True,
-                text=True,
             ).stdout.strip()
             self.assertEqual(published_revision, source_revision)
-            published_contract = subprocess.run(
-                [
-                    "git",
-                    f"--git-dir={remote}",
-                    "show",
-                    f"{branch}:ci/aws/infrastructure-contract-version",
-                ],
-                check=True,
+            published_contract = git(
+                temporary_path,
+                f"--git-dir={remote}",
+                "show",
+                f"{branch}:ci/aws/infrastructure-contract-version",
                 capture_output=True,
-                text=True,
             ).stdout.strip()
             self.assertEqual(published_contract, contract_version)
             self.assertIn("pull_request_number=17", output.read_text(encoding="utf-8"))

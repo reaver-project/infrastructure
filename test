@@ -2,6 +2,10 @@
 
 set -euo pipefail
 
+while IFS= read -r variable; do
+    unset "${variable}"
+done < <(git rev-parse --local-env-vars)
+
 shell_scripts=(
     actions/aws-stack-contract/read
     actions/ephemeral-runner/launch

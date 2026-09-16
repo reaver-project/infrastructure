@@ -2,6 +2,7 @@
 
 import argparse
 import dataclasses
+import os
 import pathlib
 import re
 import shutil
@@ -30,6 +31,28 @@ contract_input_reference_pattern = re.compile(
     r"^\s*expected-contract-version:\s*[^\s#]+",
     re.MULTILINE,
 )
+
+
+def git_local_environment_names():
+    git = shutil.which("git")
+    if git is None:
+        raise RuntimeError("git is required")
+    return subprocess.run(  # noqa: S603 - fixed Git introspection command.
+        [git, "rev-parse", "--local-env-vars"],
+        check=True,
+        capture_output=True,
+        text=True,
+    ).stdout.splitlines()
+
+
+git_local_environment = tuple(git_local_environment_names())
+
+
+def isolated_git_environment():
+    environment = os.environ.copy()
+    for name in git_local_environment:
+        environment.pop(name, None)
+    return environment
 
 
 @dataclasses.dataclass(frozen=True)
@@ -215,6 +238,7 @@ def git_output(root: pathlib.Path, arguments: list[str]) -> str:
         [git, "-C", str(root), *arguments],
         check=True,
         capture_output=True,
+        env=isolated_git_environment(),
         text=True,
     ).stdout
 
