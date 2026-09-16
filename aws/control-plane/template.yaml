@@ -715,6 +715,9 @@ Resources:
                 PolicyDocument:
                     Version: '2012-10-17'
                     Statement:
+                      - Effect: Deny
+                        Action: s3:*
+                        Resource: !Sub ${DeploymentArtifactBucket.Arn}/plans/control-plane/*
                       - Effect: Allow
                         Action: cloudformation:CreateChangeSet
                         Resource: !Sub arn:${AWS::Partition}:cloudformation:${AWS::Region}:${AWS::AccountId}:stack/${RunnerStackName}/*
@@ -815,6 +818,9 @@ Resources:
                 PolicyDocument:
                     Version: '2012-10-17'
                     Statement:
+                      - Effect: Deny
+                        Action: s3:*
+                        Resource: !Sub ${DeploymentArtifactBucket.Arn}/plans/control-plane/*
                       - Effect: Allow
                         Action: s3:GetObject
                         Resource: !Sub ${DeploymentArtifactBucket.Arn}/plans/*

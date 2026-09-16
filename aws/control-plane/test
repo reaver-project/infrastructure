@@ -409,6 +409,14 @@ if [[ $(grep --fixed-strings --count \
     exit 1
 fi
 
+if [[ $(grep --before-context 3 --fixed-strings \
+    'Resource: !Sub ${DeploymentArtifactBucket.Arn}/plans/control-plane/*' \
+    "${self_dir}/template.yaml" |
+    grep --fixed-strings --count 'Effect: Deny') -ne 2 ]]; then
+    printf 'Runner-infrastructure roles can access control-plane plans.\n' >&2
+    exit 1
+fi
+
 if ! grep --after-context 7 --fixed-strings \
     'Sid: RequireImmutableDeploymentPlans' \
     "${self_dir}/template.yaml" |
