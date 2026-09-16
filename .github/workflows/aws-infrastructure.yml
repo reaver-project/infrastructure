@@ -93,5 +93,6 @@ jobs:
                 {
                     printf '\n### Approval\n\n'
                     printf 'After reviewing the private change set in AWS, manually run '
-                    printf '`Deploy AWS infrastructure` with lookup key `%s`.\n' "${PLAN_KEY}"
+                    printf '\x60Deploy AWS infrastructure\x60 with lookup key \x60%s\x60.\n' \
+                        "${PLAN_KEY}"
                 } >> "${GITHUB_STEP_SUMMARY}"
