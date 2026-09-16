@@ -9,6 +9,7 @@ fi
 
 required_environment=(
     AWS_CONTROL_PLANE_STACK_NAME
+    AWS_CONTROL_PLANE_EXECUTION_ROLE_ARN
     AWS_DEPLOYMENT_ARTIFACT_BUCKET
     AWS_DEPLOYMENT_PLAN_AUDIT_BUCKET
     AWS_REGION
@@ -38,6 +39,7 @@ trap cleanup EXIT
 "${self_dir}/plan" \
     --control-plane-stack-name "${AWS_CONTROL_PLANE_STACK_NAME}" \
     --deployment-plan-audit-bucket "${AWS_DEPLOYMENT_PLAN_AUDIT_BUCKET}" \
+    --execution-role-arn "${AWS_CONTROL_PLANE_EXECUTION_ROLE_ARN}" \
     --region "${AWS_REGION}" \
     > "${plan_output}"
 

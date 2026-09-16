@@ -1,0 +1,135 @@
+name: Deploy AWS control plane
+
+run-name: Deploy AWS control-plane plan ${{ inputs.plan_key }}
+
+on:
+    workflow_dispatch:
+        inputs:
+            plan_key:
+                description: Opaque lookup key from the reviewed private AWS control-plane plan
+                required: true
+                type: string
+
+permissions:
+    contents: read
+
+concurrency:
+    group: aws-control-plane
+    cancel-in-progress: false
+
+jobs:
+    validate:
+        name: Revalidate before deployment
+        uses: ./.github/workflows/validate.yml
+
+    deploy:
+        name: Apply the reviewed AWS control-plane change set
+        needs: validate
+        runs-on: ubuntu-latest
+        timeout-minutes: 20
+        environment: aws-production
+        permissions:
+            contents: read
+            id-token: write
+        env:
+            AWS_CONTROL_PLANE_STACK_NAME: ${{ vars.AWS_CONTROL_PLANE_STACK_NAME }}
+            AWS_DEPLOYMENT_ARTIFACT_BUCKET: ${{ vars.AWS_DEPLOYMENT_ARTIFACT_BUCKET }}
+            AWS_REGION: ${{ vars.AWS_REGION }}
+            PLAN_KEY: ${{ inputs.plan_key }}
+        outputs:
+            cloudformation_execution_role_arn: ${{ steps.stack.outputs.cloudformation_execution_role_arn }}
+            control_plane_deploy_role_arn: ${{ steps.stack.outputs.control_plane_deploy_role_arn }}
+            control_plane_execution_role_arn: ${{ steps.stack.outputs.control_plane_execution_role_arn }}
+            control_plane_plan_role_arn: ${{ steps.stack.outputs.control_plane_plan_role_arn }}
+            control_plane_stack_name: ${{ steps.stack.outputs.control_plane_stack_name }}
+            deployment_artifact_bucket: ${{ steps.stack.outputs.deployment_artifact_bucket }}
+            deployment_plan_audit_bucket: ${{ steps.stack.outputs.deployment_plan_audit_bucket }}
+            github_oidc_provider_arn: ${{ steps.stack.outputs.github_oidc_provider_arn }}
+            infrastructure_access_analyzer_arn: ${{ steps.stack.outputs.infrastructure_access_analyzer_arn }}
+            infrastructure_deploy_role_arn: ${{ steps.stack.outputs.infrastructure_deploy_role_arn }}
+            infrastructure_plan_role_arn: ${{ steps.stack.outputs.infrastructure_plan_role_arn }}
+            runner_role_permissions_boundary_arn: ${{ steps.stack.outputs.runner_role_permissions_boundary_arn }}
+            runner_stack_name: ${{ steps.stack.outputs.runner_stack_name }}
+
+        steps:
+          - name: Harden the runner
+            uses: step-security/harden-runner@05e31511f85b41b11d1cf0ef85d0992719546e2c # v2.21.0
+            with:
+                egress-policy: audit
+
+          - name: Check out infrastructure
+            uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
+            with:
+                persist-credentials: false
+
+          - name: Authenticate to AWS for deployment
+            uses: aws-actions/configure-aws-credentials@e6de054238d6b7531b4efff3b6587d9aade6a06c # v6.2.3
+            with:
+                aws-region: ${{ env.AWS_REGION }}
+                role-to-assume: ${{ vars.AWS_CONTROL_PLANE_DEPLOY_ROLE_ARN }}
+                role-session-name: control-plane-deploy-${{ github.run_id }}
+
+          - name: Read and verify the private plan
+            run: aws/control-plane/read-plan "${PLAN_KEY}"
+
+          - name: Execute the reviewed change set
+            run: |
+                aws/control-plane/apply \
+                    --control-plane-stack-name "${AWS_CONTROL_PLANE_STACK_NAME}"
+
+          - name: Read the deployed control-plane outputs
+            id: stack
+            run: aws/control-plane/read-outputs
+
+    publish:
+        name: Publish AWS control-plane outputs
+        needs: deploy
+        runs-on: ubuntu-latest
+        timeout-minutes: 10
+        environment: github-production
+        permissions:
+            contents: read
+        env:
+            AWS_BUDGET_NOTIFICATION_EMAIL: ${{ vars.AWS_BUDGET_NOTIFICATION_EMAIL }}
+            AWS_CLOUDFORMATION_EXECUTION_ROLE_ARN: ${{ needs.deploy.outputs.cloudformation_execution_role_arn }}
+            AWS_CONTROL_PLANE_DEPLOY_ROLE_ARN: ${{ needs.deploy.outputs.control_plane_deploy_role_arn }}
+            AWS_CONTROL_PLANE_EXECUTION_ROLE_ARN: ${{ needs.deploy.outputs.control_plane_execution_role_arn }}
+            AWS_CONTROL_PLANE_PLAN_ROLE_ARN: ${{ needs.deploy.outputs.control_plane_plan_role_arn }}
+            AWS_CONTROL_PLANE_STACK_NAME: ${{ needs.deploy.outputs.control_plane_stack_name }}
+            AWS_DEPLOYMENT_ARTIFACT_BUCKET: ${{ needs.deploy.outputs.deployment_artifact_bucket }}
+            AWS_DEPLOYMENT_PLAN_AUDIT_BUCKET: ${{ needs.deploy.outputs.deployment_plan_audit_bucket }}
+            AWS_GITHUB_OIDC_PROVIDER_ARN: ${{ needs.deploy.outputs.github_oidc_provider_arn }}
+            AWS_GITHUB_OIDC_REPOSITORY_SUBJECT_PATTERN: ${{ vars.AWS_GITHUB_OIDC_REPOSITORY_SUBJECT_PATTERN }}
+            AWS_GITHUB_RUNNER_GROUP_ID: ${{ vars.AWS_GITHUB_RUNNER_GROUP_ID }}
+            AWS_INFRASTRUCTURE_ACCESS_ANALYZER_ARN: ${{ needs.deploy.outputs.infrastructure_access_analyzer_arn }}
+            AWS_INFRASTRUCTURE_DEPLOY_ROLE_ARN: ${{ needs.deploy.outputs.infrastructure_deploy_role_arn }}
+            AWS_INFRASTRUCTURE_PLAN_ROLE_ARN: ${{ needs.deploy.outputs.infrastructure_plan_role_arn }}
+            AWS_REGION: ${{ vars.AWS_REGION }}
+            AWS_RUNNER_ROLE_PERMISSIONS_BOUNDARY_ARN: ${{ needs.deploy.outputs.runner_role_permissions_boundary_arn }}
+            AWS_RUNNER_STACK_NAME: ${{ needs.deploy.outputs.runner_stack_name }}
+
+        steps:
+          - name: Harden the runner
+            uses: step-security/harden-runner@05e31511f85b41b11d1cf0ef85d0992719546e2c # v2.21.0
+            with:
+                egress-policy: audit
+
+          - name: Check out infrastructure
+            uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
+            with:
+                persist-credentials: false
+
+          - name: Create an infrastructure App token
+            id: app
+            uses: actions/create-github-app-token@bcd2ba49218906704ab6c1aa796996da409d3eb1 # v3.2.0
+            with:
+                app-id: ${{ vars.INFRASTRUCTURE_APP_ID }}
+                private-key: ${{ secrets.INFRASTRUCTURE_APP_PRIVATE_KEY }}
+                owner: reaver-project
+                repositories: infrastructure
+                permission-actions-variables: write
+
+          - name: Publish control-plane outputs
+            env:
+                GH_TOKEN: ${{ steps.app.outputs.token }}
+            run: aws/control-plane/publish-github-values

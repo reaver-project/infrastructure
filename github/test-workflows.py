@@ -103,7 +103,23 @@ for permission in (
 if "repositories: reaveros" not in deploy_workflow[maintenance_token:publish_update]:
     sys.exit("The deployment maintenance token is not scoped to ReaverOS.")
 
+control_plane_plan_workflow = (root / ".github" / "workflows" / "aws-control-plane.yml").read_text(
+    encoding="utf-8"
+)
+if "change_set_arn" in control_plane_plan_workflow:
+    sys.exit("The public control-plane workflow exposes private change-set metadata.")
+
+control_plane_deploy_workflow = (
+    root / ".github" / "workflows" / "aws-control-plane-deploy.yml"
+).read_text(encoding="utf-8")
+if "plan_key" not in control_plane_deploy_workflow:
+    sys.exit("The control-plane deployment does not consume an opaque plan key.")
+if "permission-actions-variables: write" not in control_plane_deploy_workflow:
+    sys.exit("The control-plane publisher cannot converge repository variables.")
+
 for workflow_name in [
+    "aws-control-plane-deploy.yml",
+    "aws-control-plane.yml",
     "aws-infrastructure-deploy.yml",
     "aws-infrastructure.yml",
     "github-configuration.yml",
@@ -134,6 +150,8 @@ def job_contents(workflow_name: str, job_name: str) -> str:
 
 
 credentialed_jobs = {
+    "aws-control-plane.yml": ["plan"],
+    "aws-control-plane-deploy.yml": ["deploy", "publish"],
     "aws-infrastructure.yml": ["plan"],
     "aws-infrastructure-deploy.yml": ["deploy", "configure-reaveros"],
     "github-configuration.yml": ["deploy"],

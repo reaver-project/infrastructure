@@ -5,6 +5,7 @@ set -euo pipefail
 self_dir=$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)
 repository_root=$(git -C "${self_dir}" rev-parse --show-toplevel)
 # shellcheck source=aws/local-deployment
+# shellcheck disable=SC1091
 source "${repository_root}/aws/local-deployment"
 
 local_profile=
@@ -12,6 +13,7 @@ control_plane_stack_name=reaver-project-ci-deployment-trust
 default_branch=main
 deployment_plan_audit_bucket=
 expected_account_id=
+execution_role_arn=
 access_analyzer_arn=
 oidc_provider_arn=
 region=us-west-2
@@ -26,6 +28,7 @@ usage()
         "usage: $0 [--profile <profile>]" \
         '    --deployment-plan-audit-bucket <bucket>' \
         '    [--region <region>] [--control-plane-stack-name <name>]' \
+        '    [--execution-role-arn <arn>]' \
         '    [--runner-stack-name <name>] [--repository <owner/repository>]' \
         '    [--default-branch <branch>] [--oidc-provider-arn <arn>]' \
         '    [--access-analyzer-arn <arn>]' \
@@ -48,6 +51,10 @@ while [[ $# -gt 0 ]]; do
             ;;
         --deployment-plan-audit-bucket)
             deployment_plan_audit_bucket=$2
+            shift 2
+            ;;
+        --execution-role-arn)
+            execution_role_arn=$2
             shift 2
             ;;
         --organization-config)
@@ -90,6 +97,7 @@ if [[ -z ${deployment_plan_audit_bucket} ]]; then
     exit 2
 fi
 expected_account_id=$(organization_account_id "${organization_config}" reaver-project-ci)
+export expected_account_id local_profile
 oidc_immutable_repository=$(jq --exit-status --raw-output \
     '.oidc_immutable_repository' "${github_config}")
 local_require_clean_repository
@@ -100,6 +108,8 @@ template_sha256=$(local_template_sha256 "${self_dir}/template.yaml")
 change_set_name="${control_plane_stack_name}-${revision:0:12}"
 plan_workflow_reference="${repository}/.github/workflows/aws-infrastructure.yml@refs/heads/${default_branch}"
 deploy_workflow_reference="${repository}/.github/workflows/aws-infrastructure-deploy.yml@refs/heads/${default_branch}"
+control_plane_plan_workflow_reference="${repository}/.github/workflows/aws-control-plane.yml@refs/heads/${default_branch}"
+control_plane_deploy_workflow_reference="${repository}/.github/workflows/aws-control-plane-deploy.yml@refs/heads/${default_branch}"
 
 describe_error=$(mktemp)
 create_error=$(mktemp)
@@ -142,6 +152,8 @@ if stack=$(local_aws cloudformation describe-stacks \
         $(stack_parameter GitHubOidcImmutableRepository) == "${oidc_immutable_repository}" &&
         $(stack_parameter GitHubOidcPlanWorkflowReference) == "${plan_workflow_reference}" &&
         $(stack_parameter GitHubOidcDeployWorkflowReference) == "${deploy_workflow_reference}" &&
+        $(stack_parameter GitHubOidcControlPlanePlanWorkflowReference) == "${control_plane_plan_workflow_reference}" &&
+        $(stack_parameter GitHubOidcControlPlaneDeployWorkflowReference) == "${control_plane_deploy_workflow_reference}" &&
         $(stack_parameter DeploymentPlanAuditLogBucketName) == "${deployment_plan_audit_bucket}" &&
         $(stack_parameter GitHubOidcProviderArn) == "${oidc_provider_arn}" &&
         $(stack_parameter InfrastructureAccessAnalyzerArn) == "${access_analyzer_arn}" &&
@@ -172,11 +184,16 @@ create_arguments=(
     "ParameterKey=GitHubOidcImmutableRepository,ParameterValue=${oidc_immutable_repository}"
     "ParameterKey=GitHubOidcPlanWorkflowReference,ParameterValue=${plan_workflow_reference}"
     "ParameterKey=GitHubOidcDeployWorkflowReference,ParameterValue=${deploy_workflow_reference}"
+    "ParameterKey=GitHubOidcControlPlanePlanWorkflowReference,ParameterValue=${control_plane_plan_workflow_reference}"
+    "ParameterKey=GitHubOidcControlPlaneDeployWorkflowReference,ParameterValue=${control_plane_deploy_workflow_reference}"
     "ParameterKey=DeploymentPlanAuditLogBucketName,ParameterValue=${deployment_plan_audit_bucket}"
     "ParameterKey=GitHubOidcProviderArn,ParameterValue=${oidc_provider_arn}"
     "ParameterKey=InfrastructureAccessAnalyzerArn,ParameterValue=${access_analyzer_arn}"
     "ParameterKey=RunnerStackName,ParameterValue=${runner_stack_name}"
 )
+if [[ -n ${execution_role_arn} ]]; then
+    create_arguments+=(--role-arn "${execution_role_arn}")
+fi
 if [[ ${change_set_type} == CREATE ]]; then
     create_arguments+=(--on-stack-failure DELETE)
 fi
@@ -225,6 +242,8 @@ if [[ ${created_change_set} == false ]] &&
     $(change_set_parameter GitHubOidcImmutableRepository) != "${oidc_immutable_repository}" ||
     $(change_set_parameter GitHubOidcPlanWorkflowReference) != "${plan_workflow_reference}" ||
     $(change_set_parameter GitHubOidcDeployWorkflowReference) != "${deploy_workflow_reference}" ||
+    $(change_set_parameter GitHubOidcControlPlanePlanWorkflowReference) != "${control_plane_plan_workflow_reference}" ||
+    $(change_set_parameter GitHubOidcControlPlaneDeployWorkflowReference) != "${control_plane_deploy_workflow_reference}" ||
     $(change_set_parameter DeploymentPlanAuditLogBucketName) != "${deployment_plan_audit_bucket}" ||
     $(change_set_parameter GitHubOidcProviderArn) != "${oidc_provider_arn}" ||
     $(change_set_parameter InfrastructureAccessAnalyzerArn) != "${access_analyzer_arn}" ||

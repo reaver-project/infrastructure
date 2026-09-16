@@ -1,0 +1,77 @@
+name: Plan AWS control plane
+
+on:
+    push:
+        branches:
+          - main
+        paths:
+          - .github/workflows/aws-control-plane.yml
+          - .github/workflows/aws-control-plane-deploy.yml
+          - aws/bootstrap/**
+          - aws/control-plane/**
+          - aws/local-deployment
+          - aws/organization/reaver-project.json
+          - github/repositories/infrastructure.json
+          - schemas/control-plane-plan.schema.json
+    workflow_dispatch:
+
+permissions:
+    contents: read
+
+concurrency:
+    group: aws-control-plane
+    cancel-in-progress: false
+
+jobs:
+    validate:
+        name: Validate before planning
+        uses: ./.github/workflows/validate.yml
+
+    plan:
+        name: Create an AWS control-plane change set
+        needs: validate
+        runs-on: ubuntu-latest
+        timeout-minutes: 15
+        permissions:
+            contents: read
+            id-token: write
+        env:
+            AWS_CONTROL_PLANE_STACK_NAME: ${{ vars.AWS_CONTROL_PLANE_STACK_NAME }}
+            AWS_CONTROL_PLANE_EXECUTION_ROLE_ARN: ${{ vars.AWS_CONTROL_PLANE_EXECUTION_ROLE_ARN }}
+            AWS_DEPLOYMENT_ARTIFACT_BUCKET: ${{ vars.AWS_DEPLOYMENT_ARTIFACT_BUCKET }}
+            AWS_DEPLOYMENT_PLAN_AUDIT_BUCKET: ${{ vars.AWS_DEPLOYMENT_PLAN_AUDIT_BUCKET }}
+            AWS_REGION: ${{ vars.AWS_REGION }}
+
+        steps:
+          - name: Harden the runner
+            uses: step-security/harden-runner@05e31511f85b41b11d1cf0ef85d0992719546e2c # v2.21.0
+            with:
+                egress-policy: audit
+
+          - name: Check out infrastructure
+            uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
+            with:
+                persist-credentials: false
+
+          - name: Authenticate to AWS for planning
+            uses: aws-actions/configure-aws-credentials@e6de054238d6b7531b4efff3b6587d9aade6a06c # v6.2.3
+            with:
+                aws-region: ${{ env.AWS_REGION }}
+                role-to-assume: ${{ vars.AWS_CONTROL_PLANE_PLAN_ROLE_ARN }}
+                role-session-name: control-plane-plan-${{ github.run_id }}
+
+          - name: Create the reviewed change set
+            id: plan
+            run: aws/control-plane/plan-github
+
+          - name: Explain how to apply the plan
+            if: steps.plan.outputs.has_changes == 'true'
+            env:
+                PLAN_KEY: ${{ steps.plan.outputs.plan_key }}
+            run: |
+                {
+                    printf '\n### Approval\n\n'
+                    printf 'After reviewing the private change set in AWS, manually run '
+                    printf '\x60Deploy AWS control plane\x60 with lookup key \x60%s\x60.\n' \
+                        "${PLAN_KEY}"
+                } >> "${GITHUB_STEP_SUMMARY}"

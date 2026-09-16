@@ -7,7 +7,8 @@ on:
         paths:
           - .github/workflows/aws-infrastructure.yml
           - .github/workflows/aws-infrastructure-deploy.yml
-          - aws/**
+          - aws/policy-validation-requirements.in
+          - aws/policy-validation-requirements.txt
           - projects/reaveros/aws/**
     workflow_dispatch:
 

@@ -5,6 +5,7 @@ set -euo pipefail
 self_dir=$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)
 repository_root=$(git -C "${self_dir}" rev-parse --show-toplevel)
 # shellcheck source=aws/local-deployment
+# shellcheck disable=SC1091
 source "${repository_root}/aws/local-deployment"
 
 local_profile=
@@ -73,6 +74,7 @@ if [[ -z ${budget_email} || ! ${runner_group_id} =~ ^[0-9]+$ ]]; then
     exit 2
 fi
 expected_account_id=$(organization_account_id "${organization_config}" reaver-project-ci)
+export expected_account_id local_profile
 local_require_clean_repository
 local_require_account
 
@@ -105,33 +107,41 @@ $(stack_output ControlPlaneTemplateSha256) != "${template_sha256}" ]]; then
     exit 1
 fi
 
-set_variable()
-{
-    gh variable set "$1" --repo "${repository}" --body "$2"
-}
+export AWS_BUDGET_NOTIFICATION_EMAIL=${budget_email}
+export AWS_CLOUDFORMATION_EXECUTION_ROLE_ARN
+AWS_CLOUDFORMATION_EXECUTION_ROLE_ARN=$(stack_output CloudFormationExecutionRoleArn)
+export AWS_CONTROL_PLANE_DEPLOY_ROLE_ARN
+AWS_CONTROL_PLANE_DEPLOY_ROLE_ARN=$(stack_output ControlPlaneDeployRoleArn)
+export AWS_CONTROL_PLANE_EXECUTION_ROLE_ARN
+AWS_CONTROL_PLANE_EXECUTION_ROLE_ARN=$(stack_output ControlPlaneCloudFormationExecutionRoleArn)
+export AWS_CONTROL_PLANE_PLAN_ROLE_ARN
+AWS_CONTROL_PLANE_PLAN_ROLE_ARN=$(stack_output ControlPlanePlanRoleArn)
+export AWS_CONTROL_PLANE_STACK_NAME
+AWS_CONTROL_PLANE_STACK_NAME=$(stack_output ControlPlaneStackName)
+export AWS_DEPLOYMENT_ARTIFACT_BUCKET
+AWS_DEPLOYMENT_ARTIFACT_BUCKET=$(stack_output DeploymentArtifactBucketName)
+export AWS_DEPLOYMENT_PLAN_AUDIT_BUCKET
+AWS_DEPLOYMENT_PLAN_AUDIT_BUCKET=$(stack_output DeploymentPlanAuditLogBucketName)
+export AWS_GITHUB_OIDC_PROVIDER_ARN
+AWS_GITHUB_OIDC_PROVIDER_ARN=$(stack_output GitHubOidcProviderArn)
+export AWS_GITHUB_OIDC_REPOSITORY_SUBJECT_PATTERN
+AWS_GITHUB_OIDC_REPOSITORY_SUBJECT_PATTERN=$(jq --exit-status --raw-output \
+    '.oidc_immutable_repository_pattern' "${reaveros_config}")
+export AWS_GITHUB_RUNNER_GROUP_ID=${runner_group_id}
+export AWS_INFRASTRUCTURE_DEPLOY_ROLE_ARN
+AWS_INFRASTRUCTURE_DEPLOY_ROLE_ARN=$(stack_output InfrastructureDeployRoleArn)
+export AWS_INFRASTRUCTURE_ACCESS_ANALYZER_ARN
+AWS_INFRASTRUCTURE_ACCESS_ANALYZER_ARN=$(stack_output InfrastructureAccessAnalyzerArn)
+export AWS_INFRASTRUCTURE_PLAN_ROLE_ARN
+AWS_INFRASTRUCTURE_PLAN_ROLE_ARN=$(stack_output InfrastructurePlanRoleArn)
+export AWS_REGION=${region}
+export AWS_RUNNER_ROLE_PERMISSIONS_BOUNDARY_ARN
+AWS_RUNNER_ROLE_PERMISSIONS_BOUNDARY_ARN=$(stack_output RunnerRolePermissionsBoundaryArn)
+export AWS_RUNNER_STACK_NAME
+AWS_RUNNER_STACK_NAME=$(stack_output RunnerStackName)
+export GITHUB_REPOSITORY=${repository}
 
-set_variable AWS_BUDGET_NOTIFICATION_EMAIL "${budget_email}"
-set_variable AWS_CLOUDFORMATION_EXECUTION_ROLE_ARN \
-    "$(stack_output CloudFormationExecutionRoleArn)"
-set_variable AWS_DEPLOYMENT_ARTIFACT_BUCKET \
-    "$(stack_output DeploymentArtifactBucketName)"
-set_variable AWS_DEPLOYMENT_PLAN_AUDIT_BUCKET \
-    "$(stack_output DeploymentPlanAuditLogBucketName)"
-set_variable AWS_GITHUB_OIDC_PROVIDER_ARN "$(stack_output GitHubOidcProviderArn)"
-set_variable AWS_GITHUB_OIDC_REPOSITORY_SUBJECT_PATTERN \
-    "$(jq --exit-status --raw-output '.oidc_immutable_repository_pattern' \
-        "${reaveros_config}")"
-set_variable AWS_GITHUB_RUNNER_GROUP_ID "${runner_group_id}"
-set_variable AWS_INFRASTRUCTURE_DEPLOY_ROLE_ARN \
-    "$(stack_output InfrastructureDeployRoleArn)"
-set_variable AWS_INFRASTRUCTURE_PLAN_ROLE_ARN \
-    "$(stack_output InfrastructurePlanRoleArn)"
-set_variable AWS_REGION "${region}"
-set_variable AWS_CONTROL_PLANE_STACK_NAME \
-    "$(stack_output ControlPlaneStackName)"
-set_variable AWS_RUNNER_ROLE_PERMISSIONS_BOUNDARY_ARN \
-    "$(stack_output RunnerRolePermissionsBoundaryArn)"
-set_variable AWS_RUNNER_STACK_NAME "$(stack_output RunnerStackName)"
+"${self_dir}/publish-github-values"
 
 printf 'Published AWS control plane outputs from %s to %s.\n' \
     "${control_plane_stack_name}" \

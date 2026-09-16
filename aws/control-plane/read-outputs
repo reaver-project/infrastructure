@@ -1,0 +1,61 @@
+#!/usr/bin/env bash
+
+set -euo pipefail
+
+required_environment=(
+    AWS_CONTROL_PLANE_STACK_NAME
+    AWS_REGION
+    GITHUB_OUTPUT
+    GITHUB_SHA
+)
+for variable in "${required_environment[@]}"; do
+    if [[ -z ${!variable:-} ]]; then
+        printf 'Required environment variable is empty: %s\n' "${variable}" >&2
+        exit 2
+    fi
+done
+
+self_dir=$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)
+stack=$(aws cloudformation describe-stacks \
+    --region "${AWS_REGION}" \
+    --stack-name "${AWS_CONTROL_PLANE_STACK_NAME}" \
+    --query 'Stacks[0]' \
+    --output json)
+
+stack_output()
+{
+    jq --exit-status --raw-output \
+        --arg key "$1" \
+        '[.Outputs[] | select(.OutputKey == $key) | .OutputValue]
+         | if length == 1 then .[0] else error("missing or duplicate stack output") end' \
+        <<< "${stack}"
+}
+
+template_sha256=$(sha256sum "${self_dir}/template.yaml" | cut -d ' ' -f 1)
+if [[ $(stack_output ControlPlaneRevision) != "${GITHUB_SHA}" ||
+$(stack_output ControlPlaneTemplateSha256) != "${template_sha256}" ]]; then
+    printf 'The deployed control plane does not match this source revision.\n' >&2
+    exit 1
+fi
+
+outputs=(
+    control_plane_execution_role_arn ControlPlaneCloudFormationExecutionRoleArn
+    control_plane_deploy_role_arn ControlPlaneDeployRoleArn
+    control_plane_plan_role_arn ControlPlanePlanRoleArn
+    control_plane_stack_name ControlPlaneStackName
+    cloudformation_execution_role_arn CloudFormationExecutionRoleArn
+    deployment_artifact_bucket DeploymentArtifactBucketName
+    deployment_plan_audit_bucket DeploymentPlanAuditLogBucketName
+    github_oidc_provider_arn GitHubOidcProviderArn
+    infrastructure_deploy_role_arn InfrastructureDeployRoleArn
+    infrastructure_access_analyzer_arn InfrastructureAccessAnalyzerArn
+    infrastructure_plan_role_arn InfrastructurePlanRoleArn
+    runner_role_permissions_boundary_arn RunnerRolePermissionsBoundaryArn
+    runner_stack_name RunnerStackName
+)
+for ((index = 0; index < ${#outputs[@]}; index += 2)); do
+    printf '%s=%s\n' \
+        "${outputs[index]}" \
+        "$(stack_output "${outputs[index + 1]}")" \
+        >> "${GITHUB_OUTPUT}"
+done

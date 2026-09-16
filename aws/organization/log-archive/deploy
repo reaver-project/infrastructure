@@ -5,6 +5,7 @@ set -euo pipefail
 self_dir=$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)
 repository_root=$(git -C "${self_dir}" rev-parse --show-toplevel)
 # shellcheck source=aws/local-deployment
+# shellcheck disable=SC1091
 source "${repository_root}/aws/local-deployment"
 
 mode=${1:-}
@@ -70,6 +71,7 @@ fi
 expected_account_id=$(organization_account_id \
     "${organization_config}" \
     reaver-project-log-archive)
+export expected_account_id local_profile
 ci_account_id=$(organization_account_id "${organization_config}" reaver-project-ci)
 local_require_clean_repository
 local_require_account

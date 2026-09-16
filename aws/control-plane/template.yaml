@@ -22,6 +22,12 @@ Parameters:
     GitHubOidcDeployWorkflowReference:
         Type: String
         Default: reaver-project/infrastructure/.github/workflows/aws-infrastructure-deploy.yml@refs/heads/main
+    GitHubOidcControlPlanePlanWorkflowReference:
+        Type: String
+        Default: reaver-project/infrastructure/.github/workflows/aws-control-plane.yml@refs/heads/main
+    GitHubOidcControlPlaneDeployWorkflowReference:
+        Type: String
+        Default: reaver-project/infrastructure/.github/workflows/aws-control-plane-deploy.yml@refs/heads/main
     GitHubOidcProviderArn:
         Type: String
         Default: ''
@@ -461,6 +467,212 @@ Resources:
               - Key: Project
                 Value: ReaverProjectInfrastructure
 
+    ControlPlaneCloudFormationExecutionRole:
+        Type: AWS::IAM::Role
+        Properties:
+            AssumeRolePolicyDocument:
+                Version: '2012-10-17'
+                Statement:
+                  - Effect: Allow
+                    Principal:
+                        Service: cloudformation.amazonaws.com
+                    Action: sts:AssumeRole
+            Policies:
+              - PolicyName: ManageControlPlane
+                PolicyDocument:
+                    Version: '2012-10-17'
+                    Statement:
+                      - Effect: Allow
+                        Action:
+                          - iam:CreateRole
+                          - iam:DeleteRole
+                          - iam:DeleteRolePolicy
+                          - iam:GetRole
+                          - iam:GetRolePolicy
+                          - iam:ListAttachedRolePolicies
+                          - iam:ListRolePolicies
+                          - iam:PutRolePolicy
+                          - iam:TagRole
+                          - iam:UntagRole
+                          - iam:UpdateAssumeRolePolicy
+                          - iam:UpdateRole
+                          - iam:UpdateRoleDescription
+                        Resource: !Sub arn:${AWS::Partition}:iam::${AWS::AccountId}:role/${AWS::StackName}-*
+                      - Effect: Allow
+                        Action:
+                          - iam:CreatePolicy
+                          - iam:CreatePolicyVersion
+                          - iam:DeletePolicy
+                          - iam:DeletePolicyVersion
+                          - iam:GetPolicy
+                          - iam:GetPolicyVersion
+                          - iam:ListPolicyVersions
+                          - iam:TagPolicy
+                          - iam:UntagPolicy
+                        Resource: !Sub arn:${AWS::Partition}:iam::${AWS::AccountId}:policy/${AWS::StackName}-*
+                      - Effect: Allow
+                        Action:
+                          - s3:DeleteBucketPolicy
+                          - s3:GetBucketLocation
+                          - s3:GetBucketOwnershipControls
+                          - s3:GetBucketPolicy
+                          - s3:GetBucketPublicAccessBlock
+                          - s3:GetBucketTagging
+                          - s3:GetBucketVersioning
+                          - s3:GetEncryptionConfiguration
+                          - s3:GetLifecycleConfiguration
+                          - s3:ListBucket
+                          - s3:PutBucketOwnershipControls
+                          - s3:PutBucketPolicy
+                          - s3:PutBucketPublicAccessBlock
+                          - s3:PutBucketTagging
+                          - s3:PutBucketVersioning
+                          - s3:PutEncryptionConfiguration
+                          - s3:PutLifecycleConfiguration
+                        Resource: !GetAtt DeploymentArtifactBucket.Arn
+                      - Effect: Allow
+                        Action:
+                          - cloudtrail:AddTags
+                          - cloudtrail:GetEventSelectors
+                          - cloudtrail:GetTrail
+                          - cloudtrail:GetTrailStatus
+                          - cloudtrail:ListTags
+                          - cloudtrail:PutEventSelectors
+                          - cloudtrail:RemoveTags
+                          - cloudtrail:StartLogging
+                          - cloudtrail:StopLogging
+                          - cloudtrail:UpdateTrail
+                        Resource: !GetAtt DeploymentPlanAuditTrail.Arn
+                      - Effect: Allow
+                        Action:
+                          - iam:AddClientIDToOpenIDConnectProvider
+                          - iam:GetOpenIDConnectProvider
+                          - iam:RemoveClientIDFromOpenIDConnectProvider
+                          - iam:TagOpenIDConnectProvider
+                          - iam:UntagOpenIDConnectProvider
+                          - iam:UpdateOpenIDConnectProviderThumbprint
+                        Resource: !If
+                          - CreateGitHubOidcProvider
+                          - !Ref GitHubOidcProvider
+                          - !Ref GitHubOidcProviderArn
+                      - Effect: Allow
+                        Action:
+                          - access-analyzer:GetAnalyzer
+                          - access-analyzer:ListTagsForResource
+                          - access-analyzer:TagResource
+                          - access-analyzer:UntagResource
+                        Resource: !If
+                          - CreateInfrastructureAccessAnalyzer
+                          - !GetAtt InfrastructureAccessAnalyzer.Arn
+                          - !Ref InfrastructureAccessAnalyzerArn
+            Tags:
+              - Key: Project
+                Value: ReaverProjectInfrastructure
+
+    ControlPlanePlanRole:
+        Type: AWS::IAM::Role
+        Properties:
+            AssumeRolePolicyDocument:
+                Version: '2012-10-17'
+                Statement:
+                  - Effect: Allow
+                    Principal:
+                        Federated: !If
+                          - CreateGitHubOidcProvider
+                          - !Ref GitHubOidcProvider
+                          - !Ref GitHubOidcProviderArn
+                    Action: sts:AssumeRoleWithWebIdentity
+                    Condition:
+                        StringEquals:
+                            token.actions.githubusercontent.com:aud: sts.amazonaws.com
+                            token.actions.githubusercontent.com:sub: !Sub repo:${GitHubOidcImmutableRepository}:workflow_ref:${GitHubOidcControlPlanePlanWorkflowReference}:ref:refs/heads/${GitHubDefaultBranch}
+            Policies:
+              - PolicyName: PlanControlPlane
+                PolicyDocument:
+                    Version: '2012-10-17'
+                    Statement:
+                      - Effect: Allow
+                        Action: cloudformation:CreateChangeSet
+                        Resource: !Sub arn:${AWS::Partition}:cloudformation:${AWS::Region}:${AWS::AccountId}:stack/${AWS::StackName}/*
+                        Condition:
+                            StringEquals:
+                                cloudformation:RoleARN: !GetAtt ControlPlaneCloudFormationExecutionRole.Arn
+                            StringLike:
+                                cloudformation:ChangeSetName: !Sub ${AWS::StackName}-*
+                      - Effect: Allow
+                        Action:
+                          - cloudformation:DescribeChangeSet
+                          - cloudformation:DescribeStacks
+                          - cloudformation:GetTemplate
+                          - cloudformation:ListChangeSets
+                        Resource: !Sub arn:${AWS::Partition}:cloudformation:${AWS::Region}:${AWS::AccountId}:stack/${AWS::StackName}/*
+                      - Effect: Allow
+                        Action: cloudformation:DeleteChangeSet
+                        Resource: !Sub arn:${AWS::Partition}:cloudformation:${AWS::Region}:${AWS::AccountId}:stack/${AWS::StackName}/*
+                        Condition:
+                            StringLike:
+                                cloudformation:ChangeSetName:
+                                  - !Sub ${AWS::StackName}-*
+                                  - !Sub arn:${AWS::Partition}:cloudformation:${AWS::Region}:${AWS::AccountId}:changeSet/${AWS::StackName}-*/*
+                      - Effect: Allow
+                        Action:
+                          - cloudformation:GetTemplateSummary
+                          - cloudformation:ValidateTemplate
+                        Resource: '*'
+                      - Effect: Allow
+                        Action:
+                          - s3:GetBucketLocation
+                          - s3:ListBucket
+                        Resource: !GetAtt DeploymentArtifactBucket.Arn
+                      - Effect: Allow
+                        Action: s3:PutObject
+                        Resource: !Sub ${DeploymentArtifactBucket.Arn}/plans/control-plane/*
+                      - Effect: Allow
+                        Action: iam:PassRole
+                        Resource: !GetAtt ControlPlaneCloudFormationExecutionRole.Arn
+                        Condition:
+                            StringEquals:
+                                iam:PassedToService: cloudformation.amazonaws.com
+            Tags:
+              - Key: Project
+                Value: ReaverProjectInfrastructure
+
+    ControlPlaneDeployRole:
+        Type: AWS::IAM::Role
+        Properties:
+            AssumeRolePolicyDocument:
+                Version: '2012-10-17'
+                Statement:
+                  - Effect: Allow
+                    Principal:
+                        Federated: !If
+                          - CreateGitHubOidcProvider
+                          - !Ref GitHubOidcProvider
+                          - !Ref GitHubOidcProviderArn
+                    Action: sts:AssumeRoleWithWebIdentity
+                    Condition:
+                        StringEquals:
+                            token.actions.githubusercontent.com:aud: sts.amazonaws.com
+                            token.actions.githubusercontent.com:sub: !Sub repo:${GitHubOidcImmutableRepository}:workflow_ref:${GitHubOidcControlPlaneDeployWorkflowReference}:environment:aws-production
+            Policies:
+              - PolicyName: DeployControlPlane
+                PolicyDocument:
+                    Version: '2012-10-17'
+                    Statement:
+                      - Effect: Allow
+                        Action: s3:GetObject
+                        Resource: !Sub ${DeploymentArtifactBucket.Arn}/plans/control-plane/*
+                      - Effect: Allow
+                        Action:
+                          - cloudformation:DescribeChangeSet
+                          - cloudformation:DescribeStacks
+                          - cloudformation:ExecuteChangeSet
+                          - cloudformation:UpdateTerminationProtection
+                        Resource: !Sub arn:${AWS::Partition}:cloudformation:${AWS::Region}:${AWS::AccountId}:stack/${AWS::StackName}/*
+            Tags:
+              - Key: Project
+                Value: ReaverProjectInfrastructure
+
     InfrastructurePlanRole:
         Type: AWS::IAM::Role
         Properties:
@@ -605,6 +817,12 @@ Outputs:
         Value: !Ref ControlPlaneRevision
     ControlPlaneTemplateSha256:
         Value: !Ref ControlPlaneTemplateSha256
+    ControlPlaneCloudFormationExecutionRoleArn:
+        Value: !GetAtt ControlPlaneCloudFormationExecutionRole.Arn
+    ControlPlaneDeployRoleArn:
+        Value: !GetAtt ControlPlaneDeployRole.Arn
+    ControlPlanePlanRoleArn:
+        Value: !GetAtt ControlPlanePlanRole.Arn
     GitHubOidcImmutableRepository:
         Value: !Ref GitHubOidcImmutableRepository
     CloudFormationExecutionRoleArn:

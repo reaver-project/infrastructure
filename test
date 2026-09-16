@@ -20,7 +20,9 @@ shell_scripts=(
     aws/control-plane/plan-github
     aws/control-plane/plan-key
     aws/control-plane/publish-github
+    aws/control-plane/publish-github-values
     aws/control-plane/read-plan
+    aws/control-plane/read-outputs
     aws/control-plane/test
     aws/cfn-guard
     aws/organization/log-archive/deploy
