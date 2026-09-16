@@ -123,10 +123,7 @@
                 "can_approve_pull_request_reviews",
                 "default_workflow_permissions",
                 "enabled",
-                "github_owned_allowed",
-                "patterns_allowed",
-                "sha_pinning_required",
-                "verified_allowed"
+                "sha_pinning_required"
             ],
             "properties": {
                 "allowed_actions": {
@@ -148,21 +145,7 @@
                 "enabled": {
                     "type": "boolean"
                 },
-                "github_owned_allowed": {
-                    "type": "boolean"
-                },
-                "patterns_allowed": {
-                    "type": "array",
-                    "uniqueItems": true,
-                    "items": {
-                        "type": "string",
-                        "minLength": 1
-                    }
-                },
                 "sha_pinning_required": {
-                    "type": "boolean"
-                },
-                "verified_allowed": {
                     "type": "boolean"
                 }
             }
