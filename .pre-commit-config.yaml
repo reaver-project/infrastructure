@@ -1,6 +1,20 @@
 minimum_pre_commit_version: 4.6.1
 default_install_hook_types: [pre-commit]
 
+ci:
+  skip:
+    - cfn-lint-rc
+    - coderabbit-schema
+    - renovate-schema
+    - lambda-dependency-audit
+    - policy-validation-dependency-audit
+    - aws-sdk-dependency-audit
+    - lambda-dependency-lock
+    - policy-validation-dependency-lock
+    - aws-sdk-lock
+    - cloudformation-guard
+    - infrastructure-tests
+
 repos:
   - repo: https://github.com/pre-commit/pre-commit-hooks
     rev: 3e8a8703264a2f4a69428a0aa4dcb512790b2c8c  # v6.0.0
@@ -104,12 +118,14 @@ repos:
         files: ^(schemas/.*\.schema\.json|aws/organization/.*\.json|github/apps/[^/]+/manifest\.json|github/organizations/.*\.json|github/repositories/.*\.json|projects/reaveros/aws/testdata/private-plan.*\.json)$
         pass_filenames: false
       - id: check-jsonschema
+        alias: coderabbit-schema
         name: Validate CodeRabbit configuration
         files: ^\.coderabbit\.yaml$
         args:
           - --schemafile
           - https://coderabbit.ai/integrations/schema.v2.json
       - id: check-jsonschema
+        alias: renovate-schema
         name: Validate Renovate configuration
         files: ^renovate\.json$
         args:
