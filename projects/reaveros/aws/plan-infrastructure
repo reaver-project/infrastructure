@@ -93,7 +93,7 @@ parameters=(
 if [[ ${change_set_type} == UPDATE ]]; then
     while read -r parameter; do
         case ${parameter} in
-            BudgetNotificationEmail | GitHubOidcProviderArn | GitHubRunnerGroupId | RunnerRolePermissionsBoundaryArn)
+            BudgetNotificationEmail | GitHubOidcProviderArn | GitHubOidcImmutableRepositoryPattern | GitHubRunnerGroupId | RunnerRolePermissionsBoundaryArn)
                 ;;
             *)
                 parameters+=("ParameterKey=${parameter},UsePreviousValue=true")

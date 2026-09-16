@@ -88,6 +88,7 @@ mock_aws()
                         Stacks: [{StackStatus: $stack_status, Parameters: [
                             {ParameterKey: "BudgetNotificationEmail"},
                             {ParameterKey: "GitHubOidcProviderArn"},
+                            {ParameterKey: "GitHubOidcImmutableRepositoryPattern"},
                             {ParameterKey: "GitHubRunnerGroupId"},
                             {ParameterKey: "RunnerRolePermissionsBoundaryArn"},
                             {ParameterKey: "GitHubOidcCallerWorkflowReferencePattern"},
@@ -375,6 +376,12 @@ assert_log_contains $'\t--s3-bucket\treaver-project-deployment-artifacts'
 assert_log_contains $'\tParameterKey=BudgetNotificationEmail,ParameterValue=ci-billing@example.com'
 assert_log_contains $'\tParameterKey=GitHubRunnerGroupId,ParameterValue=7'
 assert_log_contains $'\tParameterKey=GitHubOidcImmutableRepositoryPattern,ParameterValue=reaver-project@1804403/reaveros@*'
+if grep --fixed-strings --quiet \
+    $'\tParameterKey=GitHubOidcImmutableRepositoryPattern,UsePreviousValue=true' \
+    "${AWS_TEST_LOG}"; then
+    printf 'The immutable repository pattern was supplied twice.\n' >&2
+    exit 1
+fi
 assert_log_contains $'\tParameterKey=RunnerMediumInstanceType,UsePreviousValue=true'
 assert_log_contains $'\t--role-arn\tarn:aws:iam::123456789012:role/reaveros-cloudformation'
 assert_log_contains $'\t--description\tGitHub infrastructure revision 0123456789abcdef0123456789abcdef01234567; run 101; attempt 1'
