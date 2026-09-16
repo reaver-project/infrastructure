@@ -310,7 +310,18 @@ export GITHUB_REPOSITORY=reaver-project/infrastructure
 export GITHUB_SHA=0123456789abcdef0123456789abcdef01234567
 contract_version=$(< "${self_dir}/../infrastructure-contract-version")
 template=${test_directory}/template.yaml
-printf 'Resources: {}\n' > "${template}"
+cat > "${template}" << 'EOF'
+Parameters:
+    GitHubOidcCallerWorkflowReferencePattern:
+        Default: reaver-project/reaveros/.github/workflows/ci.yml@refs/heads/main
+    GitHubOidcWorkflowReference:
+        Default: reaver-project/reaveros/.github/workflows/aws-*.yml@refs/heads/main
+    GitHubOidcPullRequestCallerWorkflowReferencePattern:
+        Default: reaver-project/reaveros/.github/workflows/ci.yml@refs/heads/pull-request/*
+    GitHubOidcPullRequestWorkflowReference:
+        Default: reaver-project/reaveros/.github/workflows/aws-*.yml@refs/heads/pull-request/*
+Resources: {}
+EOF
 export AWS_TEST_PRIVATE_PLAN=${test_directory}/private-plan.json
 jq --null-input --argjson contract_version "${contract_version}" '{
     schema_version: 1,
@@ -376,6 +387,10 @@ assert_log_contains $'\t--s3-bucket\treaver-project-deployment-artifacts'
 assert_log_contains $'\tParameterKey=BudgetNotificationEmail,ParameterValue=ci-billing@example.com'
 assert_log_contains $'\tParameterKey=GitHubRunnerGroupId,ParameterValue=7'
 assert_log_contains $'\tParameterKey=GitHubOidcImmutableRepositoryPattern,ParameterValue=reaver-project@1804403/reaveros@*'
+assert_log_contains $'\tParameterKey=GitHubOidcCallerWorkflowReferencePattern,ParameterValue=reaver-project/reaveros/.github/workflows/ci.yml@refs/heads/main'
+assert_log_contains $'\tParameterKey=GitHubOidcWorkflowReference,ParameterValue=reaver-project/reaveros/.github/workflows/aws-*.yml@refs/heads/main'
+assert_log_contains $'\tParameterKey=GitHubOidcPullRequestCallerWorkflowReferencePattern,ParameterValue=reaver-project/reaveros/.github/workflows/ci.yml@refs/heads/pull-request/*'
+assert_log_contains $'\tParameterKey=GitHubOidcPullRequestWorkflowReference,ParameterValue=reaver-project/reaveros/.github/workflows/aws-*.yml@refs/heads/pull-request/*'
 if grep --fixed-strings --quiet \
     $'\tParameterKey=GitHubOidcImmutableRepositoryPattern,UsePreviousValue=true' \
     "${AWS_TEST_LOG}"; then

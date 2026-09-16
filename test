@@ -31,6 +31,7 @@ shell_scripts=(
     github/apps/test-configure-ci-gate-app
     github/test-configure-organization
     github/test-configure-repository
+    projects/reaveros/aws/cloudformation-parameters
     projects/reaveros/aws/configure-runner-app
     projects/reaveros/aws/create-function-archive
     projects/reaveros/aws/deploy-infrastructure

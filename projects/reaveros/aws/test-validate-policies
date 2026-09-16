@@ -33,7 +33,18 @@ export AWS_GITHUB_RUNNER_GROUP_ID=7
 export AWS_REGION=us-west-2
 export AWS_RUNNER_ROLE_PERMISSIONS_BOUNDARY_ARN=arn:aws:iam::123456789012:policy/reaveros-boundary
 template=${test_directory}/template.yaml
-printf 'Resources: {}\n' > "${template}"
+cat > "${template}" << 'EOF'
+Parameters:
+    GitHubOidcCallerWorkflowReferencePattern:
+        Default: caller-main
+    GitHubOidcWorkflowReference:
+        Default: workflow-main
+    GitHubOidcPullRequestCallerWorkflowReferencePattern:
+        Default: caller-pull-request
+    GitHubOidcPullRequestWorkflowReference:
+        Default: workflow-pull-request
+Resources: {}
+EOF
 
 "${self_dir}/validate-policies" "${template}"
 
@@ -51,7 +62,11 @@ expected_log=${test_directory}/expected
         GitHubOidcProviderArn=arn:aws:iam::123456789012:oidc-provider/token.actions.githubusercontent.com \
         'GitHubOidcImmutableRepositoryPattern=reaver-project@1804403/reaveros@*' \
         GitHubRunnerGroupId=7 \
-        RunnerRolePermissionsBoundaryArn=arn:aws:iam::123456789012:policy/reaveros-boundary
+        RunnerRolePermissionsBoundaryArn=arn:aws:iam::123456789012:policy/reaveros-boundary \
+        GitHubOidcCallerWorkflowReferencePattern=caller-main \
+        GitHubOidcWorkflowReference=workflow-main \
+        GitHubOidcPullRequestCallerWorkflowReferencePattern=caller-pull-request \
+        GitHubOidcPullRequestWorkflowReference=workflow-pull-request
     printf '\n'
 } > "${expected_log}"
 if ! cmp --silent "${expected_log}" "${POLICY_VALIDATOR_TEST_LOG}"; then

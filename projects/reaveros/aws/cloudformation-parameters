@@ -1,0 +1,20 @@
+#!/usr/bin/env bash
+
+cloudformation_parameter_default()
+{
+    if [[ $# -ne 2 ]]; then
+        return 2
+    fi
+
+    awk -v parameter="$2" '
+        $0 == "    " parameter ":" { in_parameter = 1; next }
+        in_parameter && substr($0, 1, 4) == "    " && substr($0, 5, 1) != " " { exit 1 }
+        in_parameter && $1 == "Default:" {
+            sub(/^[[:space:]]*Default:[[:space:]]*/, "")
+            print
+            found = 1
+            exit
+        }
+        END { if (!found) exit 1 }
+    ' "$1"
+}
