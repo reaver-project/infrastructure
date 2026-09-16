@@ -88,25 +88,25 @@ not create a separate bootstrap stack or any bootstrap-only AWS resources.
     in `github/apps/README.md`. The runner group remains locked and empty until
     a consumer repository is migrated.
 15. Confirm the SNS subscription sent to the
-   budget email address so controller and reaper alarms can notify you.
+    budget email address so controller and reaper alarms can notify you.
 16. Rerun the organization cost-control plan. Once AWS Billing reports the
-   `Project` tag as inactive rather than unseen, apply the plan to activate it
-   for the tag-filtered ReaverOS budget.
+    `Project` tag as inactive rather than unseen, apply the plan to activate it
+    for the tag-filtered ReaverOS budget.
 17. Audit the handoff without consulting a ReaverOS repository:
 
-   ```console
-   aws/bootstrap/audit-completion \
-       --profile reaver-project-ci-admin \
-       --log-archive-profile reaver-project-log-archive-audit
-   ```
+    ```console
+    aws/bootstrap/audit-completion \
+        --profile reaver-project-ci-admin \
+        --log-archive-profile reaver-project-log-archive-audit
+    ```
 
-   The audit requires permanent CloudFormation ownership, protected and current
-   stacks, configured App secrets, matching GitHub variables and immutable OIDC
-   claims, and successful permanent plan/deploy/configuration workflows at the
-   deployed revision.
+    The audit requires permanent CloudFormation ownership, protected and current
+    stacks, configured App secrets, matching GitHub variables and immutable OIDC
+    claims, and successful permanent plan/deploy/configuration workflows at the
+    deployed revision.
 18. Remove temporary change sets, ephemeral SSO sessions, and encrypted App
-   bundles from their memory-backed directory. Routine administrator-profile
-   use ends here.
+    bundles from their memory-backed directory. Routine administrator-profile
+    use ends here.
 
 After this point bootstrap is complete. Creating or migrating
 `reaver-project/reaveros`, granting App installations access to it, applying
