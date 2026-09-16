@@ -113,6 +113,15 @@ control_plane_plan_workflow = (root / ".github" / "workflows" / "aws-control-pla
 )
 if "change_set_arn" in control_plane_plan_workflow:
     sys.exit("The public control-plane workflow exposes private change-set metadata.")
+for policy_validation_path in (
+    "- aws/control-plane/**",
+    "- aws/policy-validation-requirements.txt",
+):
+    if policy_validation_path not in control_plane_plan_workflow:
+        sys.exit(
+            "The control-plane workflow is not triggered by policy validation input: "
+            f"{policy_validation_path}"
+        )
 
 control_plane_deploy_workflow = (
     root / ".github" / "workflows" / "aws-control-plane-deploy.yml"

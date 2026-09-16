@@ -74,7 +74,7 @@ if [[ $(basename -- "$0") == aws || $(basename -- "$0") == gh ]]; then
                     {ParameterKey: "InfrastructureAccessAnalyzerArn", ParameterValue: ""},
                     {ParameterKey: "RunnerStackName", ParameterValue: "reaveros-github-runners"}
                 ] end),
-                Outputs: (if $ENV.CONTROL_PLANE_TEST_STACK_STATUS == "REVIEW_IN_PROGRESS" then null else [
+                Outputs: (if $ENV.CONTROL_PLANE_TEST_STACK_STATUS == "REVIEW_IN_PROGRESS" then null else ([
                     {OutputKey: "CloudFormationExecutionRoleArn", OutputValue: "arn:execution"},
                     {OutputKey: "ControlPlaneCloudFormationExecutionRoleArn", OutputValue: "arn:control-execution"},
                     {OutputKey: "ControlPlaneDeployRoleArn", OutputValue: "arn:control-deploy"},
@@ -90,7 +90,10 @@ if [[ $(basename -- "$0") == aws || $(basename -- "$0") == gh ]]; then
                     {OutputKey: "InfrastructurePlanRoleArn", OutputValue: "arn:plan"},
                     {OutputKey: "RunnerRolePermissionsBoundaryArn", OutputValue: "arn:boundary"},
                     {OutputKey: "RunnerStackName", OutputValue: "reaveros-github-runners"}
-                ] end)
+                ] | map(select(
+                    $ENV.CONTROL_PLANE_TEST_MISSING_OUTPUT != "1"
+                    or .OutputKey != "ControlPlanePlanRoleArn"
+                ))) end)
             }'
             ;;
         cloudformation:describe-change-set)
@@ -283,7 +286,7 @@ unset CONTROL_PLANE_TEST_STACK_EXISTS
 assert_log_contains 'ParameterKey=InfrastructureAccessAnalyzerArn,ParameterValue=arn:aws:access-analyzer:us-west-2:123456789012:analyzer/existing'
 
 "${self_dir}/apply" "${common_account_arguments[@]}" > /dev/null
-assert_log_contains $'aws\t--profile\treaver-project-ci-admin\tcloudformation\texecute-change-set'
+assert_log_contains $'aws\t--profile\treaver-project-ci-admin\tcloudformation\texecute-change-set\t--region\tus-west-2\t--change-set-name\tarn:aws:cloudformation:us-west-2:560512681071:changeSet/reaver-project-ci-deployment-trust-aaaaaaaaaaaa/01234567-89ab-cdef-0123-456789abcdef'
 assert_log_contains $'aws\t--profile\treaver-project-ci-admin\tcloudformation\tupdate-termination-protection'
 if "${self_dir}/apply" \
     "${common_account_arguments[@]}" \
@@ -318,13 +321,32 @@ export GITHUB_SHA=${CONTROL_PLANE_TEST_REVISION}
 export CONTROL_PLANE_TEST_STACK_EXISTS=1
 : > "${GITHUB_OUTPUT}"
 "${self_dir}/read-outputs"
-unset CONTROL_PLANE_TEST_STACK_EXISTS
 grep --fixed-strings --line-regexp \
     'control_plane_plan_role_arn=arn:control-plan' \
     "${GITHUB_OUTPUT}" > /dev/null
 grep --fixed-strings --line-regexp \
     'deployment_plan_audit_bucket=central-audit-logs' \
     "${GITHUB_OUTPUT}" > /dev/null
+export CONTROL_PLANE_TEST_MISSING_OUTPUT=1
+: > "${GITHUB_OUTPUT}"
+if "${self_dir}/read-outputs" > /dev/null 2>&1; then
+    printf 'Control-plane output publication accepted a missing stack output.\n' >&2
+    exit 1
+fi
+if grep --fixed-strings --quiet 'control_plane_plan_role_arn=' "${GITHUB_OUTPUT}"; then
+    printf 'Control-plane output publication wrote an empty stack output.\n' >&2
+    exit 1
+fi
+unset CONTROL_PLANE_TEST_MISSING_OUTPUT CONTROL_PLANE_TEST_STACK_EXISTS
+
+audit_status=0
+"${self_dir}/../bootstrap/audit-completion" \
+    --log-archive-profile reaver-project-log-archive-audit \
+    > /dev/null 2>&1 || audit_status=$?
+if [[ ${audit_status} -ne 2 ]]; then
+    printf 'Bootstrap completion audit accepted a missing CI profile.\n' >&2
+    exit 1
+fi
 
 export CONTROL_PLANE_TEST_ACCOUNT_ID=999999999999
 if "${self_dir}/plan" \

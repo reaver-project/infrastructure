@@ -64,7 +64,7 @@ while [[ $# -gt 0 ]]; do
     esac
 done
 
-if [[ -z ${log_archive_profile} ]]; then
+if [[ -z ${local_profile} || -z ${log_archive_profile} ]]; then
     usage >&2
     exit 2
 fi

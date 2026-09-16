@@ -103,8 +103,7 @@ fi
 
 local_aws cloudformation execute-change-set \
     --region "${region}" \
-    --stack-name "${control_plane_stack_name}" \
-    --change-set-name "${change_set_name}" \
+    --change-set-name "${change_set_arn}" \
     --client-request-token "local-${revision}" \
     > /dev/null
 

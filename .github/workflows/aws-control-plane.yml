@@ -11,6 +11,7 @@ on:
           - aws/control-plane/**
           - aws/local-deployment
           - aws/organization/reaver-project.json
+          - aws/policy-validation-requirements.txt
           - github/repositories/infrastructure.json
           - schemas/control-plane-plan.schema.json
     workflow_dispatch:

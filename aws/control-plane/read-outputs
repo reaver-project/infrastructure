@@ -54,8 +54,6 @@ outputs=(
     runner_stack_name RunnerStackName
 )
 for ((index = 0; index < ${#outputs[@]}; index += 2)); do
-    printf '%s=%s\n' \
-        "${outputs[index]}" \
-        "$(stack_output "${outputs[index + 1]}")" \
-        >> "${GITHUB_OUTPUT}"
+    value=$(stack_output "${outputs[index + 1]}")
+    printf '%s=%s\n' "${outputs[index]}" "${value}" >> "${GITHUB_OUTPUT}"
 done
