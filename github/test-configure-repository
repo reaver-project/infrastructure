@@ -83,6 +83,7 @@ assert_log_contains '"patterns_allowed":["aws-actions/configure-aws-credentials@
 assert_log_contains $'BODY\t{"use_default":false,"use_immutable_subject":false,"include_claim_keys":["workflow_ref","context"]}'
 assert_log_contains '"patterns_allowed":["aws-actions/configure-aws-credentials@*","reaver-project/infrastructure/actions/*@*"]'
 assert_log_contains $'BODY\t{"use_default":false,"use_immutable_subject":false,"include_claim_keys":["workflow_ref","context","job_workflow_ref"]}'
+assert_log_contains 'X-GitHub-Api-Version: 2026-03-10'
 
 if grep --fixed-strings --quiet \
     'repos/reaver-project/infrastructure/actions/permissions/access' \
@@ -107,9 +108,17 @@ first_infrastructure_ruleset=$(grep --line-number --fixed-strings \
 first_publication=$(grep --line-number --fixed-strings \
     $'BODY\t{"visibility":"public"}' \
     "${GH_TEST_LOG}" | head -n 1 | cut -d: -f1)
+first_fork_approval=$(grep --line-number --fixed-strings \
+    'repos/reaver-project/infrastructure/actions/permissions/fork-pr-contributor-approval' \
+    "${GH_TEST_LOG}" | head -n 1 | cut -d: -f1)
+first_environment=$(grep --line-number --fixed-strings \
+    'repos/reaver-project/infrastructure/environments/aws-production' \
+    "${GH_TEST_LOG}" | head -n 1 | cut -d: -f1)
 if ((first_infrastructure_profile >= first_infrastructure_ruleset || \
-    first_infrastructure_ruleset >= first_publication)); then
-    printf 'Repository publication must follow protection configuration.\n' >&2
+    first_infrastructure_ruleset >= first_publication || \
+    first_publication >= first_fork_approval || \
+    first_publication >= first_environment)); then
+    printf 'Repository publication is not ordered between private and public policy.\n' >&2
     exit 1
 fi
 
