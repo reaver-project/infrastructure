@@ -72,7 +72,7 @@ fi
 
 jq --compact-output '{
     use_default: false,
-    use_immutable_subject: false,
+    use_immutable_subject: .oidc_use_immutable_subject,
     include_claim_keys: .oidc_subject_claims
 }' "${configuration}" |
     github_api --method PUT \

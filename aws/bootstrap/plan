@@ -17,6 +17,7 @@ oidc_provider_arn=
 region=us-west-2
 repository=reaver-project/infrastructure
 organization_config="${repository_root}/aws/organization/reaver-project.json"
+github_config="${repository_root}/github/repositories/infrastructure.json"
 runner_stack_name=reaveros-github-runners
 
 usage()
@@ -89,6 +90,8 @@ if [[ -z ${deployment_plan_audit_bucket} ]]; then
     exit 2
 fi
 expected_account_id=$(bootstrap_account_id "${organization_config}" reaver-project-ci)
+oidc_immutable_repository=$(jq --exit-status --raw-output \
+    '.oidc_immutable_repository' "${github_config}")
 bootstrap_require_clean_repository
 bootstrap_require_account
 
@@ -136,6 +139,7 @@ if stack=$(bootstrap_aws cloudformation describe-stacks \
         ${deployed_revision} == "${revision}" &&
         ${deployed_template_sha256} == "${template_sha256}" &&
         $(stack_parameter GitHubDefaultBranch) == "${default_branch}" &&
+        $(stack_parameter GitHubOidcImmutableRepository) == "${oidc_immutable_repository}" &&
         $(stack_parameter GitHubOidcPlanWorkflowReference) == "${plan_workflow_reference}" &&
         $(stack_parameter GitHubOidcDeployWorkflowReference) == "${deploy_workflow_reference}" &&
         $(stack_parameter DeploymentPlanAuditLogBucketName) == "${deployment_plan_audit_bucket}" &&
@@ -165,6 +169,7 @@ create_arguments=(
     "ParameterKey=BootstrapRevision,ParameterValue=${revision}"
     "ParameterKey=BootstrapTemplateSha256,ParameterValue=${template_sha256}"
     "ParameterKey=GitHubDefaultBranch,ParameterValue=${default_branch}"
+    "ParameterKey=GitHubOidcImmutableRepository,ParameterValue=${oidc_immutable_repository}"
     "ParameterKey=GitHubOidcPlanWorkflowReference,ParameterValue=${plan_workflow_reference}"
     "ParameterKey=GitHubOidcDeployWorkflowReference,ParameterValue=${deploy_workflow_reference}"
     "ParameterKey=DeploymentPlanAuditLogBucketName,ParameterValue=${deployment_plan_audit_bucket}"
@@ -217,6 +222,7 @@ if [[ ${created_change_set} == false ]] &&
     [[ $(change_set_parameter BootstrapRevision) != "${revision}" ||
     $(change_set_parameter BootstrapTemplateSha256) != "${template_sha256}" ||
     $(change_set_parameter GitHubDefaultBranch) != "${default_branch}" ||
+    $(change_set_parameter GitHubOidcImmutableRepository) != "${oidc_immutable_repository}" ||
     $(change_set_parameter GitHubOidcPlanWorkflowReference) != "${plan_workflow_reference}" ||
     $(change_set_parameter GitHubOidcDeployWorkflowReference) != "${deploy_workflow_reference}" ||
     $(change_set_parameter DeploymentPlanAuditLogBucketName) != "${deployment_plan_audit_bucket}" ||

@@ -12,6 +12,10 @@ Parameters:
         Type: String
         Default: main
         AllowedPattern: '[A-Za-z0-9._/-]+'
+    GitHubOidcImmutableRepository:
+        Type: String
+        Default: reaver-project@1804403/infrastructure@1341253705
+        AllowedPattern: '[A-Za-z0-9_.-]+@[1-9][0-9]*/[A-Za-z0-9_.-]+@[1-9][0-9]*'
     GitHubOidcPlanWorkflowReference:
         Type: String
         Default: reaver-project/infrastructure/.github/workflows/aws-infrastructure.yml@refs/heads/main
@@ -473,7 +477,7 @@ Resources:
                     Condition:
                         StringEquals:
                             token.actions.githubusercontent.com:aud: sts.amazonaws.com
-                            token.actions.githubusercontent.com:sub: !Sub workflow_ref:${GitHubOidcPlanWorkflowReference}:ref:refs/heads/${GitHubDefaultBranch}
+                            token.actions.githubusercontent.com:sub: !Sub repo:${GitHubOidcImmutableRepository}:workflow_ref:${GitHubOidcPlanWorkflowReference}:ref:refs/heads/${GitHubDefaultBranch}
             Policies:
               - PolicyName: PlanRunnerInfrastructure
                 PolicyDocument:
@@ -573,7 +577,7 @@ Resources:
                     Condition:
                         StringEquals:
                             token.actions.githubusercontent.com:aud: sts.amazonaws.com
-                            token.actions.githubusercontent.com:sub: !Sub workflow_ref:${GitHubOidcDeployWorkflowReference}:environment:aws-production
+                            token.actions.githubusercontent.com:sub: !Sub repo:${GitHubOidcImmutableRepository}:workflow_ref:${GitHubOidcDeployWorkflowReference}:environment:aws-production
             Policies:
               - PolicyName: DeployRunnerInfrastructure
                 PolicyDocument:
@@ -606,6 +610,8 @@ Outputs:
         Value: !Ref BootstrapRevision
     BootstrapTemplateSha256:
         Value: !Ref BootstrapTemplateSha256
+    GitHubOidcImmutableRepository:
+        Value: !Ref GitHubOidcImmutableRepository
     CloudFormationExecutionRoleArn:
         Value: !GetAtt CloudFormationExecutionRole.Arn
     DeploymentArtifactBucketName:

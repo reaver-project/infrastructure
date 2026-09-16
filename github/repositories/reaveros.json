@@ -24,6 +24,8 @@
         "verified_allowed": false
     },
     "fork_pull_request_approval": "all_external_contributors",
+    "oidc_use_immutable_subject": true,
+    "oidc_immutable_repository_pattern": "reaver-project@1804403/reaveros@*",
     "oidc_subject_claims": [
         "workflow_ref",
         "context",

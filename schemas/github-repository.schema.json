@@ -9,6 +9,7 @@
         "default_branch",
         "profile",
         "fork_pull_request_approval",
+        "oidc_use_immutable_subject",
         "actions",
         "oidc_subject_claims",
         "rulesets",
@@ -102,6 +103,17 @@
                 "first_time_contributors",
                 "all_external_contributors"
             ]
+        },
+        "oidc_use_immutable_subject": {
+            "type": "boolean"
+        },
+        "oidc_immutable_repository": {
+            "type": "string",
+            "pattern": "^[A-Za-z0-9_.-]+@[1-9][0-9]*/[A-Za-z0-9_.-]+@[1-9][0-9]*$"
+        },
+        "oidc_immutable_repository_pattern": {
+            "type": "string",
+            "pattern": "^[A-Za-z0-9_.-]+@[1-9][0-9]*/[A-Za-z0-9_.-]+@([1-9][0-9]*|\\*)$"
         },
         "actions": {
             "type": "object",

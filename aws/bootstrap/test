@@ -47,6 +47,10 @@ if [[ $(basename -- "$0") == aws || $(basename -- "$0") == gh ]]; then
                 Parameters: (if $ENV.BOOTSTRAP_TEST_STACK_STATUS == "REVIEW_IN_PROGRESS" then null else [
                     {ParameterKey: "GitHubDefaultBranch", ParameterValue: "main"},
                     {
+                        ParameterKey: "GitHubOidcImmutableRepository",
+                        ParameterValue: "reaver-project@1804403/infrastructure@1341253705"
+                    },
+                    {
                         ParameterKey: "GitHubOidcPlanWorkflowReference",
                         ParameterValue: "reaver-project/infrastructure/.github/workflows/aws-infrastructure.yml@refs/heads/main"
                     },
@@ -91,6 +95,10 @@ if [[ $(basename -- "$0") == aws || $(basename -- "$0") == gh ]]; then
                         {ParameterKey: "BootstrapRevision", ParameterValue: $revision},
                         {ParameterKey: "BootstrapTemplateSha256", ParameterValue: $template_sha256},
                         {ParameterKey: "GitHubDefaultBranch", ParameterValue: "main"},
+                        {
+                            ParameterKey: "GitHubOidcImmutableRepository",
+                            ParameterValue: "reaver-project@1804403/infrastructure@1341253705"
+                        },
                         {
                             ParameterKey: "GitHubOidcPlanWorkflowReference",
                             ParameterValue: "reaver-project/infrastructure/.github/workflows/aws-infrastructure.yml@refs/heads/main"
@@ -166,6 +174,7 @@ assert_log_contains "template ${BOOTSTRAP_TEST_TEMPLATE_SHA256}"
 assert_log_contains "ParameterKey=BootstrapRevision,ParameterValue=${BOOTSTRAP_TEST_REVISION}"
 assert_log_contains "ParameterKey=BootstrapTemplateSha256,ParameterValue=${BOOTSTRAP_TEST_TEMPLATE_SHA256}"
 assert_log_contains 'ParameterKey=GitHubDefaultBranch,ParameterValue=main'
+assert_log_contains 'ParameterKey=GitHubOidcImmutableRepository,ParameterValue=reaver-project@1804403/infrastructure@1341253705'
 assert_log_contains 'ParameterKey=DeploymentPlanAuditLogBucketName,ParameterValue=central-audit-logs'
 
 export BOOTSTRAP_TEST_STACK_EXISTS=1
@@ -248,6 +257,7 @@ export BOOTSTRAP_TEST_STACK_EXISTS=1
 unset BOOTSTRAP_TEST_STACK_EXISTS
 assert_log_contains $'gh\tvariable\tset\tAWS_DEPLOYMENT_ARTIFACT_BUCKET\t--repo\treaver-project/infrastructure\t--body\tartifacts'
 assert_log_contains $'gh\tvariable\tset\tAWS_GITHUB_RUNNER_GROUP_ID\t--repo\treaver-project/infrastructure\t--body\t7'
+assert_log_contains $'gh\tvariable\tset\tAWS_GITHUB_OIDC_REPOSITORY_SUBJECT_PATTERN\t--repo\treaver-project/infrastructure\t--body\treaver-project@1804403/reaveros@*'
 assert_log_contains $'gh\tvariable\tset\tAWS_INFRASTRUCTURE_DEPLOY_ROLE_ARN\t--repo\treaver-project/infrastructure\t--body\tarn:deploy'
 
 export BOOTSTRAP_TEST_ACCOUNT_ID=999999999999
@@ -294,6 +304,15 @@ if grep --fixed-strings --quiet \
     printf 'Direct infrastructure workflows cannot require job_workflow_ref.\n' >&2
     exit 1
 fi
+
+for oidc_subject in \
+    'repo:${GitHubOidcImmutableRepository}:workflow_ref:${GitHubOidcPlanWorkflowReference}:ref:refs/heads/${GitHubDefaultBranch}' \
+    'repo:${GitHubOidcImmutableRepository}:workflow_ref:${GitHubOidcDeployWorkflowReference}:environment:aws-production'; do
+    if ! grep --fixed-strings --quiet "${oidc_subject}" "${self_dir}/template.yaml"; then
+        printf 'Immutable GitHub OIDC trust is missing: %s\n' "${oidc_subject}" >&2
+        exit 1
+    fi
+done
 
 if grep --fixed-strings --quiet \
     'access-analyzer:CreateAnalyzer' \

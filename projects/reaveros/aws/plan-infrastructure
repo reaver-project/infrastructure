@@ -17,6 +17,7 @@ required_environment=(
     AWS_CLOUDFORMATION_EXECUTION_ROLE_ARN
     AWS_DEPLOYMENT_ARTIFACT_BUCKET
     AWS_GITHUB_OIDC_PROVIDER_ARN
+    AWS_GITHUB_OIDC_REPOSITORY_SUBJECT_PATTERN
     AWS_GITHUB_RUNNER_GROUP_ID
     AWS_RUNNER_ROLE_PERMISSIONS_BOUNDARY_ARN
     AWS_RUNNER_STACK_NAME
@@ -84,6 +85,7 @@ fi
 parameters=(
     "ParameterKey=BudgetNotificationEmail,ParameterValue=${AWS_BUDGET_NOTIFICATION_EMAIL}"
     "ParameterKey=GitHubOidcProviderArn,ParameterValue=${AWS_GITHUB_OIDC_PROVIDER_ARN}"
+    "ParameterKey=GitHubOidcImmutableRepositoryPattern,ParameterValue=${AWS_GITHUB_OIDC_REPOSITORY_SUBJECT_PATTERN}"
     "ParameterKey=GitHubRunnerGroupId,ParameterValue=${AWS_GITHUB_RUNNER_GROUP_ID}"
     "ParameterKey=RunnerRolePermissionsBoundaryArn,ParameterValue=${AWS_RUNNER_ROLE_PERMISSIONS_BOUNDARY_ARN}"
 )

@@ -12,6 +12,7 @@ bootstrap_stack_name=reaver-project-ci-deployment-trust
 budget_email=
 expected_account_id=
 organization_config="${repository_root}/aws/organization/reaver-project.json"
+reaveros_config="${repository_root}/github/repositories/reaveros.json"
 region=us-west-2
 repository=reaver-project/infrastructure
 runner_group_id=
@@ -115,6 +116,9 @@ set_variable AWS_CLOUDFORMATION_EXECUTION_ROLE_ARN \
 set_variable AWS_DEPLOYMENT_ARTIFACT_BUCKET \
     "$(stack_output DeploymentArtifactBucketName)"
 set_variable AWS_GITHUB_OIDC_PROVIDER_ARN "$(stack_output GitHubOidcProviderArn)"
+set_variable AWS_GITHUB_OIDC_REPOSITORY_SUBJECT_PATTERN \
+    "$(jq --exit-status --raw-output '.oidc_immutable_repository_pattern' \
+        "${reaveros_config}")"
 set_variable AWS_GITHUB_RUNNER_GROUP_ID "${runner_group_id}"
 set_variable AWS_INFRASTRUCTURE_DEPLOY_ROLE_ARN \
     "$(stack_output InfrastructureDeployRoleArn)"

@@ -232,9 +232,10 @@ for ci_gate_invariant in \
 done
 
 for copied_branch_trust_invariant in \
+    'Default: reaver-project@1804403/reaveros@*' \
     'Default: reaver-project/reaveros/.github/workflows/ci.yml@refs/heads/pull-request/*' \
     'Default: reaver-project/reaveros/.github/workflows/aws-*.yml@refs/heads/pull-request/*' \
-    '- !Sub workflow_ref:${GitHubOidcPullRequestCallerWorkflowReferencePattern}:*:job_workflow_ref:${GitHubOidcPullRequestWorkflowReference}'; do
+    '- !Sub repo:${GitHubOidcImmutableRepositoryPattern}:workflow_ref:${GitHubOidcPullRequestCallerWorkflowReferencePattern}:*:job_workflow_ref:${GitHubOidcPullRequestWorkflowReference}'; do
     if ! grep --fixed-strings --quiet \
         -- "${copied_branch_trust_invariant}" \
         "${self_dir}/runner-stack.yaml"; then
@@ -297,6 +298,7 @@ export AWS_BUDGET_NOTIFICATION_EMAIL=ci-billing@example.com
 export AWS_CLOUDFORMATION_EXECUTION_ROLE_ARN=arn:aws:iam::123456789012:role/reaveros-cloudformation
 export AWS_DEPLOYMENT_ARTIFACT_BUCKET=reaver-project-deployment-artifacts
 export AWS_GITHUB_OIDC_PROVIDER_ARN=arn:aws:iam::123456789012:oidc-provider/token.actions.githubusercontent.com
+export AWS_GITHUB_OIDC_REPOSITORY_SUBJECT_PATTERN='reaver-project@1804403/reaveros@*'
 export AWS_GITHUB_RUNNER_GROUP_ID=7
 export AWS_REGION=us-west-2
 export AWS_RUNNER_ROLE_PERMISSIONS_BOUNDARY_ARN=arn:aws:iam::123456789012:policy/reaveros-boundary
@@ -372,6 +374,7 @@ assert_log_contains $'\tpackage\t--region\tus-west-2'
 assert_log_contains $'\t--s3-bucket\treaver-project-deployment-artifacts'
 assert_log_contains $'\tParameterKey=BudgetNotificationEmail,ParameterValue=ci-billing@example.com'
 assert_log_contains $'\tParameterKey=GitHubRunnerGroupId,ParameterValue=7'
+assert_log_contains $'\tParameterKey=GitHubOidcImmutableRepositoryPattern,ParameterValue=reaver-project@1804403/reaveros@*'
 assert_log_contains $'\tParameterKey=RunnerMediumInstanceType,UsePreviousValue=true'
 assert_log_contains $'\t--role-arn\tarn:aws:iam::123456789012:role/reaveros-cloudformation'
 assert_log_contains $'\t--description\tGitHub infrastructure revision 0123456789abcdef0123456789abcdef01234567; run 101; attempt 1'
