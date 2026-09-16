@@ -11,7 +11,7 @@ Parameters:
     CiAccountId:
         Type: String
         AllowedPattern: '[0-9]{12}'
-    CiBootstrapStackName:
+    CiControlPlaneStackName:
         Type: String
         Default: reaver-project-ci-deployment-trust
         AllowedPattern: '[a-zA-Z][-a-zA-Z0-9]*'
@@ -80,7 +80,7 @@ Resources:
                     Condition:
                         StringEquals:
                             aws:SourceAccount: !Ref CiAccountId
-                            aws:SourceArn: !Sub arn:${AWS::Partition}:cloudtrail:${AWS::Region}:${CiAccountId}:trail/${CiBootstrapStackName}-deployment-plan-audit
+                            aws:SourceArn: !Sub arn:${AWS::Partition}:cloudtrail:${AWS::Region}:${CiAccountId}:trail/${CiControlPlaneStackName}-deployment-plan-audit
                   - Sid: AWSCloudTrailWrite
                     Effect: Allow
                     Principal:
@@ -90,7 +90,7 @@ Resources:
                     Condition:
                         StringEquals:
                             aws:SourceAccount: !Ref CiAccountId
-                            aws:SourceArn: !Sub arn:${AWS::Partition}:cloudtrail:${AWS::Region}:${CiAccountId}:trail/${CiBootstrapStackName}-deployment-plan-audit
+                            aws:SourceArn: !Sub arn:${AWS::Partition}:cloudtrail:${AWS::Region}:${CiAccountId}:trail/${CiControlPlaneStackName}-deployment-plan-audit
                             s3:x-amz-acl: bucket-owner-full-control
 
 Outputs:

@@ -1,8 +1,9 @@
 # CI infrastructure bootstrap
 
-This runbook establishes the external GitHub and CI-account deployment roots of
-trust consumed by the repository. It is deliberately not automated by the
-workflows whose credentials it creates.
+This runbook establishes the external GitHub identity and creates the permanent
+CI-account control plane consumed by the repository. The bootstrap entrypoints
+delegate to the same control-plane implementation used after handoff; they do
+not create a separate bootstrap stack or any bootstrap-only AWS resources.
 
 ## Prerequisites
 
@@ -58,7 +59,7 @@ workflows whose credentials it creates.
    `reaver-project-log-archive-admin` profile. Account IDs come from the
    reviewed organization configuration. Inspect and apply that exact change
    set, then retain its `DeploymentPlanAuditLogBucketName` output.
-9. Create and inspect the CI deployment-trust change set:
+9. Create and inspect the permanent CI control-plane change set:
 
    ```console
    aws/bootstrap/plan \
@@ -92,9 +93,10 @@ workflows whose credentials it creates.
 17. Run the GitHub configuration workflow to converge organization and
    repository policy through the Infrastructure App.
 
-The bootstrap stack has termination protection. App keys must never be written
-to persistent plaintext storage, and neither normal workflow has access to an
-owner credential. Control Tower records organization-wide management activity.
-The bootstrap's separate, single-Region trail records only deployment-plan
-object access in an Object Lock-protected bucket owned by the log-archive
-account, with one year of default retention and log-file integrity validation.
+The permanent control-plane stack has termination protection. App keys must
+never be written to persistent plaintext storage, and neither normal workflow
+has access to an owner credential. Control Tower records organization-wide
+management activity. The control plane's separate, single-Region trail records
+only deployment-plan object access in an Object Lock-protected bucket owned by
+the log-archive account, with one year of default retention and log-file
+integrity validation.

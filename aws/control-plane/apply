@@ -1,0 +1,120 @@
+#!/usr/bin/env bash
+
+set -euo pipefail
+
+self_dir=$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)
+repository_root=$(git -C "${self_dir}" rev-parse --show-toplevel)
+# shellcheck source=aws/local-deployment
+source "${repository_root}/aws/local-deployment"
+
+local_profile=
+control_plane_stack_name=reaver-project-ci-deployment-trust
+expected_account_id=
+organization_config="${repository_root}/aws/organization/reaver-project.json"
+region=us-west-2
+
+usage()
+{
+    printf '%s\n' \
+        "usage: $0 --profile <profile>" \
+        '    [--region <region>] [--control-plane-stack-name <name>]' \
+        '    [--organization-config <path>]'
+}
+
+while [[ $# -gt 0 ]]; do
+    case $1 in
+        --bootstrap-stack-name | --control-plane-stack-name)
+            control_plane_stack_name=$2
+            shift 2
+            ;;
+        --organization-config)
+            organization_config=$2
+            shift 2
+            ;;
+        --profile)
+            local_profile=$2
+            shift 2
+            ;;
+        --region)
+            region=$2
+            shift 2
+            ;;
+        --help | -h)
+            usage
+            exit 0
+            ;;
+        *)
+            usage >&2
+            exit 2
+            ;;
+    esac
+done
+
+expected_account_id=$(organization_account_id "${organization_config}" reaver-project-ci)
+local_require_clean_repository
+local_require_account
+
+revision=$(local_repository_revision)
+template_sha256=$(local_template_sha256 "${self_dir}/template.yaml")
+change_set_name="${control_plane_stack_name}-${revision:0:12}"
+change_set=$(local_aws cloudformation describe-change-set \
+    --region "${region}" \
+    --stack-name "${control_plane_stack_name}" \
+    --change-set-name "${change_set_name}" \
+    --output json)
+
+stack_name=$(jq --exit-status --raw-output '.StackName' <<< "${change_set}")
+resolved_change_set_name=$(jq --exit-status --raw-output '.ChangeSetName' <<< "${change_set}")
+on_stack_failure=$(jq --raw-output '.OnStackFailure // empty' <<< "${change_set}")
+case ${on_stack_failure} in
+    DELETE)
+        change_set_type=CREATE
+        ;;
+    '')
+        change_set_type=UPDATE
+        ;;
+    *)
+        printf 'Refusing a AWS control plane change set with unexpected failure behavior.\n' >&2
+        exit 1
+        ;;
+esac
+status=$(jq --exit-status --raw-output '.Status' <<< "${change_set}")
+execution_status=$(jq --exit-status --raw-output '.ExecutionStatus' <<< "${change_set}")
+description=$(jq --exit-status --raw-output '.Description' <<< "${change_set}")
+
+if [[ ${stack_name} != "${control_plane_stack_name}" ||
+    ${resolved_change_set_name} != "${change_set_name}" ||
+    ${status} != CREATE_COMPLETE ||
+    ${execution_status} != AVAILABLE ||
+    ${description} != "AWS control plane revision ${revision}; template ${template_sha256}" ]]; then
+    printf 'Refusing an unexpected or stale AWS control plane change set.\n' >&2
+    exit 1
+fi
+
+local_aws cloudformation execute-change-set \
+    --region "${region}" \
+    --stack-name "${control_plane_stack_name}" \
+    --change-set-name "${change_set_name}" \
+    --client-request-token "local-${revision}" \
+    > /dev/null
+
+case ${change_set_type} in
+    CREATE)
+        waiter=stack-create-complete
+        ;;
+    UPDATE)
+        waiter=stack-update-complete
+        ;;
+esac
+local_aws cloudformation wait "${waiter}" \
+    --region "${region}" \
+    --stack-name "${control_plane_stack_name}"
+local_aws cloudformation update-termination-protection \
+    --region "${region}" \
+    --stack-name "${control_plane_stack_name}" \
+    --enable-termination-protection \
+    > /dev/null
+
+printf 'Applied and protected AWS control plane stack %s at revision %s.\n' \
+    "${control_plane_stack_name}" \
+    "${revision}"

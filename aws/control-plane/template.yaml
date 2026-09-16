@@ -1,11 +1,11 @@
 AWSTemplateFormatVersion: '2010-09-09'
-Description: Trust boundary for automated Reaver Project AWS infrastructure deployment
+Description: Permanent control plane for automated Reaver Project AWS infrastructure deployment
 
 Parameters:
-    BootstrapRevision:
+    ControlPlaneRevision:
         Type: String
         AllowedPattern: '[0-9a-f]{40}'
-    BootstrapTemplateSha256:
+    ControlPlaneTemplateSha256:
         Type: String
         AllowedPattern: '[0-9a-f]{64}'
     GitHubDefaultBranch:
@@ -599,10 +599,10 @@ Resources:
                 Value: ReaverProjectInfrastructure
 
 Outputs:
-    BootstrapRevision:
-        Value: !Ref BootstrapRevision
-    BootstrapTemplateSha256:
-        Value: !Ref BootstrapTemplateSha256
+    ControlPlaneRevision:
+        Value: !Ref ControlPlaneRevision
+    ControlPlaneTemplateSha256:
+        Value: !Ref ControlPlaneTemplateSha256
     GitHubOidcImmutableRepository:
         Value: !Ref GitHubOidcImmutableRepository
     CloudFormationExecutionRoleArn:

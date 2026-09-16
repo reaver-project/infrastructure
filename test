@@ -12,13 +12,17 @@ shell_scripts=(
     actions/ephemeral-runner/terminate
     actions/test
     aws/bootstrap/apply
-    aws/bootstrap/common
     aws/bootstrap/plan
     aws/bootstrap/publish-github
     aws/bootstrap/test
+    aws/control-plane/apply
+    aws/control-plane/plan
+    aws/control-plane/publish-github
+    aws/control-plane/test
     aws/cfn-guard
     aws/organization/log-archive/deploy
     aws/organization/log-archive/test
+    aws/local-deployment
     aws/validate-guard-rules
     aws/test-cfn-guard
     github/configure-organization
@@ -99,7 +103,7 @@ python3 actions/test-infrastructure-consumer.py
 python3 actions/test-update-infrastructure-consumer.py
 
 actions/test
-aws/bootstrap/test
+aws/control-plane/test
 aws/test-cfn-guard
 aws/organization/log-archive/test
 uv run --project aws --frozen python aws/organization/test_configure.py

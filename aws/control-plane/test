@@ -1,0 +1,376 @@
+#!/usr/bin/env bash
+
+set -euo pipefail
+
+if [[ $(basename -- "$0") == git ]]; then
+    if [[ $* == *"rev-parse --show-toplevel"* ]]; then
+        printf '%s\n' "${CONTROL_PLANE_TEST_REPOSITORY_ROOT}"
+    elif [[ $* == *"rev-parse HEAD"* ]]; then
+        printf '%s\n' "${CONTROL_PLANE_TEST_REVISION}"
+    elif [[ $* == *"status --porcelain"* && ${CONTROL_PLANE_TEST_DIRTY:-0} == 1 ]]; then
+        printf ' M aws/control-plane/template.yaml\n'
+    fi
+    exit
+fi
+
+if [[ $(basename -- "$0") == aws || $(basename -- "$0") == gh ]]; then
+    {
+        printf '%s' "$(basename -- "$0")"
+        printf '\t%s' "$@"
+        printf '\n'
+    } >> "${CONTROL_PLANE_TEST_LOG}"
+
+    if [[ $(basename -- "$0") == gh ]]; then
+        exit
+    fi
+
+    arguments=("$@")
+    if [[ ${arguments[0]} == --profile ]]; then
+        arguments=("${arguments[@]:2}")
+    fi
+    service=${arguments[0]}
+    operation=${arguments[1]}
+    case "${service}:${operation}" in
+        sts:get-caller-identity)
+            printf '%s\n' "${CONTROL_PLANE_TEST_ACCOUNT_ID:-560512681071}"
+            ;;
+        cloudformation:describe-stacks)
+            if [[ ${CONTROL_PLANE_TEST_STACK_EXISTS:-0} != 1 ]]; then
+                printf 'Stack with id test does not exist\n' >&2
+                exit 254
+            fi
+            jq --null-input \
+                --arg revision "${CONTROL_PLANE_TEST_REVISION}" \
+                --arg template_sha256 "${CONTROL_PLANE_TEST_TEMPLATE_SHA256}" \
+                '{
+                StackStatus: $ENV.CONTROL_PLANE_TEST_STACK_STATUS,
+                Parameters: (if $ENV.CONTROL_PLANE_TEST_STACK_STATUS == "REVIEW_IN_PROGRESS" then null else [
+                    {ParameterKey: "GitHubDefaultBranch", ParameterValue: "main"},
+                    {
+                        ParameterKey: "GitHubOidcImmutableRepository",
+                        ParameterValue: "reaver-project@1804403/infrastructure@1341253705"
+                    },
+                    {
+                        ParameterKey: "GitHubOidcPlanWorkflowReference",
+                        ParameterValue: "reaver-project/infrastructure/.github/workflows/aws-infrastructure.yml@refs/heads/main"
+                    },
+                    {
+                        ParameterKey: "GitHubOidcDeployWorkflowReference",
+                        ParameterValue: "reaver-project/infrastructure/.github/workflows/aws-infrastructure-deploy.yml@refs/heads/main"
+                    },
+                    {
+                        ParameterKey: "DeploymentPlanAuditLogBucketName",
+                        ParameterValue: "central-audit-logs"
+                    },
+                    {ParameterKey: "GitHubOidcProviderArn", ParameterValue: ""},
+                    {ParameterKey: "InfrastructureAccessAnalyzerArn", ParameterValue: ""},
+                    {ParameterKey: "RunnerStackName", ParameterValue: "reaveros-github-runners"}
+                ] end),
+                Outputs: (if $ENV.CONTROL_PLANE_TEST_STACK_STATUS == "REVIEW_IN_PROGRESS" then null else [
+                    {OutputKey: "CloudFormationExecutionRoleArn", OutputValue: "arn:execution"},
+                    {OutputKey: "ControlPlaneRevision", OutputValue: $revision},
+                    {OutputKey: "ControlPlaneTemplateSha256", OutputValue: $template_sha256},
+                    {OutputKey: "DeploymentArtifactBucketName", OutputValue: "artifacts"},
+                    {OutputKey: "GitHubOidcProviderArn", OutputValue: "arn:oidc"},
+                    {OutputKey: "InfrastructureDeployRoleArn", OutputValue: "arn:deploy"},
+                    {OutputKey: "InfrastructurePlanRoleArn", OutputValue: "arn:plan"},
+                    {OutputKey: "RunnerRolePermissionsBoundaryArn", OutputValue: "arn:boundary"},
+                    {OutputKey: "RunnerStackName", OutputValue: "reaveros-github-runners"}
+                ] end)
+            }'
+            ;;
+        cloudformation:describe-change-set)
+            jq --null-input \
+                --arg revision "${CONTROL_PLANE_TEST_REVISION}" \
+                --arg template_sha256 "${CONTROL_PLANE_TEST_TEMPLATE_SHA256}" \
+                '{
+                    ChangeSetId: "arn:change-set",
+                    StackName: "reaver-project-ci-deployment-trust",
+                    ChangeSetName: ("reaver-project-ci-deployment-trust-" + $revision[0:12]),
+                    OnStackFailure: "DELETE",
+                    Status: "CREATE_COMPLETE",
+                    ExecutionStatus: "AVAILABLE",
+                    Description: ("AWS control plane revision " + $revision + "; template " + $template_sha256),
+                    Parameters: [
+                        {ParameterKey: "ControlPlaneRevision", ParameterValue: $revision},
+                        {ParameterKey: "ControlPlaneTemplateSha256", ParameterValue: $template_sha256},
+                        {ParameterKey: "GitHubDefaultBranch", ParameterValue: "main"},
+                        {
+                            ParameterKey: "GitHubOidcImmutableRepository",
+                            ParameterValue: "reaver-project@1804403/infrastructure@1341253705"
+                        },
+                        {
+                            ParameterKey: "GitHubOidcPlanWorkflowReference",
+                            ParameterValue: "reaver-project/infrastructure/.github/workflows/aws-infrastructure.yml@refs/heads/main"
+                        },
+                        {
+                            ParameterKey: "GitHubOidcDeployWorkflowReference",
+                            ParameterValue: "reaver-project/infrastructure/.github/workflows/aws-infrastructure-deploy.yml@refs/heads/main"
+                        },
+                        {
+                            ParameterKey: "DeploymentPlanAuditLogBucketName",
+                            ParameterValue: "central-audit-logs"
+                        },
+                        {ParameterKey: "GitHubOidcProviderArn", ParameterValue: ""},
+                        {ParameterKey: "InfrastructureAccessAnalyzerArn", ParameterValue: ""},
+                        {ParameterKey: "RunnerStackName", ParameterValue: "reaveros-github-runners"}
+                    ],
+                    Changes: []
+                }'
+            ;;
+        cloudformation:create-change-set)
+            if [[ ${CONTROL_PLANE_TEST_CHANGE_SET_EXISTS:-0} == 1 ]]; then
+                printf 'AlreadyExistsException: change set exists\n' >&2
+                exit 254
+            fi
+            ;;
+    esac
+    exit
+fi
+
+self_dir=$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)
+test_directory=$(mktemp -d)
+mkdir "${test_directory}/bin"
+ln -s "${self_dir}/test" "${test_directory}/bin/aws"
+ln -s "${self_dir}/test" "${test_directory}/bin/git"
+ln -s "${self_dir}/test" "${test_directory}/bin/gh"
+export PATH="${test_directory}/bin:${PATH}"
+export CONTROL_PLANE_TEST_LOG="${test_directory}/calls"
+export CONTROL_PLANE_TEST_REPOSITORY_ROOT="${self_dir}/../.."
+export CONTROL_PLANE_TEST_REVISION=aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa
+export CONTROL_PLANE_TEST_TEMPLATE_SHA256
+CONTROL_PLANE_TEST_TEMPLATE_SHA256=$(sha256sum "${self_dir}/template.yaml" | cut --delimiter=' ' --fields=1)
+export CONTROL_PLANE_TEST_STACK_STATUS=CREATE_COMPLETE
+: > "${CONTROL_PLANE_TEST_LOG}"
+
+cleanup()
+{
+    rm -rf "${test_directory}"
+}
+trap cleanup EXIT
+
+assert_log_contains()
+{
+    if ! grep --fixed-strings --quiet "$1" "${CONTROL_PLANE_TEST_LOG}"; then
+        printf 'Expected control-plane call log to contain: %s\n' "$1" >&2
+        cat "${CONTROL_PLANE_TEST_LOG}" >&2
+        exit 1
+    fi
+}
+
+common_account_arguments=(
+    --profile reaver-project-ci-admin
+)
+
+"${self_dir}/plan" \
+    "${common_account_arguments[@]}" \
+    --deployment-plan-audit-bucket central-audit-logs \
+    > /dev/null
+assert_log_contains $'aws\t--profile\treaver-project-ci-admin\tsts\tget-caller-identity'
+assert_log_contains $'aws\t--profile\treaver-project-ci-admin\tcloudformation\tcreate-change-set'
+assert_log_contains "reaver-project-ci-deployment-trust-${CONTROL_PLANE_TEST_REVISION:0:12}"
+assert_log_contains "AWS control plane revision ${CONTROL_PLANE_TEST_REVISION}"
+assert_log_contains "template ${CONTROL_PLANE_TEST_TEMPLATE_SHA256}"
+assert_log_contains "ParameterKey=ControlPlaneRevision,ParameterValue=${CONTROL_PLANE_TEST_REVISION}"
+assert_log_contains "ParameterKey=ControlPlaneTemplateSha256,ParameterValue=${CONTROL_PLANE_TEST_TEMPLATE_SHA256}"
+assert_log_contains 'ParameterKey=GitHubDefaultBranch,ParameterValue=main'
+assert_log_contains 'ParameterKey=GitHubOidcImmutableRepository,ParameterValue=reaver-project@1804403/infrastructure@1341253705'
+assert_log_contains 'ParameterKey=DeploymentPlanAuditLogBucketName,ParameterValue=central-audit-logs'
+
+export CONTROL_PLANE_TEST_STACK_EXISTS=1
+create_count=$(grep --fixed-strings --count $'cloudformation\tcreate-change-set' \
+    "${CONTROL_PLANE_TEST_LOG}")
+current_output=$("${self_dir}/plan" \
+    "${common_account_arguments[@]}" \
+    --deployment-plan-audit-bucket central-audit-logs)
+if [[ ${current_output} != *'already matches revision'* ||
+    $(grep --fixed-strings --count $'cloudformation\tcreate-change-set' \
+        "${CONTROL_PLANE_TEST_LOG}") != "${create_count}" ]]; then
+    printf 'The control-plane plan is not idempotent for its deployed revision.\n' >&2
+    exit 1
+fi
+unset CONTROL_PLANE_TEST_STACK_EXISTS
+
+export CONTROL_PLANE_TEST_STACK_EXISTS=1
+export CONTROL_PLANE_TEST_STACK_STATUS=REVIEW_IN_PROGRESS
+create_count=$(grep --fixed-strings --count $'cloudformation\tcreate-change-set' \
+    "${CONTROL_PLANE_TEST_LOG}")
+review_output=$("${self_dir}/plan" \
+    "${common_account_arguments[@]}" \
+    --deployment-plan-audit-bucket central-audit-logs)
+if [[ ${review_output} == *'already matches revision'* ]]; then
+    printf 'The control-plane plan reused a review placeholder as a deployed stack.\n' >&2
+    exit 1
+fi
+if [[ $(grep --fixed-strings --count $'cloudformation\tcreate-change-set' \
+    "${CONTROL_PLANE_TEST_LOG}") -ne $((create_count + 1)) ]]; then
+    printf 'The control-plane plan did not replace the review placeholder.\n' >&2
+    exit 1
+fi
+unset CONTROL_PLANE_TEST_STACK_EXISTS
+export CONTROL_PLANE_TEST_STACK_STATUS=CREATE_COMPLETE
+
+export CONTROL_PLANE_TEST_CHANGE_SET_EXISTS=1
+export CONTROL_PLANE_TEST_STACK_EXISTS=1
+if "${self_dir}/plan" \
+    "${common_account_arguments[@]}" \
+    --default-branch next \
+    --deployment-plan-audit-bucket central-audit-logs \
+    > /dev/null 2>&1; then
+    printf 'The control-plane plan reused a change set with different parameters.\n' >&2
+    exit 1
+fi
+unset CONTROL_PLANE_TEST_CHANGE_SET_EXISTS CONTROL_PLANE_TEST_STACK_EXISTS
+
+export CONTROL_PLANE_TEST_STACK_EXISTS=1
+create_count=$(grep --fixed-strings --count $'cloudformation\tcreate-change-set' \
+    "${CONTROL_PLANE_TEST_LOG}")
+different_output=$("${self_dir}/plan" \
+    "${common_account_arguments[@]}" \
+    --default-branch next \
+    --deployment-plan-audit-bucket central-audit-logs)
+if [[ ${different_output} == *'already matches revision'* ||
+    $(grep --fixed-strings --count $'cloudformation\tcreate-change-set' \
+        "${CONTROL_PLANE_TEST_LOG}") -ne $((create_count + 1)) ]]; then
+    printf 'The control-plane plan reused a stack with different parameters.\n' >&2
+    exit 1
+fi
+unset CONTROL_PLANE_TEST_STACK_EXISTS
+
+"${self_dir}/plan" \
+    "${common_account_arguments[@]}" \
+    --access-analyzer-arn arn:aws:access-analyzer:us-west-2:123456789012:analyzer/existing \
+    --deployment-plan-audit-bucket central-audit-logs \
+    > /dev/null
+assert_log_contains 'ParameterKey=InfrastructureAccessAnalyzerArn,ParameterValue=arn:aws:access-analyzer:us-west-2:123456789012:analyzer/existing'
+
+"${self_dir}/apply" "${common_account_arguments[@]}" > /dev/null
+assert_log_contains $'aws\t--profile\treaver-project-ci-admin\tcloudformation\texecute-change-set'
+assert_log_contains $'aws\t--profile\treaver-project-ci-admin\tcloudformation\tupdate-termination-protection'
+
+export CONTROL_PLANE_TEST_STACK_EXISTS=1
+"${self_dir}/publish-github" \
+    "${common_account_arguments[@]}" \
+    --budget-email ci-billing@example.com \
+    --runner-group-id 7 \
+    > /dev/null
+unset CONTROL_PLANE_TEST_STACK_EXISTS
+assert_log_contains $'gh\tvariable\tset\tAWS_DEPLOYMENT_ARTIFACT_BUCKET\t--repo\treaver-project/infrastructure\t--body\tartifacts'
+assert_log_contains $'gh\tvariable\tset\tAWS_GITHUB_RUNNER_GROUP_ID\t--repo\treaver-project/infrastructure\t--body\t7'
+assert_log_contains $'gh\tvariable\tset\tAWS_GITHUB_OIDC_REPOSITORY_SUBJECT_PATTERN\t--repo\treaver-project/infrastructure\t--body\treaver-project@1804403/reaveros@*'
+assert_log_contains $'gh\tvariable\tset\tAWS_INFRASTRUCTURE_DEPLOY_ROLE_ARN\t--repo\treaver-project/infrastructure\t--body\tarn:deploy'
+
+export CONTROL_PLANE_TEST_ACCOUNT_ID=999999999999
+if "${self_dir}/plan" \
+    "${common_account_arguments[@]}" \
+    --deployment-plan-audit-bucket central-audit-logs \
+    > /dev/null 2>&1; then
+    printf 'The control-plane plan accepted the wrong AWS account.\n' >&2
+    exit 1
+fi
+unset CONTROL_PLANE_TEST_ACCOUNT_ID
+
+export CONTROL_PLANE_TEST_DIRTY=1
+if "${self_dir}/plan" \
+    "${common_account_arguments[@]}" \
+    --deployment-plan-audit-bucket central-audit-logs \
+    > /dev/null 2>&1; then
+    printf 'The control-plane plan accepted a dirty infrastructure worktree.\n' >&2
+    exit 1
+fi
+unset CONTROL_PLANE_TEST_DIRTY
+
+if [[ $(grep --fixed-strings --count \
+    'Resource: !Sub ${DeploymentArtifactBucket.Arn}/${RunnerStackName}/*' \
+    "${self_dir}/template.yaml") -ne 2 ]]; then
+    printf 'Deployment artifact permissions are not scoped to the runner stack.\n' >&2
+    exit 1
+fi
+
+if ! grep --after-context 7 --fixed-strings \
+    'Sid: RequireImmutableDeploymentPlans' \
+    "${self_dir}/template.yaml" |
+    grep --fixed-strings --quiet 's3:if-none-match: true'; then
+    printf 'Private deployment plans are not protected from overwrite.\n' >&2
+    exit 1
+fi
+
+if grep --fixed-strings --quiet \
+    'job_workflow_ref:${GitHubOidcPlanWorkflowReference}' \
+    "${self_dir}/template.yaml" ||
+    grep --fixed-strings --quiet \
+        'job_workflow_ref:${GitHubOidcDeployWorkflowReference}' \
+        "${self_dir}/template.yaml"; then
+    printf 'Direct infrastructure workflows cannot require job_workflow_ref.\n' >&2
+    exit 1
+fi
+
+for oidc_subject in \
+    'repo:${GitHubOidcImmutableRepository}:workflow_ref:${GitHubOidcPlanWorkflowReference}:ref:refs/heads/${GitHubDefaultBranch}' \
+    'repo:${GitHubOidcImmutableRepository}:workflow_ref:${GitHubOidcDeployWorkflowReference}:environment:aws-production'; do
+    if ! grep --fixed-strings --quiet "${oidc_subject}" "${self_dir}/template.yaml"; then
+        printf 'Immutable GitHub OIDC trust is missing: %s\n' "${oidc_subject}" >&2
+        exit 1
+    fi
+done
+
+if grep --fixed-strings --quiet \
+    'access-analyzer:CreateAnalyzer' \
+    "${self_dir}/template.yaml"; then
+    printf 'The planning role must not create account access analyzers.\n' >&2
+    exit 1
+fi
+
+if [[ $(grep --fixed-strings --count \
+    -- '- cloudformation:DescribeChangeSet' \
+    "${self_dir}/template.yaml") -ne 2 ]]; then
+    printf 'Plan and deploy roles do not have scoped change-set inspection.\n' >&2
+    exit 1
+fi
+
+if ! grep --fixed-strings --quiet \
+    'secret:${RunnerStackName}/github-*-app-*' \
+    "${self_dir}/template.yaml"; then
+    printf 'The runner-stack boundary cannot read project App credentials.\n' >&2
+    exit 1
+fi
+
+for function_url_action in \
+    'lambda:CreateFunctionUrlConfig' \
+    'lambda:DeleteFunctionUrlConfig' \
+    'lambda:GetFunctionUrlConfig' \
+    'lambda:UpdateFunctionUrlConfig'; do
+    if ! grep --fixed-strings --quiet \
+        "${function_url_action}" \
+        "${self_dir}/template.yaml"; then
+        printf 'CloudFormation cannot converge function URLs: %s\n' \
+            "${function_url_action}" >&2
+        exit 1
+    fi
+done
+
+for required_audit_setting in \
+    'EnableLogFileValidation: true' \
+    'IncludeGlobalServiceEvents: false' \
+    'IncludeManagementEvents: false' \
+    'IsMultiRegionTrail: false' \
+    'TrailName: !Sub ${AWS::StackName}-deployment-plan-audit' \
+    '!Sub ${DeploymentArtifactBucket.Arn}/plans/' \
+    'S3BucketName: !Ref DeploymentPlanAuditLogBucketName'; do
+    if ! grep --fixed-strings --quiet \
+        "${required_audit_setting}" \
+        "${self_dir}/template.yaml"; then
+        printf 'Deployment-plan audit trail omitted: %s\n' \
+            "${required_audit_setting}" >&2
+        exit 1
+    fi
+done
+
+if grep --fixed-strings --quiet \
+    'IncludeManagementEvents: true' \
+    "${self_dir}/template.yaml"; then
+    printf 'The AWS control plane must not duplicate Control Tower management events.\n' >&2
+    exit 1
+fi
+
+printf 'AWS control-plane tests passed.\n'

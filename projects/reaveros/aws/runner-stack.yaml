@@ -20,7 +20,7 @@ Parameters:
         AllowedPattern: '[A-Za-z0-9_.-]+@[1-9][0-9]*/[A-Za-z0-9_.-]+@([1-9][0-9]*|\*)'
     GitHubOidcProviderArn:
         Type: String
-        Description: ARN of the account-wide GitHub Actions OIDC provider from the bootstrap stack.
+        Description: ARN of the account-wide GitHub Actions OIDC provider from the control-plane stack.
     GitHubOrganization:
         Type: String
         Default: reaver-project
@@ -36,7 +36,7 @@ Parameters:
         Default: griwes,reaver-project-maintenance[bot]
     RunnerRolePermissionsBoundaryArn:
         Type: String
-        Description: ARN of the permissions boundary owned by the bootstrap stack.
+        Description: ARN of the permissions boundary owned by the control-plane stack.
     RunnerAmiParameter:
         Type: AWS::SSM::Parameter::Value<AWS::EC2::Image::Id>
         Default: /aws/service/debian/release/13/latest/amd64

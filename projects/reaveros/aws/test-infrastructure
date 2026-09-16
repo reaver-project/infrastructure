@@ -184,7 +184,7 @@ parameter_default()
 }
 
 bootstrap_repository_name=$(parameter_default \
-    "${repo_root}/aws/bootstrap/template.yaml" \
+    "${repo_root}/aws/control-plane/template.yaml" \
     BuildEnvironmentRepositoryName)
 runner_repository_name=$(parameter_default \
     "${self_dir}/runner-stack.yaml" \

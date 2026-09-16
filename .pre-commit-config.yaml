@@ -210,7 +210,7 @@ repos:
         name: Enforce CloudFormation security invariants
         entry: aws/validate-guard-rules
         language: system
-        files: ^(aws/(bootstrap/template\.yaml|cfn-guard|guard/.*|organization/log-archive/template\.yaml|validate-guard-rules)|projects/reaveros/aws/runner-stack\.yaml)$
+        files: ^(aws/(cfn-guard|control-plane/template\.yaml|guard/.*|organization/log-archive/template\.yaml|validate-guard-rules)|projects/reaveros/aws/runner-stack\.yaml)$
         pass_filenames: false
       - id: runner-control-coverage
         name: Test runner controller with branch coverage
