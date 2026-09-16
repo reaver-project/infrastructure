@@ -40,7 +40,7 @@ jobs:
                 app-id: ${{ vars.INFRASTRUCTURE_APP_ID }}
                 private-key: ${{ secrets.INFRASTRUCTURE_APP_PRIVATE_KEY }}
                 owner: reaver-project
-                repositories: infrastructure,reaveros
+                repositories: infrastructure
                 permission-administration: write
                 permission-environments: write
                 permission-members: read
@@ -51,10 +51,7 @@ jobs:
                 GH_TOKEN: ${{ steps.app.outputs.token }}
             run: github/configure-organization github/organizations/reaver-project.json
 
-          - name: Converge repository policy
+          - name: Converge infrastructure repository policy
             env:
-                CI_GATE_APP_ID: ${{ vars.CI_GATE_APP_ID }}
                 GH_TOKEN: ${{ steps.app.outputs.token }}
-            run: |
-                github/configure-repository github/repositories/infrastructure.json
-                github/configure-repository github/repositories/reaveros.json
+            run: github/configure-repository github/repositories/infrastructure.json

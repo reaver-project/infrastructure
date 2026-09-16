@@ -12,6 +12,7 @@ shell_scripts=(
     actions/ephemeral-runner/terminate
     actions/test
     aws/bootstrap/apply
+    aws/bootstrap/audit-completion
     aws/bootstrap/plan
     aws/bootstrap/publish-github
     aws/bootstrap/test

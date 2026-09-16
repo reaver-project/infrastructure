@@ -86,6 +86,7 @@ mock_aws()
                     fi
                     jq --null-input --arg stack_status "${stack_status}" '{
                         Stacks: [{StackStatus: $stack_status, Parameters: [
+                            {ParameterKey: "InfrastructureRevision"},
                             {ParameterKey: "BudgetNotificationEmail"},
                             {ParameterKey: "GitHubOidcProviderArn"},
                             {ParameterKey: "GitHubOidcImmutableRepositoryPattern"},
@@ -386,6 +387,7 @@ assert_log_contains $'\t--change-set-type\tUPDATE'
 assert_log_contains $'\tpackage\t--region\tus-west-2'
 assert_log_contains $'\t--s3-bucket\treaver-project-deployment-artifacts'
 assert_log_contains $'\tParameterKey=BudgetNotificationEmail,ParameterValue=ci-billing@example.com'
+assert_log_contains $'\tParameterKey=InfrastructureRevision,ParameterValue=0123456789abcdef0123456789abcdef01234567'
 assert_log_contains $'\tParameterKey=GitHubRunnerGroupId,ParameterValue=7'
 assert_log_contains $'\tParameterKey=GitHubOidcImmutableRepositoryPattern,ParameterValue=reaver-project@1804403/reaveros@*'
 assert_log_contains $'\tParameterKey=GitHubOidcCallerWorkflowReferencePattern,ParameterValue=reaver-project/reaveros/.github/workflows/ci.yml@refs/heads/main'

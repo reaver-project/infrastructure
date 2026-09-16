@@ -2,6 +2,9 @@ AWSTemplateFormatVersion: '2010-09-09'
 Description: Ephemeral AWS runners for ReaverOS GitHub Actions
 
 Parameters:
+    InfrastructureRevision:
+        Type: String
+        AllowedPattern: '[0-9a-f]{40}'
     GitHubOidcCallerWorkflowReferencePattern:
         Type: String
         Default: reaver-project/reaveros/.github/workflows/ci.yml@refs/heads/main
@@ -1028,6 +1031,8 @@ Resources:
                 Value: ReaverOS
 
 Outputs:
+    InfrastructureRevision:
+        Value: !Ref InfrastructureRevision
     InfrastructureContractVersion:
         Value: '2'
     GitHubActionsRoleArn:

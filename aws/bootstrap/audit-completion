@@ -1,0 +1,257 @@
+#!/usr/bin/env bash
+
+set -euo pipefail
+
+self_dir=$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)
+repository_root=$(git -C "${self_dir}" rev-parse --show-toplevel)
+# shellcheck source=aws/local-deployment
+# shellcheck disable=SC1091
+source "${repository_root}/aws/local-deployment"
+
+local_profile=
+log_archive_profile=
+central_audit_stack_name=reaver-project-central-audit
+control_plane_stack_name=reaver-project-ci-deployment-trust
+expected_account_id=
+organization_config="${repository_root}/aws/organization/reaver-project.json"
+region=us-west-2
+repository=reaver-project/infrastructure
+
+usage()
+{
+    printf '%s\n' \
+        "usage: $0 --profile <profile>" \
+        '    --log-archive-profile <profile>' \
+        '    [--central-audit-stack-name <name>]' \
+        '    [--control-plane-stack-name <name>] [--region <region>]' \
+        '    [--repository <owner/repository>]'
+}
+
+while [[ $# -gt 0 ]]; do
+    case $1 in
+        --control-plane-stack-name)
+            control_plane_stack_name=$2
+            shift 2
+            ;;
+        --central-audit-stack-name)
+            central_audit_stack_name=$2
+            shift 2
+            ;;
+        --log-archive-profile)
+            log_archive_profile=$2
+            shift 2
+            ;;
+        --profile)
+            local_profile=$2
+            shift 2
+            ;;
+        --region)
+            region=$2
+            shift 2
+            ;;
+        --repository)
+            repository=$2
+            shift 2
+            ;;
+        --help | -h)
+            usage
+            exit
+            ;;
+        *)
+            usage >&2
+            exit 2
+            ;;
+    esac
+done
+
+if [[ -z ${log_archive_profile} ]]; then
+    usage >&2
+    exit 2
+fi
+
+expected_account_id=$(organization_account_id "${organization_config}" reaver-project-ci)
+export expected_account_id local_profile
+local_require_clean_repository
+local_require_account
+
+revision=$(local_repository_revision)
+template_sha256=$(local_template_sha256 "${repository_root}/aws/control-plane/template.yaml")
+stack=$(local_aws cloudformation describe-stacks \
+    --region "${region}" \
+    --stack-name "${control_plane_stack_name}" \
+    --query 'Stacks[0]' \
+    --output json)
+
+if [[ $(jq --raw-output '.StackStatus' <<< "${stack}") != UPDATE_COMPLETE ||
+$(jq --raw-output '.EnableTerminationProtection' <<< "${stack}") != true ]]; then
+    printf 'The permanent control-plane stack is not complete and protected.\n' >&2
+    exit 1
+fi
+
+stack_output()
+{
+    jq --exit-status --raw-output \
+        --arg key "$1" \
+        '[.Outputs[] | select(.OutputKey == $key) | .OutputValue]
+         | if length == 1 then .[0] else error("missing or duplicate stack output") end' \
+        <<< "${stack}"
+}
+
+if [[ $(stack_output ControlPlaneRevision) != "${revision}" ||
+$(stack_output ControlPlaneTemplateSha256) != "${template_sha256}" ]]; then
+    printf 'The deployed control plane does not match this repository revision.\n' >&2
+    exit 1
+fi
+
+central_audit_stack=$(aws --profile "${log_archive_profile}" \
+    cloudformation describe-stacks \
+    --region "${region}" \
+    --stack-name "${central_audit_stack_name}" \
+    --query 'Stacks[0]' \
+    --output json)
+if [[ ! $(jq --raw-output '.StackStatus' <<< "${central_audit_stack}") =~ ^(CREATE|UPDATE)_COMPLETE$ ||
+$(jq --raw-output '.EnableTerminationProtection' <<< "${central_audit_stack}") != true ]]; then
+    printf 'The permanent central-audit stack is not complete and protected.\n' >&2
+    exit 1
+fi
+
+runner_stack_name=$(stack_output RunnerStackName)
+runner_stack=$(local_aws cloudformation describe-stacks \
+    --region "${region}" \
+    --stack-name "${runner_stack_name}" \
+    --query 'Stacks[0]' \
+    --output json)
+if [[ ! $(jq --raw-output '.StackStatus' <<< "${runner_stack}") =~ ^(CREATE|UPDATE)_COMPLETE$ ||
+$(jq --raw-output '.EnableTerminationProtection' <<< "${runner_stack}") != true ]]; then
+    printf 'The permanent runner stack is not complete and protected.\n' >&2
+    exit 1
+fi
+runner_output()
+{
+    jq --exit-status --raw-output \
+        --arg key "$1" \
+        '[.Outputs[] | select(.OutputKey == $key) | .OutputValue]
+         | if length == 1 then .[0] else error("missing or duplicate runner output") end' \
+        <<< "${runner_stack}"
+}
+if [[ $(runner_output InfrastructureRevision) != "${revision}" ]]; then
+    printf 'The runner stack was not deployed from this infrastructure revision.\n' >&2
+    exit 1
+fi
+for secret_output in RunnerAppSecretId CiGateAppSecretId; do
+    secret_id=$(runner_output "${secret_output}")
+    if [[ $(local_aws secretsmanager list-secret-version-ids \
+        --region "${region}" \
+        --secret-id "${secret_id}" \
+        --query 'length(Versions[?contains(VersionStages, `AWSCURRENT`)])' \
+        --output text) != 1 ]]; then
+        printf 'Permanent App credential is not configured: %s\n' \
+            "${secret_output}" >&2
+        exit 1
+    fi
+done
+
+stack_resources=$(local_aws cloudformation describe-stack-resources \
+    --region "${region}" \
+    --stack-name "${control_plane_stack_name}" \
+    --query 'StackResources' \
+    --output json)
+for logical_id in \
+    CloudFormationExecutionRole \
+    ControlPlaneCloudFormationExecutionRole \
+    ControlPlaneDeployRole \
+    ControlPlanePlanRole \
+    DeploymentArtifactBucket \
+    DeploymentArtifactBucketPolicy \
+    DeploymentPlanAuditTrail \
+    GitHubOidcProvider \
+    InfrastructureAccessAnalyzer \
+    InfrastructureDeployRole \
+    InfrastructurePlanRole \
+    RunnerRolePermissionsBoundary; do
+    if ! jq --exit-status --arg logical_id "${logical_id}" \
+        'any(.[]; .LogicalResourceId == $logical_id)' \
+        <<< "${stack_resources}" > /dev/null; then
+        printf 'Permanent control-plane ownership is missing: %s\n' "${logical_id}" >&2
+        exit 1
+    fi
+done
+
+repository_variables=$(gh variable list \
+    --repo "${repository}" \
+    --json name,value)
+variable_matches()
+{
+    local variable=$1
+    local expected=$2
+    [[ $(jq --raw-output --arg variable "${variable}" \
+        '[.[] | select(.name == $variable) | .value]
+         | if length == 1 then .[0] else "<missing-or-duplicate>" end' \
+        <<< "${repository_variables}") == "${expected}" ]]
+}
+
+while read -r variable output; do
+    if ! variable_matches "${variable}" "$(stack_output "${output}")"; then
+        printf 'Repository variable does not match the control plane: %s\n' \
+            "${variable}" >&2
+        exit 1
+    fi
+done << 'EOF'
+AWS_CLOUDFORMATION_EXECUTION_ROLE_ARN CloudFormationExecutionRoleArn
+AWS_CONTROL_PLANE_DEPLOY_ROLE_ARN ControlPlaneDeployRoleArn
+AWS_CONTROL_PLANE_EXECUTION_ROLE_ARN ControlPlaneCloudFormationExecutionRoleArn
+AWS_CONTROL_PLANE_PLAN_ROLE_ARN ControlPlanePlanRoleArn
+AWS_CONTROL_PLANE_STACK_NAME ControlPlaneStackName
+AWS_DEPLOYMENT_ARTIFACT_BUCKET DeploymentArtifactBucketName
+AWS_DEPLOYMENT_PLAN_AUDIT_BUCKET DeploymentPlanAuditLogBucketName
+AWS_GITHUB_OIDC_PROVIDER_ARN GitHubOidcProviderArn
+AWS_INFRASTRUCTURE_ACCESS_ANALYZER_ARN InfrastructureAccessAnalyzerArn
+AWS_INFRASTRUCTURE_DEPLOY_ROLE_ARN InfrastructureDeployRoleArn
+AWS_INFRASTRUCTURE_PLAN_ROLE_ARN InfrastructurePlanRoleArn
+AWS_RUNNER_ROLE_PERMISSIONS_BOUNDARY_ARN RunnerRolePermissionsBoundaryArn
+AWS_RUNNER_STACK_NAME RunnerStackName
+EOF
+
+oidc=$(gh api \
+    --header 'X-GitHub-Api-Version: 2026-03-10' \
+    "repos/${repository}/actions/oidc/customization/sub")
+if ! jq --exit-status \
+    '(.use_default == false)
+        and (.use_immutable_subject == true)
+        and (.include_claim_keys == ["repo", "workflow_ref", "context"])' \
+    <<< "${oidc}" > /dev/null; then
+    printf 'GitHub OIDC configuration is not the permanent immutable subject.\n' >&2
+    exit 1
+fi
+
+for variable in CI_GATE_APP_ID CI_GATE_APP_SLUG AWS_GITHUB_RUNNER_GROUP_ID; do
+    if [[ $(jq --raw-output --arg variable "${variable}" \
+        '[.[] | select(.name == $variable) | .value]
+         | if length == 1 then .[0] else "" end' \
+        <<< "${repository_variables}") == '' ]]; then
+        printf 'Permanent GitHub App configuration is missing: %s\n' \
+            "${variable}" >&2
+        exit 1
+    fi
+done
+
+for workflow in \
+    aws-control-plane.yml \
+    aws-control-plane-deploy.yml \
+    aws-infrastructure.yml \
+    aws-infrastructure-deploy.yml \
+    github-configuration.yml; do
+    if [[ $(gh run list \
+        --repo "${repository}" \
+        --workflow "${workflow}" \
+        --commit "${revision}" \
+        --limit 20 \
+        --json conclusion \
+        --jq 'any(.[]; .conclusion == "success")') != true ]]; then
+        printf 'No successful permanent workflow run exists at %s: %s\n' \
+            "${revision}" "${workflow}" >&2
+        exit 1
+    fi
+done
+
+printf 'AWS and GitHub control-plane bootstrap is complete at %s.\n' "${revision}"
