@@ -40,7 +40,10 @@ jobs:
             AWS_CONTROL_PLANE_EXECUTION_ROLE_ARN: ${{ vars.AWS_CONTROL_PLANE_EXECUTION_ROLE_ARN }}
             AWS_DEPLOYMENT_ARTIFACT_BUCKET: ${{ vars.AWS_DEPLOYMENT_ARTIFACT_BUCKET }}
             AWS_DEPLOYMENT_PLAN_AUDIT_BUCKET: ${{ vars.AWS_DEPLOYMENT_PLAN_AUDIT_BUCKET }}
+            AWS_GITHUB_OIDC_PROVIDER_ARN: ${{ vars.AWS_GITHUB_OIDC_PROVIDER_ARN }}
+            AWS_INFRASTRUCTURE_ACCESS_ANALYZER_ARN: ${{ vars.AWS_INFRASTRUCTURE_ACCESS_ANALYZER_ARN }}
             AWS_REGION: ${{ vars.AWS_REGION }}
+            AWS_RUNNER_STACK_NAME: ${{ vars.AWS_RUNNER_STACK_NAME }}
 
         steps:
           - name: Harden the runner
@@ -53,12 +56,27 @@ jobs:
             with:
                 persist-credentials: false
 
+          - name: Install Python
+            uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7
+            with:
+                python-version: '3.13'
+
+          - name: Install the IAM policy validator
+            run: |
+                python3 -m pip install \
+                    --only-binary=:all: \
+                    --require-hashes \
+                    --requirement aws/policy-validation-requirements.txt
+
           - name: Authenticate to AWS for planning
             uses: aws-actions/configure-aws-credentials@e6de054238d6b7531b4efff3b6587d9aade6a06c # v6.2.3
             with:
                 aws-region: ${{ env.AWS_REGION }}
                 role-to-assume: ${{ vars.AWS_CONTROL_PLANE_PLAN_ROLE_ARN }}
                 role-session-name: control-plane-plan-${{ github.run_id }}
+
+          - name: Validate IAM policies with Access Analyzer
+            run: aws/control-plane/validate-policies
 
           - name: Create the reviewed change set
             id: plan

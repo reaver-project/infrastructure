@@ -122,6 +122,23 @@ if "plan_key" not in control_plane_deploy_workflow:
 if "permission-actions-variables: write" not in control_plane_deploy_workflow:
     sys.exit("The control-plane publisher cannot converge repository variables.")
 
+control_validator_install = control_plane_plan_workflow.find("Install the IAM policy validator")
+control_aws_authentication = control_plane_plan_workflow.find("Authenticate to AWS for planning")
+control_policy_validation = control_plane_plan_workflow.find(
+    "Validate IAM policies with Access Analyzer"
+)
+control_plane_plan = control_plane_plan_workflow.find("Create the reviewed change set")
+if not (
+    -1
+    < control_validator_install
+    < control_aws_authentication
+    < control_policy_validation
+    < control_plane_plan
+):
+    sys.exit(
+        "The control-plane workflow does not validate IAM policies at its credential boundary."
+    )
+
 for workflow_name in [
     "aws-control-plane-deploy.yml",
     "aws-control-plane.yml",

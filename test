@@ -25,7 +25,9 @@ shell_scripts=(
     aws/control-plane/read-plan
     aws/control-plane/read-outputs
     aws/control-plane/test
+    aws/control-plane/validate-policies
     aws/cfn-guard
+    aws/cloudformation-parameters
     aws/organization/log-archive/deploy
     aws/organization/log-archive/test
     aws/local-deployment
@@ -41,7 +43,6 @@ shell_scripts=(
     github/apps/test-configure-ci-gate-app
     github/test-configure-organization
     github/test-configure-repository
-    projects/reaveros/aws/cloudformation-parameters
     projects/reaveros/aws/configure-runner-app
     projects/reaveros/aws/create-function-archive
     projects/reaveros/aws/deploy-infrastructure
