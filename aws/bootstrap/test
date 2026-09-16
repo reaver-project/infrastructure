@@ -321,6 +321,13 @@ if grep --fixed-strings --quiet \
     exit 1
 fi
 
+if [[ $(grep --fixed-strings --count \
+    -- '- cloudformation:DescribeChangeSet' \
+    "${self_dir}/template.yaml") -ne 2 ]]; then
+    printf 'Plan and deploy roles do not have scoped change-set inspection.\n' >&2
+    exit 1
+fi
+
 if ! grep --fixed-strings --quiet \
     'secret:${RunnerStackName}/github-*-app-*' \
     "${self_dir}/template.yaml"; then
