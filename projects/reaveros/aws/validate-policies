@@ -15,6 +15,7 @@ fi
 required_environment=(
     AWS_BUDGET_NOTIFICATION_EMAIL
     AWS_GITHUB_OIDC_PROVIDER_ARN
+    AWS_GITHUB_OIDC_REPOSITORY_SUBJECT_PATTERN
     AWS_GITHUB_RUNNER_GROUP_ID
     AWS_REGION
     AWS_RUNNER_ROLE_PERMISSIONS_BOUNDARY_ARN
@@ -32,5 +33,6 @@ cfn-policy-validator validate \
     --parameters \
     "BudgetNotificationEmail=${AWS_BUDGET_NOTIFICATION_EMAIL}" \
     "GitHubOidcProviderArn=${AWS_GITHUB_OIDC_PROVIDER_ARN}" \
+    "GitHubOidcImmutableRepositoryPattern=${AWS_GITHUB_OIDC_REPOSITORY_SUBJECT_PATTERN}" \
     "GitHubRunnerGroupId=${AWS_GITHUB_RUNNER_GROUP_ID}" \
     "RunnerRolePermissionsBoundaryArn=${AWS_RUNNER_ROLE_PERMISSIONS_BOUNDARY_ARN}"

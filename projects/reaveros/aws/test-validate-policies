@@ -28,6 +28,7 @@ trap cleanup EXIT
 
 export AWS_BUDGET_NOTIFICATION_EMAIL=ci-billing@example.com
 export AWS_GITHUB_OIDC_PROVIDER_ARN=arn:aws:iam::123456789012:oidc-provider/token.actions.githubusercontent.com
+export AWS_GITHUB_OIDC_REPOSITORY_SUBJECT_PATTERN='reaver-project@1804403/reaveros@*'
 export AWS_GITHUB_RUNNER_GROUP_ID=7
 export AWS_REGION=us-west-2
 export AWS_RUNNER_ROLE_PERMISSIONS_BOUNDARY_ARN=arn:aws:iam::123456789012:policy/reaveros-boundary
@@ -48,6 +49,7 @@ expected_log=${test_directory}/expected
         --parameters \
         BudgetNotificationEmail=ci-billing@example.com \
         GitHubOidcProviderArn=arn:aws:iam::123456789012:oidc-provider/token.actions.githubusercontent.com \
+        'GitHubOidcImmutableRepositoryPattern=reaver-project@1804403/reaveros@*' \
         GitHubRunnerGroupId=7 \
         RunnerRolePermissionsBoundaryArn=arn:aws:iam::123456789012:policy/reaveros-boundary
     printf '\n'
@@ -58,9 +60,9 @@ if ! cmp --silent "${expected_log}" "${POLICY_VALIDATOR_TEST_LOG}"; then
     exit 1
 fi
 
-unset AWS_REGION
+unset AWS_GITHUB_OIDC_REPOSITORY_SUBJECT_PATTERN
 if "${self_dir}/validate-policies" "${template}" 2> /dev/null; then
-    printf 'Policy validation accepted a missing AWS region.\n' >&2
+    printf 'Policy validation accepted a missing immutable repository pattern.\n' >&2
     exit 1
 fi
 
