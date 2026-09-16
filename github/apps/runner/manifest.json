@@ -2,9 +2,6 @@
     "name": "Reaver Project runner manager",
     "url": "https://github.com/reaver-project/infrastructure",
     "description": "Registers and removes ephemeral organization-level GitHub Actions runners.",
-    "hook_attributes": {
-        "active": false
-    },
     "public": false,
     "default_permissions": {
         "organization_self_hosted_runners": "write"

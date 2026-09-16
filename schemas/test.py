@@ -79,6 +79,7 @@ require_rejection(repository_validator, invalid_repository, "required status che
 
 manifest_validator = validator("schemas/github-app-manifest.schema.json")
 for manifest_path in (
+    "github/apps/ci-gate/manifest.json",
     "github/apps/infrastructure/manifest.json",
     "github/apps/maintenance/manifest.json",
     "github/apps/runner/manifest.json",
@@ -100,6 +101,9 @@ if maintenance_manifest["default_events"]:
 invalid_manifest = load("github/apps/runner/manifest.json")
 invalid_manifest["public"] = True
 require_rejection(manifest_validator, invalid_manifest, "public infrastructure App")
+invalid_manifest = load("github/apps/runner/manifest.json")
+invalid_manifest["hook_attributes"] = {"active": False}
+require_rejection(manifest_validator, invalid_manifest, "webhook without URL")
 
 plan_validator = validator("schemas/private-plan.schema.json")
 plan = load("projects/reaveros/aws/testdata/private-plan.json")

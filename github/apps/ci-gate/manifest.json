@@ -2,9 +2,6 @@
     "name": "Reaver Project CI gate",
     "url": "https://github.com/reaver-project/infrastructure",
     "description": "Copies explicitly trusted pull request revisions onto protected CI branches.",
-    "hook_attributes": {
-        "active": false
-    },
     "public": false,
     "default_permissions": {
         "contents": "write",

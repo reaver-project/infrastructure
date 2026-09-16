@@ -8,7 +8,6 @@
         "name",
         "url",
         "description",
-        "hook_attributes",
         "public",
         "default_permissions",
         "default_events"
@@ -31,7 +30,7 @@
             "type": "object",
             "additionalProperties": false,
             "required": [
-                "active"
+                "url"
             ],
             "properties": {
                 "active": {

@@ -2,9 +2,6 @@
     "name": "Reaver Project infrastructure manager",
     "url": "https://github.com/reaver-project/infrastructure",
     "description": "Converges Reaver Project organization and repository configuration.",
-    "hook_attributes": {
-        "active": false
-    },
     "public": false,
     "default_permissions": {
         "actions_variables": "write",

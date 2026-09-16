@@ -2,9 +2,6 @@
     "name": "Reaver Project maintenance",
     "url": "https://github.com/reaver-project/infrastructure",
     "description": "Publishes and manages automated maintenance pull requests.",
-    "hook_attributes": {
-        "active": false
-    },
     "public": false,
     "default_permissions": {
         "checks": "read",
