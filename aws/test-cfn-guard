@@ -43,6 +43,14 @@ printf 'sha256sum\t%s\n' "$*" >> "${CFN_GUARD_TEST_LOG}"
 exit "${CFN_GUARD_TEST_SHA_STATUS:-0}"
 EOF
 
+cat > "${mock_bin}/shasum" << 'EOF'
+#!/usr/bin/env bash
+printf 'shasum\t%s\n' "$*" >> "${CFN_GUARD_TEST_LOG}"
+printf '%s  %s\n' \
+    "${CFN_GUARD_TEST_SHASUM:-6eb1d1693471499d47e453567a7d46f17171468ec31ff2aa98b91116b316b5c4}" \
+    "${!#}"
+EOF
+
 cat > "${mock_bin}/tar" << 'EOF'
 #!/usr/bin/env bash
 printf 'tar\t%s\n' "$*" >> "${CFN_GUARD_TEST_LOG}"
@@ -73,7 +81,26 @@ aws/cfn-guard test --rules-file rules.guard
 test "$(wc -l < "${CFN_GUARD_TEST_LOG}")" -eq 1
 grep -F $'guard\ttest --rules-file rules.guard' "${CFN_GUARD_TEST_LOG}" > /dev/null
 
+export REAVER_PROJECT_TOOL_CACHE=${test_root}/macos-cache
+export CFN_GUARD_TEST_OS=Darwin
+export CFN_GUARD_TEST_ARCH=arm64
+: > "${CFN_GUARD_TEST_LOG}"
+aws/cfn-guard validate --data template.yaml
+grep -F 'cfn-guard-v3-aarch64-macos-latest.tar.gz' "${CFN_GUARD_TEST_LOG}" > /dev/null
+grep -F $'shasum\t-a 256' "${CFN_GUARD_TEST_LOG}" > /dev/null
+
+export REAVER_PROJECT_TOOL_CACHE=${test_root}/invalid-macos-cache
+export CFN_GUARD_TEST_SHASUM=invalid
+if aws/cfn-guard validate --data template.yaml 2> /dev/null; then
+    printf 'cfn-guard accepted an invalid macOS release digest.\n' >&2
+    exit 1
+fi
+test ! -e "${REAVER_PROJECT_TOOL_CACHE}/cfn-guard/3.2.0/cfn-guard"
+unset CFN_GUARD_TEST_SHASUM
+
 export REAVER_PROJECT_TOOL_CACHE=${test_root}/invalid-cache
+export CFN_GUARD_TEST_OS=Linux
+export CFN_GUARD_TEST_ARCH=x86_64
 export CFN_GUARD_TEST_SHA_STATUS=1
 if aws/cfn-guard validate --data template.yaml 2> /dev/null; then
     printf 'cfn-guard accepted an invalid release digest.\n' >&2
