@@ -96,7 +96,47 @@ async function test_configuration_creates_a_missing_group() {
 }
 
 
+async function test_configuration_creates_a_locked_empty_group() {
+    const calls = [];
+    const request = async (path, token, method = "GET", body) => {
+        calls.push({body, method, path, token});
+        switch (path) {
+            case "/app/installations?per_page=100&page=1":
+                return [{account: {login: "reaver-project"}, id: 1234}];
+            case "/app/installations/1234/access_tokens":
+                return {token: "installation-token"};
+            case "/orgs/reaver-project/actions/runner-groups?per_page=100&page=1":
+                return {runner_groups: []};
+            case "/orgs/reaver-project/actions/runner-groups":
+                return {id: 77, ...body};
+            case "/orgs/reaver-project/actions/runner-groups/77/repositories":
+                return undefined;
+            default:
+                throw new Error(`Unexpected request: ${method} ${path}`);
+        }
+    };
+    const options = parse_arguments(["--credentials", "-"]);
+    const result = await configure_runner_group(
+        options,
+        {id: 1, pem: "unused"},
+        request,
+        () => "app-jwt",
+    );
+
+    assert.deepStrictEqual(result, {installation_id: 1234, runner_group_id: 77});
+    const create = calls.find(call => call.method === "POST"
+        && call.path === "/orgs/reaver-project/actions/runner-groups");
+    assert.deepStrictEqual(create.body.selected_workflows, []);
+    assert.strictEqual(create.body.restricted_to_workflows, true);
+    assert.strictEqual(create.body.visibility, "selected");
+    const repositories = calls.find(call => call.method === "PUT"
+        && call.path === "/orgs/reaver-project/actions/runner-groups/77/repositories");
+    assert.deepStrictEqual(repositories.body.selected_repository_ids, []);
+}
+
+
 Promise.all([
+    test_configuration_creates_a_locked_empty_group(),
     test_configuration_creates_a_missing_group(),
     test_configuration_paginates_and_updates(),
 ]).catch(error => {
