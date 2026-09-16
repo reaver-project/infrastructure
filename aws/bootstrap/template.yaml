@@ -493,6 +493,7 @@ Resources:
                                 cloudformation:ChangeSetName: !Sub ${RunnerStackName}-*
                       - Effect: Allow
                         Action:
+                          - cloudformation:DescribeChangeSet
                           - cloudformation:DescribeStacks
                           - cloudformation:DescribeStackEvents
                           - cloudformation:GetTemplate
@@ -501,7 +502,6 @@ Resources:
                       - Effect: Allow
                         Action:
                           - cloudformation:DeleteChangeSet
-                          - cloudformation:DescribeChangeSet
                         Resource: !Sub arn:${AWS::Partition}:cloudformation:${AWS::Region}:${AWS::AccountId}:stack/${RunnerStackName}/*
                         Condition:
                             StringLike:
@@ -588,19 +588,12 @@ Resources:
                         Resource: !Sub ${DeploymentArtifactBucket.Arn}/plans/*
                       - Effect: Allow
                         Action:
+                          - cloudformation:DescribeChangeSet
                           - cloudformation:DescribeStacks
                           - cloudformation:DescribeStackEvents
                           - cloudformation:ExecuteChangeSet
                           - cloudformation:UpdateTerminationProtection
                         Resource: !Sub arn:${AWS::Partition}:cloudformation:${AWS::Region}:${AWS::AccountId}:stack/${RunnerStackName}/*
-                      - Effect: Allow
-                        Action: cloudformation:DescribeChangeSet
-                        Resource: !Sub arn:${AWS::Partition}:cloudformation:${AWS::Region}:${AWS::AccountId}:stack/${RunnerStackName}/*
-                        Condition:
-                            StringLike:
-                                cloudformation:ChangeSetName:
-                                  - !Sub ${RunnerStackName}-*
-                                  - !Sub arn:${AWS::Partition}:cloudformation:${AWS::Region}:${AWS::AccountId}:changeSet/${RunnerStackName}-*/*
             Tags:
               - Key: Project
                 Value: ReaverProjectInfrastructure
