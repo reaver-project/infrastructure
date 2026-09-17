@@ -8,6 +8,7 @@ on:
           - .github/workflows/aws-control-plane.yml
           - .github/workflows/aws-control-plane-deploy.yml
           - aws/bootstrap/**
+          - aws/cloudformation-parameters
           - aws/control-plane/**
           - aws/local-deployment
           - aws/organization/reaver-project.json
