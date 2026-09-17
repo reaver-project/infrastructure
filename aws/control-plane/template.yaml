@@ -487,19 +487,31 @@ Resources:
                       - Effect: Allow
                         Action:
                           - iam:CreateRole
+                          - iam:TagRole
+                        Resource: !Sub arn:${AWS::Partition}:iam::${AWS::AccountId}:role/*
+                        Condition:
+                            StringEquals:
+                                aws:RequestTag/Project: ReaverProjectInfrastructure
+                      - Effect: Allow
+                        Action:
                           - iam:DeleteRole
                           - iam:DeleteRolePolicy
                           - iam:GetRole
                           - iam:GetRolePolicy
                           - iam:ListAttachedRolePolicies
+                          - iam:ListInstanceProfilesForRole
                           - iam:ListRolePolicies
+                          - iam:ListRoleTags
                           - iam:PutRolePolicy
                           - iam:TagRole
                           - iam:UntagRole
                           - iam:UpdateAssumeRolePolicy
                           - iam:UpdateRole
                           - iam:UpdateRoleDescription
-                        Resource: !Sub arn:${AWS::Partition}:iam::${AWS::AccountId}:role/${AWS::StackName}-*
+                        Resource: !Sub arn:${AWS::Partition}:iam::${AWS::AccountId}:role/*
+                        Condition:
+                            StringEquals:
+                                aws:ResourceTag/Project: ReaverProjectInfrastructure
                       - Effect: Allow
                         Action:
                           - iam:CreatePolicy
@@ -560,6 +572,7 @@ Resources:
                       - Effect: Allow
                         Action:
                           - access-analyzer:GetAnalyzer
+                          - access-analyzer:ListArchiveRules
                           - access-analyzer:ListTagsForResource
                           - access-analyzer:TagResource
                           - access-analyzer:UntagResource
