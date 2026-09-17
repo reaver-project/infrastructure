@@ -451,6 +451,28 @@ if grep --fixed-strings --quiet \
     exit 1
 fi
 
+for control_plane_execution_boundary in \
+    'aws:RequestTag/Project: ReaverProjectInfrastructure' \
+    'aws:ResourceTag/Project: ReaverProjectInfrastructure' \
+    'access-analyzer:ListArchiveRules' \
+    'iam:ListInstanceProfilesForRole' \
+    'iam:ListRoleTags'; do
+    if ! grep --fixed-strings --quiet \
+        "${control_plane_execution_boundary}" \
+        "${self_dir}/template.yaml"; then
+        printf 'Control-plane execution boundary omitted: %s\n' \
+            "${control_plane_execution_boundary}" >&2
+        exit 1
+    fi
+done
+
+if grep --fixed-strings --quiet \
+    'role/${AWS::StackName}-*' \
+    "${self_dir}/template.yaml"; then
+    printf 'Control-plane role management relies on truncated physical names.\n' >&2
+    exit 1
+fi
+
 if [[ $(grep --fixed-strings --count \
     -- '- cloudformation:DescribeChangeSet' \
     "${self_dir}/template.yaml") -ne 4 ]]; then
