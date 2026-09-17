@@ -86,6 +86,8 @@ Resources:
             VersioningConfiguration:
                 Status: Enabled
             Tags:
+              - Key: Purpose
+                Value: DeploymentArtifacts
               - Key: Project
                 Value: ReaverProjectInfrastructure
 
