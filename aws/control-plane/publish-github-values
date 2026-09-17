@@ -1,0 +1,39 @@
+#!/usr/bin/env bash
+
+set -euo pipefail
+
+required_environment=(
+    AWS_BUDGET_NOTIFICATION_EMAIL
+    AWS_CLOUDFORMATION_EXECUTION_ROLE_ARN
+    AWS_CONTROL_PLANE_DEPLOY_ROLE_ARN
+    AWS_CONTROL_PLANE_EXECUTION_ROLE_ARN
+    AWS_CONTROL_PLANE_PLAN_ROLE_ARN
+    AWS_CONTROL_PLANE_STACK_NAME
+    AWS_DEPLOYMENT_ARTIFACT_BUCKET
+    AWS_DEPLOYMENT_PLAN_AUDIT_BUCKET
+    AWS_GITHUB_OIDC_PROVIDER_ARN
+    AWS_GITHUB_OIDC_REPOSITORY_SUBJECT_PATTERN
+    AWS_GITHUB_RUNNER_GROUP_ID
+    AWS_INFRASTRUCTURE_DEPLOY_ROLE_ARN
+    AWS_INFRASTRUCTURE_ACCESS_ANALYZER_ARN
+    AWS_INFRASTRUCTURE_PLAN_ROLE_ARN
+    AWS_REGION
+    AWS_RUNNER_ROLE_PERMISSIONS_BOUNDARY_ARN
+    AWS_RUNNER_STACK_NAME
+    GITHUB_REPOSITORY
+)
+for variable in "${required_environment[@]}"; do
+    if [[ -z ${!variable:-} ]]; then
+        printf 'Required environment variable is empty: %s\n' "${variable}" >&2
+        exit 2
+    fi
+done
+
+for variable in "${required_environment[@]}"; do
+    if [[ ${variable} == GITHUB_REPOSITORY ]]; then
+        continue
+    fi
+    gh variable set "${variable}" \
+        --repo "${GITHUB_REPOSITORY}" \
+        --body "${!variable}"
+done

@@ -6,10 +6,15 @@ if [[ $(basename -- "$0") == aws ]]; then
     if [[ $1 == cloudformation && $2 == describe-stacks ]]; then
         jq --null-input \
             --arg contract_version "${TEST_CONTRACT_VERSION:-1}" \
+            --arg infrastructure_revision "${TEST_INFRASTRUCTURE_REVISION}" \
             '[
                 {
                     OutputKey: "InfrastructureContractVersion",
                     OutputValue: $contract_version
+                },
+                {
+                    OutputKey: "InfrastructureRevision",
+                    OutputValue: $infrastructure_revision
                 },
                 {
                     OutputKey: "GitHubActionsRoleArn",
@@ -43,6 +48,7 @@ GITHUB_SHA=$(git -C "${self_dir}" rev-parse HEAD)
 : > "${GITHUB_OUTPUT}"
 
 export TEST_CONTRACT_VERSION=${contract_version}
+export TEST_INFRASTRUCTURE_REVISION=${GITHUB_SHA}
 "${self_dir}/read-deployed-contract"
 grep --fixed-strings --line-regexp \
     "contract_version=${contract_version}" "${GITHUB_OUTPUT}" > /dev/null
@@ -55,6 +61,13 @@ grep --fixed-strings --line-regexp \
 export TEST_CONTRACT_VERSION=$((contract_version + 1))
 if "${self_dir}/read-deployed-contract" > /dev/null 2>&1; then
     printf 'A deployed contract that differs from its source was accepted.\n' >&2
+    exit 1
+fi
+
+export TEST_CONTRACT_VERSION=${contract_version}
+export TEST_INFRASTRUCTURE_REVISION=aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa
+if "${self_dir}/read-deployed-contract" > /dev/null 2>&1; then
+    printf 'A deployed stack from another infrastructure revision was accepted.\n' >&2
     exit 1
 fi
 

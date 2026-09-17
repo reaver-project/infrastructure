@@ -32,7 +32,8 @@ The GitHub configuration covers:
 
 ## Repository layout
 
-- `aws/bootstrap/`: CI-account deployment trust and its local bootstrap tools;
+- `aws/control-plane/`: permanent CI-account deployment trust and its management tools;
+- `aws/bootstrap/`: thin first-install and recovery entrypoints for the control plane;
 - `aws/organization/`: AWS organization and cost-control desired state;
 - `actions/`: reusable GitHub Actions integrations;
 - `github/apps/`: GitHub App manifests and credential bootstrap tools;

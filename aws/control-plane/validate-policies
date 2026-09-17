@@ -1,0 +1,61 @@
+#!/usr/bin/env bash
+
+set -euo pipefail
+
+if [[ $# -ne 0 ]]; then
+    printf 'usage: %s\n' "$0" >&2
+    exit 2
+fi
+
+required_environment=(
+    AWS_DEPLOYMENT_PLAN_AUDIT_BUCKET
+    AWS_GITHUB_OIDC_PROVIDER_ARN
+    AWS_INFRASTRUCTURE_ACCESS_ANALYZER_ARN
+    AWS_REGION
+    AWS_RUNNER_STACK_NAME
+    GITHUB_SHA
+)
+for variable in "${required_environment[@]}"; do
+    if [[ -z ${!variable:-} ]]; then
+        printf 'Required environment variable is empty: %s\n' "${variable}" >&2
+        exit 2
+    fi
+done
+
+self_dir=$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)
+# shellcheck source=aws/cloudformation-parameters
+# shellcheck disable=SC1091
+source "${self_dir}/../cloudformation-parameters"
+
+default_parameters=(
+    BuildEnvironmentRepositoryName
+    GitHubDefaultBranch
+    GitHubOidcImmutableRepository
+    GitHubOidcPlanWorkflowReference
+    GitHubOidcDeployWorkflowReference
+    GitHubOidcControlPlanePlanWorkflowReference
+    GitHubOidcControlPlaneDeployWorkflowReference
+)
+parameters=()
+for parameter in "${default_parameters[@]}"; do
+    if ! value=$(cloudformation_parameter_default \
+        "${self_dir}/template.yaml" "${parameter}"); then
+        printf 'CloudFormation parameter has no default: %s\n' "${parameter}" >&2
+        exit 2
+    fi
+    parameters+=("${parameter}=${value}")
+done
+
+template_sha256=$(sha256sum "${self_dir}/template.yaml" | cut -d ' ' -f 1)
+cfn-policy-validator validate \
+    --template-path "${self_dir}/template.yaml" \
+    --region "${AWS_REGION}" \
+    --allow-external-principals "${AWS_GITHUB_OIDC_PROVIDER_ARN}" \
+    --parameters \
+    "ControlPlaneRevision=${GITHUB_SHA}" \
+    "ControlPlaneTemplateSha256=${template_sha256}" \
+    "DeploymentPlanAuditLogBucketName=${AWS_DEPLOYMENT_PLAN_AUDIT_BUCKET}" \
+    "GitHubOidcProviderArn=${AWS_GITHUB_OIDC_PROVIDER_ARN}" \
+    "InfrastructureAccessAnalyzerArn=${AWS_INFRASTRUCTURE_ACCESS_ANALYZER_ARN}" \
+    "RunnerStackName=${AWS_RUNNER_STACK_NAME}" \
+    "${parameters[@]}"

@@ -1,22 +1,27 @@
-name: Plan AWS infrastructure
+name: Plan AWS control plane
 
 on:
     push:
         branches:
           - main
         paths:
-          - .github/workflows/aws-infrastructure.yml
-          - .github/workflows/aws-infrastructure-deploy.yml
-          - aws/policy-validation-requirements.in
+          - .github/workflows/aws-control-plane.yml
+          - .github/workflows/aws-control-plane-deploy.yml
+          - aws/bootstrap/**
+          - aws/cloudformation-parameters
+          - aws/control-plane/**
+          - aws/local-deployment
+          - aws/organization/reaver-project.json
           - aws/policy-validation-requirements.txt
-          - projects/reaveros/aws/**
+          - github/repositories/infrastructure.json
+          - schemas/control-plane-plan.schema.json
     workflow_dispatch:
 
 permissions:
     contents: read
 
 concurrency:
-    group: reaveros-aws-infrastructure
+    group: aws-control-plane
     cancel-in-progress: false
 
 jobs:
@@ -25,22 +30,21 @@ jobs:
         uses: ./.github/workflows/validate.yml
 
     plan:
-        name: Create a ReaverOS AWS change set
+        name: Create an AWS control-plane change set
         needs: validate
         runs-on: ubuntu-latest
-        timeout-minutes: 20
+        timeout-minutes: 15
         permissions:
             contents: read
             id-token: write
         env:
-            AWS_BUDGET_NOTIFICATION_EMAIL: ${{ vars.AWS_BUDGET_NOTIFICATION_EMAIL }}
-            AWS_CLOUDFORMATION_EXECUTION_ROLE_ARN: ${{ vars.AWS_CLOUDFORMATION_EXECUTION_ROLE_ARN }}
+            AWS_CONTROL_PLANE_STACK_NAME: ${{ vars.AWS_CONTROL_PLANE_STACK_NAME }}
+            AWS_CONTROL_PLANE_EXECUTION_ROLE_ARN: ${{ vars.AWS_CONTROL_PLANE_EXECUTION_ROLE_ARN }}
             AWS_DEPLOYMENT_ARTIFACT_BUCKET: ${{ vars.AWS_DEPLOYMENT_ARTIFACT_BUCKET }}
+            AWS_DEPLOYMENT_PLAN_AUDIT_BUCKET: ${{ vars.AWS_DEPLOYMENT_PLAN_AUDIT_BUCKET }}
             AWS_GITHUB_OIDC_PROVIDER_ARN: ${{ vars.AWS_GITHUB_OIDC_PROVIDER_ARN }}
-            AWS_GITHUB_OIDC_REPOSITORY_SUBJECT_PATTERN: ${{ vars.AWS_GITHUB_OIDC_REPOSITORY_SUBJECT_PATTERN }}
-            AWS_GITHUB_RUNNER_GROUP_ID: ${{ vars.AWS_GITHUB_RUNNER_GROUP_ID }}
+            AWS_INFRASTRUCTURE_ACCESS_ANALYZER_ARN: ${{ vars.AWS_INFRASTRUCTURE_ACCESS_ANALYZER_ARN }}
             AWS_REGION: ${{ vars.AWS_REGION }}
-            AWS_RUNNER_ROLE_PERMISSIONS_BOUNDARY_ARN: ${{ vars.AWS_RUNNER_ROLE_PERMISSIONS_BOUNDARY_ARN }}
             AWS_RUNNER_STACK_NAME: ${{ vars.AWS_RUNNER_STACK_NAME }}
 
         steps:
@@ -70,21 +74,15 @@ jobs:
             uses: aws-actions/configure-aws-credentials@e6de054238d6b7531b4efff3b6587d9aade6a06c # v6.2.3
             with:
                 aws-region: ${{ env.AWS_REGION }}
-                role-to-assume: ${{ vars.AWS_INFRASTRUCTURE_PLAN_ROLE_ARN }}
-                role-session-name: infrastructure-plan-${{ github.run_id }}
+                role-to-assume: ${{ vars.AWS_CONTROL_PLANE_PLAN_ROLE_ARN }}
+                role-session-name: control-plane-plan-${{ github.run_id }}
 
           - name: Validate IAM policies with Access Analyzer
-            run: projects/reaveros/aws/validate-policies projects/reaveros/aws/runner-stack.yaml
-
-          - name: Package Lambda functions
-            run: projects/reaveros/aws/package-functions build/reaveros-lambda
+            run: aws/control-plane/validate-policies
 
           - name: Create the reviewed change set
             id: plan
-            run: |
-                projects/reaveros/aws/plan-infrastructure \
-                    projects/reaveros/aws/runner-stack.yaml \
-                    "${AWS_RUNNER_STACK_NAME}-${GITHUB_RUN_ID}-${GITHUB_RUN_ATTEMPT}"
+            run: aws/control-plane/plan-github
 
           - name: Explain how to apply the plan
             if: steps.plan.outputs.has_changes == 'true'
@@ -94,6 +92,6 @@ jobs:
                 {
                     printf '\n### Approval\n\n'
                     printf 'After reviewing the private change set in AWS, manually run '
-                    printf '\x60Deploy AWS infrastructure\x60 with lookup key \x60%s\x60.\n' \
+                    printf '\x60Deploy AWS control plane\x60 with lookup key \x60%s\x60.\n' \
                         "${PLAN_KEY}"
                 } >> "${GITHUB_STEP_SUMMARY}"

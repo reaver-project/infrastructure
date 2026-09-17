@@ -39,7 +39,7 @@ if [[ $(basename -- "$0") == aws ]]; then
                         Parameters: (if $ENV.LOG_ARCHIVE_TEST_STACK_STATUS == "REVIEW_IN_PROGRESS" then null else [
                             {ParameterKey: "CiAccountId", ParameterValue: "560512681071"},
                             {
-                                ParameterKey: "CiBootstrapStackName",
+                                ParameterKey: "CiControlPlaneStackName",
                                 ParameterValue: "reaver-project-ci-deployment-trust"
                             }
                         ] end),
@@ -81,7 +81,7 @@ if [[ $(basename -- "$0") == aws ]]; then
                         {ParameterKey: "TemplateSha256", ParameterValue: $template_sha256},
                         {ParameterKey: "CiAccountId", ParameterValue: "560512681071"},
                         {
-                            ParameterKey: "CiBootstrapStackName",
+                            ParameterKey: "CiControlPlaneStackName",
                             ParameterValue: "reaver-project-ci-deployment-trust"
                         }
                     ]
@@ -128,7 +128,7 @@ grep --fixed-strings --quiet \
     'ParameterKey=CiAccountId,ParameterValue=560512681071' \
     "${LOG_ARCHIVE_TEST_LOG}"
 grep --fixed-strings --quiet \
-    'ParameterKey=CiBootstrapStackName,ParameterValue=reaver-project-ci-deployment-trust' \
+    'ParameterKey=CiControlPlaneStackName,ParameterValue=reaver-project-ci-deployment-trust' \
     "${LOG_ARCHIVE_TEST_LOG}"
 grep --fixed-strings --quiet \
     "ParameterKey=InfrastructureRevision,ParameterValue=${LOG_ARCHIVE_TEST_REVISION}" \
@@ -169,7 +169,7 @@ export LOG_ARCHIVE_TEST_STACK_STATUS=CREATE_COMPLETE
 export LOG_ARCHIVE_TEST_CHANGE_SET_EXISTS=1
 export LOG_ARCHIVE_TEST_STACK_CURRENT=1
 if "${self_dir}/deploy" plan "${arguments[@]}" \
-    --ci-bootstrap-stack-name different-bootstrap \
+    --ci-control-plane-stack-name different-control-plane \
     > /dev/null 2>&1; then
     printf 'The central audit plan reused a change set with different parameters.\n' >&2
     exit 1
@@ -180,7 +180,7 @@ export LOG_ARCHIVE_TEST_STACK_CURRENT=1
 create_count=$(grep --fixed-strings --count $'cloudformation\tcreate-change-set' \
     "${LOG_ARCHIVE_TEST_LOG}")
 different_output=$("${self_dir}/deploy" plan "${arguments[@]}" \
-    --ci-bootstrap-stack-name different-bootstrap)
+    --ci-control-plane-stack-name different-control-plane)
 if [[ ${different_output} == *'already matches revision'* ||
     $(grep --fixed-strings --count $'cloudformation\tcreate-change-set' \
         "${LOG_ARCHIVE_TEST_LOG}") -ne $((create_count + 1)) ]]; then

@@ -1,18 +1,22 @@
 #!/usr/bin/env bash
 
-# shellcheck disable=SC2154 # Callers define the bootstrap context before use.
+# shellcheck disable=SC2154 # Callers define the local deployment context before use.
 
-bootstrap_aws()
+local_aws()
 {
-    aws --profile "${bootstrap_profile}" "$@"
+    if [[ -n ${local_profile} ]]; then
+        aws --profile "${local_profile}" "$@"
+    else
+        aws "$@"
+    fi
 }
 
-bootstrap_repository_revision()
+local_repository_revision()
 {
     git -C "${repository_root}" rev-parse HEAD
 }
 
-bootstrap_require_clean_repository()
+local_require_clean_repository()
 {
     if [[ -n $(git -C "${repository_root}" status --porcelain --untracked-files=all) ]]; then
         printf 'Refusing to plan or apply from a dirty infrastructure worktree.\n' >&2
@@ -20,12 +24,12 @@ bootstrap_require_clean_repository()
     fi
 }
 
-bootstrap_template_sha256()
+local_template_sha256()
 {
     sha256sum "$1" | cut --delimiter=' ' --fields=1
 }
 
-bootstrap_account_id()
+organization_account_id()
 {
     local config=$1
     local account_name=$2
@@ -35,19 +39,19 @@ bootstrap_account_id()
         "${config}"
 }
 
-bootstrap_require_account()
+local_require_account()
 {
-    if [[ ! ${expected_account_id} =~ ^[0-9]{12}$ || -z ${bootstrap_profile} ]]; then
-        printf 'A profile and configured twelve-digit account ID are required.\n' >&2
+    if [[ ! ${expected_account_id} =~ ^[0-9]{12}$ ]]; then
+        printf 'A configured twelve-digit account ID is required.\n' >&2
         exit 2
     fi
 
     local actual_account_id
-    actual_account_id=$(bootstrap_aws sts get-caller-identity \
+    actual_account_id=$(local_aws sts get-caller-identity \
         --query Account \
         --output text)
     if [[ ${actual_account_id} != "${expected_account_id}" ]]; then
-        printf 'Refusing CI bootstrap operation in unexpected AWS account %s.\n' \
+        printf 'Refusing local infrastructure operation in unexpected AWS account %s.\n' \
             "${actual_account_id}" >&2
         exit 1
     fi

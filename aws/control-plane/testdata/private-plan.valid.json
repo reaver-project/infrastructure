@@ -1,0 +1,11 @@
+{
+    "schema_version": 1,
+    "target": "control-plane",
+    "change_set_arn": "arn:aws:cloudformation:us-west-2:123456789012:changeSet/reaver-project-ci-deployment-trust-0123456789ab/01234567-89ab-cdef-0123-456789abcdef",
+    "repository": "reaver-project/infrastructure",
+    "run_attempt": "1",
+    "run_id": "123456789",
+    "source_revision": "0123456789abcdef0123456789abcdef01234567",
+    "stack_name": "reaver-project-ci-deployment-trust",
+    "template_sha256": "0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef"
+}

@@ -4,8 +4,9 @@ set -euo pipefail
 
 self_dir=$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)
 repository_root=$(git -C "${self_dir}" rev-parse --show-toplevel)
-# shellcheck source=aws/bootstrap/common
-source "${self_dir}/../../bootstrap/common"
+# shellcheck source=aws/local-deployment
+# shellcheck disable=SC1091
+source "${repository_root}/aws/local-deployment"
 
 mode=${1:-}
 if [[ ${mode} == plan || ${mode} == apply ]]; then
@@ -14,9 +15,9 @@ else
     mode=
 fi
 
-bootstrap_profile=
-bootstrap_stack_name=reaver-project-central-audit
-ci_bootstrap_stack_name=reaver-project-ci-deployment-trust
+local_profile=
+local_stack_name=reaver-project-central-audit
+ci_control_plane_stack_name=reaver-project-ci-deployment-trust
 expected_account_id=
 organization_config="${repository_root}/aws/organization/reaver-project.json"
 region=us-west-2
@@ -25,15 +26,15 @@ usage()
 {
     printf '%s\n' \
         "usage: $0 <plan|apply> --profile <profile>" \
-        '    [--ci-bootstrap-stack-name <name>]' \
+        '    [--ci-control-plane-stack-name <name>]' \
         '    [--organization-config <path>]' \
         '    [--region <region>] [--stack-name <name>]'
 }
 
 while [[ $# -gt 0 ]]; do
     case $1 in
-        --ci-bootstrap-stack-name)
-            ci_bootstrap_stack_name=$2
+        --ci-control-plane-stack-name)
+            ci_control_plane_stack_name=$2
             shift 2
             ;;
         --organization-config)
@@ -41,7 +42,7 @@ while [[ $# -gt 0 ]]; do
             shift 2
             ;;
         --profile)
-            bootstrap_profile=$2
+            local_profile=$2
             shift 2
             ;;
         --region)
@@ -49,7 +50,7 @@ while [[ $# -gt 0 ]]; do
             shift 2
             ;;
         --stack-name)
-            bootstrap_stack_name=$2
+            local_stack_name=$2
             shift 2
             ;;
         --help | -h)
@@ -67,16 +68,17 @@ if [[ -z ${mode} ]]; then
     usage >&2
     exit 2
 fi
-expected_account_id=$(bootstrap_account_id \
+expected_account_id=$(organization_account_id \
     "${organization_config}" \
     reaver-project-log-archive)
-ci_account_id=$(bootstrap_account_id "${organization_config}" reaver-project-ci)
-bootstrap_require_clean_repository
-bootstrap_require_account
+export expected_account_id local_profile
+ci_account_id=$(organization_account_id "${organization_config}" reaver-project-ci)
+local_require_clean_repository
+local_require_account
 
-revision=$(bootstrap_repository_revision)
-template_sha256=$(bootstrap_template_sha256 "${self_dir}/template.yaml")
-change_set_name="${bootstrap_stack_name}-${revision:0:12}"
+revision=$(local_repository_revision)
+template_sha256=$(local_template_sha256 "${self_dir}/template.yaml")
+change_set_name="${local_stack_name}-${revision:0:12}"
 
 if [[ ${mode} == plan ]]; then
     describe_error=$(mktemp)
@@ -88,9 +90,9 @@ if [[ ${mode} == plan ]]; then
     }
     trap cleanup EXIT
 
-    if stack=$(bootstrap_aws cloudformation describe-stacks \
+    if stack=$(local_aws cloudformation describe-stacks \
         --region "${region}" \
-        --stack-name "${bootstrap_stack_name}" \
+        --stack-name "${local_stack_name}" \
         --query 'Stacks[0]' \
         --output json \
         2> "${describe_error}"); then
@@ -118,9 +120,9 @@ if [[ ${mode} == plan ]]; then
             ${deployed_revision} == "${revision}" &&
             ${deployed_template_sha256} == "${template_sha256}" &&
             $(stack_parameter CiAccountId) == "${ci_account_id}" &&
-            $(stack_parameter CiBootstrapStackName) == "${ci_bootstrap_stack_name}" ]]; then
+            $(stack_parameter CiControlPlaneStackName) == "${ci_control_plane_stack_name}" ]]; then
             printf 'Central audit stack %s already matches revision %s.\n' \
-                "${bootstrap_stack_name}" "${revision}"
+                "${local_stack_name}" "${revision}"
             exit
         fi
     elif grep --fixed-strings --quiet 'does not exist' "${describe_error}"; then
@@ -132,7 +134,7 @@ if [[ ${mode} == plan ]]; then
 
     create_arguments=(
         --region "${region}"
-        --stack-name "${bootstrap_stack_name}"
+        --stack-name "${local_stack_name}"
         --change-set-name "${change_set_name}"
         --change-set-type "${change_set_type}"
         --description "Central audit storage revision ${revision}; template ${template_sha256}"
@@ -141,17 +143,17 @@ if [[ ${mode} == plan ]]; then
         "ParameterKey=InfrastructureRevision,ParameterValue=${revision}"
         "ParameterKey=TemplateSha256,ParameterValue=${template_sha256}"
         "ParameterKey=CiAccountId,ParameterValue=${ci_account_id}"
-        "ParameterKey=CiBootstrapStackName,ParameterValue=${ci_bootstrap_stack_name}"
+        "ParameterKey=CiControlPlaneStackName,ParameterValue=${ci_control_plane_stack_name}"
     )
     if [[ ${change_set_type} == CREATE ]]; then
         create_arguments+=(--on-stack-failure DELETE)
     fi
     created_change_set=true
-    if bootstrap_aws cloudformation create-change-set "${create_arguments[@]}" \
+    if local_aws cloudformation create-change-set "${create_arguments[@]}" \
         > /dev/null 2> "${create_error}"; then
-        bootstrap_aws cloudformation wait change-set-create-complete \
+        local_aws cloudformation wait change-set-create-complete \
             --region "${region}" \
-            --stack-name "${bootstrap_stack_name}" \
+            --stack-name "${local_stack_name}" \
             --change-set-name "${change_set_name}"
     elif ! grep --fixed-strings --quiet 'AlreadyExists' "${create_error}"; then
         cat "${create_error}" >&2
@@ -160,13 +162,13 @@ if [[ ${mode} == plan ]]; then
         created_change_set=false
     fi
 
-    change_set=$(bootstrap_aws cloudformation describe-change-set \
+    change_set=$(local_aws cloudformation describe-change-set \
         --region "${region}" \
-        --stack-name "${bootstrap_stack_name}" \
+        --stack-name "${local_stack_name}" \
         --change-set-name "${change_set_name}" \
         --output json)
     expected_description="Central audit storage revision ${revision}; template ${template_sha256}"
-    if [[ $(jq --raw-output '.StackName' <<< "${change_set}") != "${bootstrap_stack_name}" ||
+    if [[ $(jq --raw-output '.StackName' <<< "${change_set}") != "${local_stack_name}" ||
     $(jq --raw-output '.ChangeSetName' <<< "${change_set}") != "${change_set_name}" ||
     $(jq --raw-output '.Status' <<< "${change_set}") != CREATE_COMPLETE ||
     $(jq --raw-output '.ExecutionStatus' <<< "${change_set}") != AVAILABLE ||
@@ -186,7 +188,7 @@ if [[ ${mode} == plan ]]; then
         [[ $(change_set_parameter InfrastructureRevision) != "${revision}" ||
         $(change_set_parameter TemplateSha256) != "${template_sha256}" ||
         $(change_set_parameter CiAccountId) != "${ci_account_id}" ||
-        $(change_set_parameter CiBootstrapStackName) != "${ci_bootstrap_stack_name}" ]]; then
+        $(change_set_parameter CiControlPlaneStackName) != "${ci_control_plane_stack_name}" ]]; then
         printf 'Refusing an existing central-audit change set with different parameters.\n' >&2
         exit 1
     fi
@@ -194,9 +196,9 @@ if [[ ${mode} == plan ]]; then
     exit
 fi
 
-change_set=$(bootstrap_aws cloudformation describe-change-set \
+change_set=$(local_aws cloudformation describe-change-set \
     --region "${region}" \
-    --stack-name "${bootstrap_stack_name}" \
+    --stack-name "${local_stack_name}" \
     --change-set-name "${change_set_name}" \
     --output json)
 stack_name=$(jq --exit-status --raw-output '.StackName' <<< "${change_set}")
@@ -217,7 +219,7 @@ esac
 status=$(jq --exit-status --raw-output '.Status' <<< "${change_set}")
 execution_status=$(jq --exit-status --raw-output '.ExecutionStatus' <<< "${change_set}")
 description=$(jq --exit-status --raw-output '.Description' <<< "${change_set}")
-if [[ ${stack_name} != "${bootstrap_stack_name}" ||
+if [[ ${stack_name} != "${local_stack_name}" ||
     ${resolved_change_set_name} != "${change_set_name}" ||
     ${status} != CREATE_COMPLETE ||
     ${execution_status} != AVAILABLE ||
@@ -226,9 +228,9 @@ if [[ ${stack_name} != "${bootstrap_stack_name}" ||
     exit 1
 fi
 
-bootstrap_aws cloudformation execute-change-set \
+local_aws cloudformation execute-change-set \
     --region "${region}" \
-    --stack-name "${bootstrap_stack_name}" \
+    --stack-name "${local_stack_name}" \
     --change-set-name "${change_set_name}" \
     --client-request-token "local-${revision}" \
     > /dev/null
@@ -240,17 +242,17 @@ case ${change_set_type} in
         waiter='stack-update-complete'
         ;;
 esac
-bootstrap_aws cloudformation wait "${waiter}" \
+local_aws cloudformation wait "${waiter}" \
     --region "${region}" \
-    --stack-name "${bootstrap_stack_name}"
-bootstrap_aws cloudformation update-termination-protection \
+    --stack-name "${local_stack_name}"
+local_aws cloudformation update-termination-protection \
     --region "${region}" \
-    --stack-name "${bootstrap_stack_name}" \
+    --stack-name "${local_stack_name}" \
     --enable-termination-protection \
     > /dev/null
-stack_outputs=$(bootstrap_aws cloudformation describe-stacks \
+stack_outputs=$(local_aws cloudformation describe-stacks \
     --region "${region}" \
-    --stack-name "${bootstrap_stack_name}" \
+    --stack-name "${local_stack_name}" \
     --query 'Stacks[0].Outputs' \
     --output json)
 output_value()

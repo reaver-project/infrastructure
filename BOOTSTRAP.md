@@ -1,8 +1,9 @@
 # CI infrastructure bootstrap
 
-This runbook establishes the external GitHub and CI-account deployment roots of
-trust consumed by the repository. It is deliberately not automated by the
-workflows whose credentials it creates.
+This runbook establishes the external GitHub identity and creates the permanent
+CI-account control plane consumed by the repository. The bootstrap entrypoints
+delegate to the same control-plane implementation used after handoff; they do
+not create a separate bootstrap stack or any bootstrap-only AWS resources.
 
 ## Prerequisites
 
@@ -39,26 +40,23 @@ workflows whose credentials it creates.
 
    Apply any actions after review. The `Project` allocation tag is expected to
    remain pending until AWS Billing observes the first tagged project resource.
-2. Create and install the Infrastructure, Maintenance, and Runner Apps using
-   `github/apps/README.md`.
+2. Create and install the Infrastructure and Runner Apps using
+   `github/apps/README.md`. The Maintenance and CI Gate definitions remain in
+   the repository, but ReaverOS repository installation is deferred.
 3. Use the owner token once to run `github/configure-repository` with
    `github/repositories/infrastructure.json`. The configurator establishes the
    ruleset and protected environments before its final operation makes the
    repository public.
 4. Install the Infrastructure App credential in the `github-production`
    environment with `github/apps/configure-infrastructure-app`.
-5. Run the GitHub configuration workflow once. This converges ReaverOS policy
-   and creates its main-branch-only `maintenance` environment.
-6. Install the Maintenance App credential in that environment with
-   `github/apps/configure-maintenance-app`.
-7. Configure the Runner App group with `github/apps/configure-runner-group` and
+5. Configure the Runner App group with `github/apps/configure-runner-group` and
    retain its numeric group and installation IDs.
-8. In the log-archive account, run
+6. In the log-archive account, run
    `aws/organization/log-archive/deploy plan` with the
    `reaver-project-log-archive-admin` profile. Account IDs come from the
    reviewed organization configuration. Inspect and apply that exact change
    set, then retain its `DeploymentPlanAuditLogBucketName` output.
-9. Create and inspect the CI deployment-trust change set:
+7. Create and inspect the permanent CI control-plane change set:
 
    ```console
    aws/bootstrap/plan \
@@ -66,35 +64,59 @@ workflows whose credentials it creates.
        --deployment-plan-audit-bucket <central-audit-bucket>
    ```
 
-10. Run `aws/bootstrap/apply` with the same profile and exact
+8. Run `aws/bootstrap/apply` with the same profile and exact
    repository revision. It rejects a missing, altered, or stale change set and
    enables termination protection after the stack completes.
-11. Run `aws/bootstrap/publish-github` with the same profile,
+9. Run `aws/bootstrap/publish-github` with the same profile,
    together with the budget email and runner group ID. This is a separate
    GitHub mutation and does not modify AWS.
-12. Let the main-branch AWS planning workflow create a private change set and
-   metadata record in AWS. Inspect it in AWS, then manually dispatch the
-   deployment workflow with the opaque lookup key and approve the environment.
-   The first deployment can finish AWS successfully and then stop when it tries
-   to publish the not-yet-created CI Gate App identity. Leave the successful
-   deployment job intact.
-13. Read the `CiGateWebhookUrl` stack output, create and install the CI Gate App,
-   and run `github/apps/configure-ci-gate-app` as documented in
-   `github/apps/README.md`. Re-run only the failed deployment-workflow jobs to
-   publish the complete ReaverOS contract.
-14. After the runner stack is deployed, confirm the SNS subscription sent to the
-   budget email address so controller and reaper alarms can notify you.
-15. Rerun the organization cost-control plan. Once AWS Billing reports the
-   `Project` tag as inactive rather than unseen, apply the plan to activate it
-   for the tag-filtered ReaverOS budget.
-16. Stream the Runner App credential bundle into
-   `projects/reaveros/aws/configure-runner-app` after the runner stack exists.
-17. Run the GitHub configuration workflow to converge organization and
-   repository policy through the Infrastructure App.
+10. Merge the permanent control-plane workflows. Use the bootstrap entrypoints
+    one final time to install their dedicated plan, deploy, and CloudFormation
+    execution roles, then publish the new role outputs.
+11. Make a reviewed control-plane change and let `Plan AWS control plane`
+    create its private plan. Inspect it in AWS, manually dispatch
+    `Deploy AWS control plane` with the opaque lookup key, and approve the
+    environment. A successful deployment proves that the permanent stack owns
+    and can update itself without the administrator profile.
+12. Run the GitHub configuration workflow. It converges only organization and
+    infrastructure-repository policy during bootstrap.
+13. Let `Plan AWS infrastructure` create the runner-stack plan. Inspect and
+    deploy it through `Deploy AWS infrastructure`; this workflow does not access
+    or configure a ReaverOS repository.
+14. Read the `CiGateWebhookUrl` stack output, create the CI Gate App, and install
+    both CI Gate and Runner App credentials into the runner stack as documented
+    in `github/apps/README.md`. The runner group remains locked and empty until
+    a consumer repository is migrated.
+15. Confirm the SNS subscription sent to the
+    budget email address so controller and reaper alarms can notify you.
+16. Rerun the organization cost-control plan. Once AWS Billing reports the
+    `Project` tag as inactive rather than unseen, apply the plan to activate it
+    for the tag-filtered ReaverOS budget.
+17. Audit the handoff without consulting a ReaverOS repository:
 
-The bootstrap stack has termination protection. App keys must never be written
-to persistent plaintext storage, and neither normal workflow has access to an
-owner credential. Control Tower records organization-wide management activity.
-The bootstrap's separate, single-Region trail records only deployment-plan
-object access in an Object Lock-protected bucket owned by the log-archive
-account, with one year of default retention and log-file integrity validation.
+    ```console
+    aws/bootstrap/audit-completion \
+        --profile reaver-project-ci-admin \
+        --log-archive-profile reaver-project-log-archive-audit
+    ```
+
+    The audit requires permanent CloudFormation ownership, protected and current
+    stacks, configured App secrets, matching GitHub variables and immutable OIDC
+    claims, and successful permanent plan/deploy/configuration workflows at the
+    deployed revision.
+18. Remove temporary change sets, ephemeral SSO sessions, and encrypted App
+    bundles from their memory-backed directory. Routine administrator-profile
+    use ends here.
+
+After this point bootstrap is complete. Creating or migrating
+`reaver-project/reaveros`, granting App installations access to it, applying
+`github/repositories/reaveros.json`, and publishing the infrastructure contract
+are consumer-migration work rather than bootstrap work.
+
+The permanent control-plane stack has termination protection. App keys must
+never be written to persistent plaintext storage, and neither normal workflow
+has access to an owner credential. Control Tower records organization-wide
+management activity. The control plane's separate, single-Region trail records
+only deployment-plan object access in an Object Lock-protected bucket owned by
+the log-archive account, with one year of default retention and log-file
+integrity validation.

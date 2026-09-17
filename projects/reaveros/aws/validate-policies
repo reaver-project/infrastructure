@@ -15,7 +15,7 @@ fi
 self_dir=$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)
 # The path is resolved relative to this script.
 # shellcheck disable=SC1091
-source "${self_dir}/cloudformation-parameters"
+source "${self_dir}/../../../aws/cloudformation-parameters"
 
 required_environment=(
     AWS_BUDGET_NOTIFICATION_EMAIL

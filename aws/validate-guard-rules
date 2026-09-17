@@ -16,7 +16,7 @@ repo_root=$(cd -- "${self_dir}/.." && pwd)
 
 "${self_dir}/cfn-guard" validate \
     --rules "${self_dir}/guard" \
-    --data "${self_dir}/bootstrap/template.yaml" \
+    --data "${self_dir}/control-plane/template.yaml" \
     --data "${self_dir}/organization/log-archive/template.yaml" \
     --data "${repo_root}/projects/reaveros/aws/runner-stack.yaml" \
     --show-summary fail

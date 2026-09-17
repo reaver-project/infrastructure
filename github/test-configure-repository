@@ -79,9 +79,7 @@ assert_log_contains '"context":"Dependency review"'
 assert_log_contains 'repos/reaver-project/reaveros/actions/permissions/fork-pr-contributor-approval'
 assert_log_contains $'BODY\t{"approval_policy":"all_external_contributors"}'
 assert_log_contains $'BODY\t{"can_admins_bypass":false,"prevent_self_review":false,"reviewers":[],"deployment_branch_policy":{"protected_branches":false,"custom_branch_policies":true}}'
-assert_log_contains '"patterns_allowed":["aws-actions/configure-aws-credentials@*","astral-sh/setup-uv@*","ossf/scorecard-action@*","step-security/harden-runner@*","zizmorcore/zizmor-action@*"]'
 assert_log_contains $'BODY\t{"use_default":false,"use_immutable_subject":true,"include_claim_keys":["repo","workflow_ref","context"]}'
-assert_log_contains '"patterns_allowed":["aws-actions/configure-aws-credentials@*","reaver-project/infrastructure/actions/*@*"]'
 assert_log_contains $'BODY\t{"use_default":false,"use_immutable_subject":true,"include_claim_keys":["repo","workflow_ref","context","job_workflow_ref"]}'
 assert_log_contains 'X-GitHub-Api-Version: 2026-03-10'
 
@@ -89,6 +87,13 @@ if grep --fixed-strings --quiet \
     'repos/reaver-project/infrastructure/actions/permissions/access' \
     "${GH_TEST_LOG}"; then
     printf 'Public repositories must not configure private action access.\n' >&2
+    exit 1
+fi
+
+if grep --fixed-strings --quiet \
+    '/actions/permissions/selected-actions' \
+    "${GH_TEST_LOG}"; then
+    printf 'Repository convergence must not override the organization action allowlist.\n' >&2
     exit 1
 fi
 

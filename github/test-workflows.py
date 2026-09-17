@@ -84,26 +84,74 @@ deploy_workflow = (root / ".github" / "workflows" / "aws-infrastructure-deploy.y
 if "plan_run_id" in deploy_workflow or "plan_key" not in deploy_workflow:
     sys.exit("The deployment workflow does not consume the opaque plan key.")
 
-deployed_contract = deploy_workflow.find("Read the deployed ReaverOS contract")
-publish_variables = deploy_workflow.find("Configure the ReaverOS consumer")
-maintenance_token = deploy_workflow.find("Create a maintenance App token")
-publish_update = deploy_workflow.find("Publish the ReaverOS infrastructure update")
-if not (-1 < deployed_contract < maintenance_token < publish_variables < publish_update):
-    sys.exit(
-        "The deployment workflow does not publish authoritative consumer values "
-        "before opening its maintenance PR."
-    )
-for permission in (
-    "permission-contents: write",
-    "permission-pull-requests: write",
-    "permission-workflows: write",
+for deferred_consumer_operation in (
+    "repositories: reaveros",
+    "projects/reaveros/configure-ci",
+    "actions/update-infrastructure-consumer",
 ):
-    if permission not in deploy_workflow[maintenance_token:publish_update]:
-        sys.exit(f"The deployment maintenance token is missing {permission}.")
-if "repositories: reaveros" not in deploy_workflow[maintenance_token:publish_update]:
-    sys.exit("The deployment maintenance token is not scoped to ReaverOS.")
+    if deferred_consumer_operation in deploy_workflow:
+        sys.exit(
+            "The infrastructure deployment workflow invokes deferred ReaverOS "
+            f"repository integration: {deferred_consumer_operation}"
+        )
+
+github_configuration_workflow = (
+    root / ".github" / "workflows" / "github-configuration.yml"
+).read_text(encoding="utf-8")
+for deferred_repository_operation in (
+    "repositories: reaveros",
+    "github/repositories/reaveros.json",
+):
+    if deferred_repository_operation in github_configuration_workflow:
+        sys.exit(
+            "The infrastructure configuration workflow invokes deferred ReaverOS "
+            f"repository integration: {deferred_repository_operation}"
+        )
+
+control_plane_plan_workflow = (root / ".github" / "workflows" / "aws-control-plane.yml").read_text(
+    encoding="utf-8"
+)
+if "change_set_arn" in control_plane_plan_workflow:
+    sys.exit("The public control-plane workflow exposes private change-set metadata.")
+for policy_validation_path in (
+    "- aws/cloudformation-parameters",
+    "- aws/control-plane/**",
+    "- aws/policy-validation-requirements.txt",
+):
+    if policy_validation_path not in control_plane_plan_workflow:
+        sys.exit(
+            "The control-plane workflow is not triggered by policy validation input: "
+            f"{policy_validation_path}"
+        )
+
+control_plane_deploy_workflow = (
+    root / ".github" / "workflows" / "aws-control-plane-deploy.yml"
+).read_text(encoding="utf-8")
+if "plan_key" not in control_plane_deploy_workflow:
+    sys.exit("The control-plane deployment does not consume an opaque plan key.")
+if "permission-actions-variables: write" not in control_plane_deploy_workflow:
+    sys.exit("The control-plane publisher cannot converge repository variables.")
+
+control_validator_install = control_plane_plan_workflow.find("Install the IAM policy validator")
+control_aws_authentication = control_plane_plan_workflow.find("Authenticate to AWS for planning")
+control_policy_validation = control_plane_plan_workflow.find(
+    "Validate IAM policies with Access Analyzer"
+)
+control_plane_plan = control_plane_plan_workflow.find("Create the reviewed change set")
+if not (
+    -1
+    < control_validator_install
+    < control_aws_authentication
+    < control_policy_validation
+    < control_plane_plan
+):
+    sys.exit(
+        "The control-plane workflow does not validate IAM policies at its credential boundary."
+    )
 
 for workflow_name in [
+    "aws-control-plane-deploy.yml",
+    "aws-control-plane.yml",
     "aws-infrastructure-deploy.yml",
     "aws-infrastructure.yml",
     "github-configuration.yml",
@@ -134,8 +182,10 @@ def job_contents(workflow_name: str, job_name: str) -> str:
 
 
 credentialed_jobs = {
+    "aws-control-plane.yml": ["plan"],
+    "aws-control-plane-deploy.yml": ["deploy", "publish"],
     "aws-infrastructure.yml": ["plan"],
-    "aws-infrastructure-deploy.yml": ["deploy", "configure-reaveros"],
+    "aws-infrastructure-deploy.yml": ["deploy"],
     "github-configuration.yml": ["deploy"],
     "security-analysis.yml": ["actions_security", "scorecard"],
 }

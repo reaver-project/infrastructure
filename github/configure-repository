@@ -42,16 +42,6 @@ jq --compact-output '.actions | {enabled, allowed_actions, sha_pinning_required}
         > /dev/null
 
 jq --compact-output '.actions | {
-    github_owned_allowed,
-    verified_allowed,
-    patterns_allowed
-}' "${configuration}" |
-    github_api --method PUT \
-        "repos/${repository}/actions/permissions/selected-actions" \
-        --input - \
-        > /dev/null
-
-jq --compact-output '.actions | {
     default_workflow_permissions,
     can_approve_pull_request_reviews
 }' "${configuration}" |

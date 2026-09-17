@@ -47,14 +47,18 @@ reviews:
         binding, untrusted expression interpolation, immutable action pins,
         concurrency, and whether errors or summaries disclose private AWS state.
         Validation must complete before any credential-bearing deployment job.
-    - path: "aws/bootstrap/**"
+    - path: "aws/control-plane/**"
       instructions: |
-        Treat this as the AWS root of trust. Review IAM and bucket policies for
+        Treat this as the permanent AWS root of trust. Review IAM and bucket policies for
         least privilege and explicit deny behavior, OIDC conditions for exact
         workflow and environment binding, retention and deletion policy, budget
-        safeguards, bootstrap idempotency, and outputs consumed as repository
+        safeguards, deployment idempotency, and outputs consumed as repository
         variables. Do not weaken the separation between planning, deployment,
         CloudFormation execution, and runner roles.
+    - path: "aws/bootstrap/**"
+      instructions: |
+        These are thin first-install and recovery entrypoints for the permanent
+        control plane. They must not define or retain independent cloud resources.
     - path: "github/apps/**"
       instructions: |
         Check GitHub App manifests for the minimum repository and organization
