@@ -180,18 +180,40 @@ done
 repository_variables=$(gh variable list \
     --repo "${repository}" \
     --json name,value)
-variable_matches()
+github_production_variables=$(gh variable list \
+    --repo "${repository}" \
+    --env github-production \
+    --json name,value)
+variable_value()
 {
-    local variable=$1
-    local expected=$2
-    [[ $(jq --raw-output --arg variable "${variable}" \
+    local variables=$1
+    local variable=$2
+    jq --raw-output --arg variable "${variable}" \
         '[.[] | select(.name == $variable) | .value]
          | if length == 1 then .[0] else "<missing-or-duplicate>" end' \
-        <<< "${repository_variables}") == "${expected}" ]]
+        <<< "${variables}"
+}
+variable_matches()
+{
+    local variables=$1
+    local variable=$2
+    local expected=$3
+    [[ $(variable_value "${variables}" "${variable}") == "${expected}" ]]
+}
+variable_present()
+{
+    local variables=$1
+    local variable=$2
+    local value
+    value=$(variable_value "${variables}" "${variable}")
+    [[ -n ${value} && ${value} != '<missing-or-duplicate>' ]]
 }
 
 while read -r variable output; do
-    if ! variable_matches "${variable}" "$(stack_output "${output}")"; then
+    if ! variable_matches \
+        "${repository_variables}" \
+        "${variable}" \
+        "$(stack_output "${output}")"; then
         printf 'Repository variable does not match the control plane: %s\n' \
             "${variable}" >&2
         exit 1
@@ -224,20 +246,20 @@ if ! jq --exit-status \
     exit 1
 fi
 
-for variable in \
-    CI_GATE_APP_ID \
-    CI_GATE_APP_SLUG \
-    INFRASTRUCTURE_APP_CLIENT_ID \
-    AWS_GITHUB_RUNNER_GROUP_ID; do
-    if [[ $(jq --raw-output --arg variable "${variable}" \
-        '[.[] | select(.name == $variable) | .value]
-         | if length == 1 then .[0] else "" end' \
-        <<< "${repository_variables}") == '' ]]; then
+for variable in CI_GATE_APP_ID CI_GATE_APP_SLUG INFRASTRUCTURE_APP_CLIENT_ID; do
+    if ! variable_present "${github_production_variables}" "${variable}"; then
         printf 'Permanent GitHub App configuration is missing: %s\n' \
             "${variable}" >&2
         exit 1
     fi
 done
+
+if ! variable_present \
+    "${repository_variables}" \
+    AWS_GITHUB_RUNNER_GROUP_ID; then
+    printf 'Permanent GitHub runner-group configuration is missing.\n' >&2
+    exit 1
+fi
 
 for workflow in \
     aws-control-plane.yml \
