@@ -41,6 +41,7 @@ jobs:
                 private-key: ${{ secrets.INFRASTRUCTURE_APP_PRIVATE_KEY }}
                 owner: reaver-project
                 repositories: infrastructure
+                permission-actions: write
                 permission-administration: write
                 permission-environments: write
                 permission-members: read

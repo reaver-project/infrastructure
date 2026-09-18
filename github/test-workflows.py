@@ -108,6 +108,9 @@ for deferred_repository_operation in (
             f"repository integration: {deferred_repository_operation}"
         )
 
+if "permission-actions: write" not in github_configuration_workflow:
+    sys.exit("The infrastructure App token cannot converge repository OIDC policy.")
+
 control_plane_plan_workflow = (root / ".github" / "workflows" / "aws-control-plane.yml").read_text(
     encoding="utf-8"
 )
