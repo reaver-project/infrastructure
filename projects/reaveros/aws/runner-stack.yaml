@@ -173,7 +173,7 @@ Resources:
 
     BuildEnvironmentRepository:
         Type: AWS::ECR::Repository
-        DeletionPolicy: Retain
+        DeletionPolicy: RetainExceptOnCreate
         UpdateReplacePolicy: Retain
         Properties:
             RepositoryName: !Ref BuildEnvironmentRepositoryName
@@ -205,7 +205,7 @@ Resources:
 
     UnprunedBuildEnvironmentRepository:
         Type: AWS::ECR::Repository
-        DeletionPolicy: Retain
+        DeletionPolicy: RetainExceptOnCreate
         UpdateReplacePolicy: Retain
         Properties:
             RepositoryName: !Sub ${BuildEnvironmentRepositoryName}-unpruned
@@ -237,7 +237,7 @@ Resources:
 
     StagingBuildEnvironmentRepository:
         Type: AWS::ECR::Repository
-        DeletionPolicy: Retain
+        DeletionPolicy: RetainExceptOnCreate
         UpdateReplacePolicy: Retain
         Properties:
             RepositoryName: !Sub ${BuildEnvironmentRepositoryName}-staging
@@ -267,7 +267,7 @@ Resources:
 
     StagingUnprunedBuildEnvironmentRepository:
         Type: AWS::ECR::Repository
-        DeletionPolicy: Retain
+        DeletionPolicy: RetainExceptOnCreate
         UpdateReplacePolicy: Retain
         Properties:
             RepositoryName: !Sub ${BuildEnvironmentRepositoryName}-unpruned-staging
@@ -297,7 +297,7 @@ Resources:
 
     CandidateBuildEnvironmentRepository:
         Type: AWS::ECR::Repository
-        DeletionPolicy: Retain
+        DeletionPolicy: RetainExceptOnCreate
         UpdateReplacePolicy: Retain
         Properties:
             RepositoryName: !Sub ${BuildEnvironmentRepositoryName}-candidate
@@ -327,7 +327,7 @@ Resources:
 
     CandidateUnprunedBuildEnvironmentRepository:
         Type: AWS::ECR::Repository
-        DeletionPolicy: Retain
+        DeletionPolicy: RetainExceptOnCreate
         UpdateReplacePolicy: Retain
         Properties:
             RepositoryName: !Sub ${BuildEnvironmentRepositoryName}-unpruned-candidate
@@ -357,7 +357,7 @@ Resources:
 
     RunnerAppSecret:
         Type: AWS::SecretsManager::Secret
-        DeletionPolicy: Retain
+        DeletionPolicy: RetainExceptOnCreate
         UpdateReplacePolicy: Retain
         Properties:
             Name: !Sub ${AWS::StackName}/github-runner-app
@@ -371,7 +371,7 @@ Resources:
 
     CiGateAppSecret:
         Type: AWS::SecretsManager::Secret
-        DeletionPolicy: Retain
+        DeletionPolicy: RetainExceptOnCreate
         UpdateReplacePolicy: Retain
         Properties:
             Name: !Sub ${AWS::StackName}/github-ci-gate-app

@@ -272,6 +272,13 @@ if [[ $(grep --fixed-strings --count \
     exit 1
 fi
 
+if [[ $(grep --fixed-strings --count \
+    'DeletionPolicy: RetainExceptOnCreate' \
+    "${self_dir}/runner-stack.yaml") -ne 8 ]]; then
+    printf 'Persistent resources must be discarded after a failed initial create.\n' >&2
+    exit 1
+fi
+
 if ! grep --fixed-strings --quiet \
     'user:Project$ReaverOS' \
     "${self_dir}/runner-stack.yaml"; then
