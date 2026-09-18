@@ -28,9 +28,10 @@ export APP_TEST_LOG="${test_directory}/calls"
 : > "${APP_TEST_LOG}"
 credentials="${test_directory}/credentials.json"
 jq --null-input \
+    --arg client_id Iv23testclient \
     --argjson id 1234 \
     --arg pem test-private-key \
-    '{id: $id, pem: $pem}' > "${credentials}"
+    '{client_id: $client_id, id: $id, pem: $pem}' > "${credentials}"
 
 cleanup()
 {
@@ -64,6 +65,7 @@ assert_log_contains()
 
 assert_log_contains $'gh\tapi\trepos/reaver-project/infrastructure/environments/github-production'
 assert_log_contains $'gh\tvariable\tset\tINFRASTRUCTURE_APP_ID\t--repo\treaver-project/infrastructure\t--env\tgithub-production\t--body\t1234'
+assert_log_contains $'gh\tvariable\tset\tINFRASTRUCTURE_APP_CLIENT_ID\t--repo\treaver-project/infrastructure\t--env\tgithub-production\t--body\tIv23testclient'
 assert_log_contains $'gh\tsecret\tset\tINFRASTRUCTURE_APP_PRIVATE_KEY\t--repo\treaver-project/infrastructure\t--env\tgithub-production'
 assert_log_contains $'gh\tapi\trepos/reaver-project/reaveros/environments/maintenance'
 assert_log_contains $'gh\tvariable\tset\tMAINTENANCE_APP_ID\t--repo\treaver-project/reaveros\t--env\tmaintenance\t--body\t1234'

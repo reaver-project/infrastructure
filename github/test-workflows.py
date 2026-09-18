@@ -129,8 +129,16 @@ control_plane_deploy_workflow = (
 ).read_text(encoding="utf-8")
 if "plan_key" not in control_plane_deploy_workflow:
     sys.exit("The control-plane deployment does not consume an opaque plan key.")
-if "permission-actions-variables: write" not in control_plane_deploy_workflow:
-    sys.exit("The control-plane publisher cannot converge repository variables.")
+if "permission-actions-variables" in control_plane_deploy_workflow:
+    sys.exit("The App token action does not support an actions-variables input.")
+for app_workflow_name, app_workflow in (
+    ("aws-control-plane-deploy.yml", control_plane_deploy_workflow),
+    ("github-configuration.yml", github_configuration_workflow),
+):
+    if "client-id: ${{ vars.INFRASTRUCTURE_APP_CLIENT_ID }}" not in app_workflow:
+        sys.exit(f"{app_workflow_name}: infrastructure App client ID is not used.")
+    if "app-id:" in app_workflow:
+        sys.exit(f"{app_workflow_name}: deprecated infrastructure App ID is used.")
 
 control_validator_install = control_plane_plan_workflow.find("Install the IAM policy validator")
 control_aws_authentication = control_plane_plan_workflow.find("Authenticate to AWS for planning")

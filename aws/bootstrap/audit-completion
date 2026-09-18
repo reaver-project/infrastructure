@@ -224,7 +224,11 @@ if ! jq --exit-status \
     exit 1
 fi
 
-for variable in CI_GATE_APP_ID CI_GATE_APP_SLUG AWS_GITHUB_RUNNER_GROUP_ID; do
+for variable in \
+    CI_GATE_APP_ID \
+    CI_GATE_APP_SLUG \
+    INFRASTRUCTURE_APP_CLIENT_ID \
+    AWS_GITHUB_RUNNER_GROUP_ID; do
     if [[ $(jq --raw-output --arg variable "${variable}" \
         '[.[] | select(.name == $variable) | .value]
          | if length == 1 then .[0] else "" end' \

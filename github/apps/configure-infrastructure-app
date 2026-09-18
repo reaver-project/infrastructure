@@ -5,6 +5,7 @@ set -euo pipefail
 self_dir=$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)
 exec "${self_dir}/configure-app-environment" \
     --app-id-variable INFRASTRUCTURE_APP_ID \
+    --client-id-variable INFRASTRUCTURE_APP_CLIENT_ID \
     --environment github-production \
     --private-key-secret INFRASTRUCTURE_APP_PRIVATE_KEY \
     --repository reaver-project/infrastructure \

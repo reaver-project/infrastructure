@@ -3,6 +3,7 @@
 set -euo pipefail
 
 app_id_variable=
+client_id_variable=
 credentials=
 environment=
 private_key_secret=
@@ -13,6 +14,7 @@ usage()
     printf '%s\n' \
         "usage: $0 --credentials - --repository <owner/repository>" \
         '    --environment <name> --app-id-variable <name>' \
+        '    [--client-id-variable <name>]' \
         '    --private-key-secret <name>'
 }
 
@@ -20,6 +22,10 @@ while [[ $# -gt 0 ]]; do
     case $1 in
         --app-id-variable)
             app_id_variable=$2
+            shift 2
+            ;;
+        --client-id-variable)
+            client_id_variable=$2
             shift 2
             ;;
         --credentials)
@@ -53,6 +59,7 @@ if [[ ${credentials} != - ||
     ! ${repository} =~ ^[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+$ ||
     ! ${environment} =~ ^[A-Za-z0-9_.-]+$ ||
     ! ${app_id_variable} =~ ^[A-Z][A-Z0-9_]*$ ||
+    (-n ${client_id_variable} && ! ${client_id_variable} =~ ^[A-Z][A-Z0-9_]*$) ||
     ! ${private_key_secret} =~ ^[A-Z][A-Z0-9_]*$ ]]; then
     printf 'Invalid App environment configuration.\n' >&2
     usage >&2
@@ -62,6 +69,12 @@ fi
 credentials_json=$(cat)
 app_id=$(jq --exit-status --raw-output \
     '.id | select(type == "number")' <<< "${credentials_json}")
+client_id=
+if [[ -n ${client_id_variable} ]]; then
+    client_id=$(jq --exit-status --raw-output \
+        '.client_id | select(type == "string" and test("^[A-Za-z0-9]+$"))' \
+        <<< "${credentials_json}")
+fi
 private_key=$(jq --exit-status --raw-output \
     '.pem | select(type == "string" and length > 0)' <<< "${credentials_json}")
 
@@ -76,6 +89,12 @@ gh variable set "${app_id_variable}" \
     --repo "${repository}" \
     --env "${environment}" \
     --body "${app_id}"
+if [[ -n ${client_id_variable} ]]; then
+    gh variable set "${client_id_variable}" \
+        --repo "${repository}" \
+        --env "${environment}" \
+        --body "${client_id}"
+fi
 printf '%s' "${private_key}" |
     gh secret set "${private_key_secret}" \
         --repo "${repository}" \
