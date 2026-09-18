@@ -105,7 +105,7 @@ python3 -m py_compile \
 python3 test-runtime-boundaries.py
 node --check github/apps/configure-runner-group
 node --check github/apps/test-configure-runner-group.js
-python3 github/test-workflows.py
+uv run --project aws --frozen python github/test-workflows.py
 python3 actions/test-infrastructure-consumer.py
 python3 actions/test-update-infrastructure-consumer.py
 

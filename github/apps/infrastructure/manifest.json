@@ -4,6 +4,7 @@
     "description": "Converges Reaver Project organization and repository configuration.",
     "public": false,
     "default_permissions": {
+        "actions": "write",
         "actions_variables": "write",
         "administration": "write",
         "environments": "write",

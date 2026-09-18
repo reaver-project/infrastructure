@@ -2,7 +2,39 @@ import json
 import sys
 from pathlib import Path
 
+import yaml
+
 root = Path(__file__).resolve().parents[1]
+
+
+def workflow_document(workflow_name: str) -> dict:
+    path = root / ".github" / "workflows" / workflow_name
+    document = yaml.safe_load(path.read_text(encoding="utf-8"))
+    if not isinstance(document, dict):
+        sys.exit(f"{path}: workflow is not a mapping")
+    return document
+
+
+def app_token_inputs(workflow_name: str, job_name: str) -> dict:
+    document = workflow_document(workflow_name)
+    try:
+        steps = document["jobs"][job_name]["steps"]
+    except (KeyError, TypeError):
+        sys.exit(f"{workflow_name}: missing expected job or steps: {job_name}")
+    matches = [
+        step
+        for step in steps
+        if isinstance(step, dict)
+        and str(step.get("uses", "")).startswith("actions/create-github-app-token@")
+    ]
+    if len(matches) != 1:
+        sys.exit(f"{workflow_name}:{job_name}: expected exactly one infrastructure App-token step")
+    inputs = matches[0].get("with")
+    if not isinstance(inputs, dict):
+        sys.exit(f"{workflow_name}:{job_name}: App-token inputs are not a mapping")
+    return inputs
+
+
 yaml_files = [
     *sorted((root / ".github" / "workflows").glob("*.yml")),
     *sorted((root / ".github" / "actions").glob("*/action.yml")),
@@ -108,6 +140,10 @@ for deferred_repository_operation in (
             f"repository integration: {deferred_repository_operation}"
         )
 
+github_configuration_app_inputs = app_token_inputs("github-configuration.yml", "deploy")
+if github_configuration_app_inputs.get("permission-actions") != "write":
+    sys.exit("The infrastructure App token cannot converge repository OIDC policy.")
+
 control_plane_plan_workflow = (root / ".github" / "workflows" / "aws-control-plane.yml").read_text(
     encoding="utf-8"
 )
@@ -129,8 +165,21 @@ control_plane_deploy_workflow = (
 ).read_text(encoding="utf-8")
 if "plan_key" not in control_plane_deploy_workflow:
     sys.exit("The control-plane deployment does not consume an opaque plan key.")
-if "permission-actions-variables: write" not in control_plane_deploy_workflow:
-    sys.exit("The control-plane publisher cannot converge repository variables.")
+control_plane_publish_app_inputs = app_token_inputs("aws-control-plane-deploy.yml", "publish")
+if "permission-actions-variables" in control_plane_publish_app_inputs:
+    sys.exit("The App token action does not support an actions-variables input.")
+for app_workflow_name, app_inputs in (
+    ("aws-control-plane-deploy.yml", control_plane_publish_app_inputs),
+    ("github-configuration.yml", github_configuration_app_inputs),
+):
+    if app_inputs.get("client-id") != "${{ vars.INFRASTRUCTURE_APP_CLIENT_ID }}":
+        sys.exit(f"{app_workflow_name}: infrastructure App client ID is not used.")
+    if "app-id" in app_inputs:
+        sys.exit(f"{app_workflow_name}: deprecated infrastructure App ID is used.")
+    if app_inputs.get("owner") != "reaver-project" or app_inputs.get("repositories") != (
+        "infrastructure"
+    ):
+        sys.exit(f"{app_workflow_name}: infrastructure App token is not repository-scoped.")
 
 control_validator_install = control_plane_plan_workflow.find("Install the IAM policy validator")
 control_aws_authentication = control_plane_plan_workflow.find("Authenticate to AWS for planning")
