@@ -16,6 +16,8 @@ shell_scripts=(
     aws/bootstrap/plan
     aws/bootstrap/publish-github
     aws/bootstrap/test
+    aws/bootstrap/test-app-credential
+    aws/bootstrap/validate-app-credential
     aws/control-plane/apply
     aws/control-plane/plan
     aws/control-plane/plan-github
@@ -111,6 +113,7 @@ python3 actions/test-update-infrastructure-consumer.py
 
 actions/test
 aws/control-plane/test
+aws/bootstrap/test-app-credential
 aws/test-cfn-guard
 aws/organization/log-archive/test
 uv run --project aws --frozen python aws/organization/test_configure.py
