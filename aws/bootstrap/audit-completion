@@ -138,18 +138,22 @@ if [[ $(runner_output InfrastructureRevision) != "${revision}" ]]; then
     printf 'The runner stack was not deployed from this infrastructure revision.\n' >&2
     exit 1
 fi
-for secret_output in RunnerAppSecretId CiGateAppSecretId; do
+while read -r secret_output credential_kind; do
     secret_id=$(runner_output "${secret_output}")
-    if [[ $(local_aws secretsmanager list-secret-version-ids \
+    if ! local_aws secretsmanager get-secret-value \
         --region "${region}" \
         --secret-id "${secret_id}" \
-        --query 'length(Versions[?contains(VersionStages, `AWSCURRENT`)])' \
-        --output text) != 1 ]]; then
+        --query SecretString \
+        --output text |
+        "${self_dir}/validate-app-credential" "${credential_kind}"; then
         printf 'Permanent App credential is not configured: %s\n' \
             "${secret_output}" >&2
         exit 1
     fi
-done
+done << 'EOF'
+RunnerAppSecretId runner
+CiGateAppSecretId ci-gate
+EOF
 
 stack_resources=$(local_aws cloudformation describe-stack-resources \
     --region "${region}" \
