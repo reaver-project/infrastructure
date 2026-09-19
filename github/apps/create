@@ -135,6 +135,11 @@ def exchange_manifest_code(code):
         return json.load(response)
 
 
+def request_log_line(method, target, request_version, code, size):
+    path = urllib.parse.urlsplit(target).path or "/"
+    return f'"{method} {path} {request_version}" {code} {size}'
+
+
 def main():
     arguments = parse_arguments()
     passphrase = getpass.getpass("Credential bundle passphrase: ")
@@ -205,8 +210,17 @@ def main():
             finally:
                 result["done"] = True
 
-        def log_message(self, message, *arguments):
-            print(message % arguments, file=sys.stderr)
+        def log_request(self, code="-", size="-"):
+            print(
+                request_log_line(
+                    self.command,
+                    self.path,
+                    self.request_version,
+                    code,
+                    size,
+                ),
+                file=sys.stderr,
+            )
 
     server = http.server.HTTPServer(("127.0.0.1", arguments.port), Handler)
     bootstrap_url = f"http://127.0.0.1:{arguments.port}/"

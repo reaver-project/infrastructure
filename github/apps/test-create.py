@@ -49,6 +49,19 @@ def decrypt(path, passphrase):
 
 
 class CreateAppTests(unittest.TestCase):
+    def test_request_log_omits_manifest_callback_parameters(self):
+        line = create_app.request_log_line(
+            "GET",
+            "/callback?code=one-time-code&state=manifest-state",
+            "HTTP/1.1",
+            200,
+            "-",
+        )
+
+        self.assertEqual(line, '"GET /callback HTTP/1.1" 200 -')
+        self.assertNotIn("one-time-code", line)
+        self.assertNotIn("manifest-state", line)
+
     def test_activates_a_supplied_https_webhook(self):
         manifest = create_app.configured_manifest(
             {"hook_attributes": {"active": False}},
