@@ -16,7 +16,7 @@ def workflow_document(workflow_name: str) -> dict:
     return document
 
 
-def app_token_inputs(workflow_name: str, job_name: str) -> dict:
+def app_token_step(workflow_name: str, job_name: str) -> dict:
     document = workflow_document(workflow_name)
     try:
         steps = document["jobs"][job_name]["steps"]
@@ -30,7 +30,11 @@ def app_token_inputs(workflow_name: str, job_name: str) -> dict:
     ]
     if len(matches) != 1:
         sys.exit(f"{workflow_name}:{job_name}: expected exactly one infrastructure App-token step")
-    inputs = matches[0].get("with")
+    return matches[0]
+
+
+def app_token_inputs(workflow_name: str, job_name: str) -> dict:
+    inputs = app_token_step(workflow_name, job_name).get("with")
     if not isinstance(inputs, dict):
         sys.exit(f"{workflow_name}:{job_name}: App-token inputs are not a mapping")
     return inputs
@@ -141,6 +145,17 @@ if (
     or consumer_app_inputs.get("owner") != "reaver-project"
 ):
     sys.exit("ReaverOS contract updates require separate repository-scoped App tokens")
+
+for workflow_name, job_name in (
+    ("aws-control-plane-deploy.yml", "publish"),
+    ("aws-infrastructure-deploy.yml", "publish"),
+):
+    app_step = app_token_step(workflow_name, job_name)
+    inputs = app_token_inputs(workflow_name, job_name)
+    if app_step.get("env", {}).get("INPUT_PERMISSION-ACTIONS-VARIABLES") != "write" or any(
+        name.startswith("permission-") for name in inputs
+    ):
+        sys.exit(f"{workflow_name}:{job_name}: publication token must grant only variables write")
 
 github_configuration_workflow = (
     root / ".github" / "workflows" / "github-configuration.yml"

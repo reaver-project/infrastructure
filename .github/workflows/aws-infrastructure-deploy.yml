@@ -102,7 +102,11 @@ jobs:
 
           - name: Create a ReaverOS-scoped infrastructure App token
             id: app
-            uses: actions/create-github-app-token@bcd2ba49218906704ab6c1aa796996da409d3eb1 # zizmor: ignore[github-app] v3.2.0 cannot downscope actions_variables
+            uses: actions/create-github-app-token@bcd2ba49218906704ab6c1aa796996da409d3eb1 # zizmor: ignore[github-app] narrowed through INPUT_PERMISSION-ACTIONS-VARIABLES
+            env:
+                # This pinned action reads INPUT_PERMISSION-* even for permissions
+                # absent from its action.yml. Avoid an undeclared-input warning.
+                INPUT_PERMISSION-ACTIONS-VARIABLES: write
             with:
                 client-id: ${{ vars.INFRASTRUCTURE_APP_CLIENT_ID }}
                 private-key: ${{ secrets.INFRASTRUCTURE_APP_PRIVATE_KEY }}
