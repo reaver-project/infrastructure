@@ -165,6 +165,7 @@ if (
     or reaveros_configuration_app_inputs.get("repositories") != "reaveros"
     or reaveros_configuration_app_inputs.get("permission-actions") != "write"
     or reaveros_configuration_app_inputs.get("permission-administration") != "write"
+    or "permission-organization-administration" in reaveros_configuration_app_inputs
 ):
     sys.exit("ReaverOS policy must use a repository-scoped infrastructure App token")
 
@@ -258,8 +259,8 @@ credentialed_jobs = {
     "aws-control-plane.yml": ["plan"],
     "aws-control-plane-deploy.yml": ["deploy", "publish"],
     "aws-infrastructure.yml": ["plan"],
-    "aws-infrastructure-deploy.yml": ["deploy"],
-    "github-configuration.yml": ["deploy"],
+    "aws-infrastructure-deploy.yml": ["deploy", "publish", "update-consumer"],
+    "github-configuration.yml": ["deploy", "reaveros"],
     "security-analysis.yml": ["actions_security", "scorecard"],
 }
 for workflow_name, job_names in credentialed_jobs.items():

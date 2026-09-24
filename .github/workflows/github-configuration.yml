@@ -87,7 +87,6 @@ jobs:
                 permission-administration: write
                 permission-environments: write
                 permission-members: read
-                permission-organization-administration: write
 
           - name: Converge ReaverOS repository policy
             env:
