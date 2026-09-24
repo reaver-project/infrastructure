@@ -130,19 +130,28 @@ for deferred_consumer_operation in (
 github_configuration_workflow = (
     root / ".github" / "workflows" / "github-configuration.yml"
 ).read_text(encoding="utf-8")
-for deferred_repository_operation in (
-    "repositories: reaveros",
-    "github/repositories/reaveros.json",
+reaveros_configuration_job = workflow_document("github-configuration.yml")["jobs"]["reaveros"]
+if (
+    reaveros_configuration_job.get("needs") != "deploy"
+    or reaveros_configuration_job.get("environment") != "github-production"
+    or "github/configure-repository github/repositories/reaveros.json"
+    not in github_configuration_workflow
+    or "CI_GATE_APP_ID: ${{ vars.CI_GATE_APP_ID }}" not in github_configuration_workflow
 ):
-    if deferred_repository_operation in github_configuration_workflow:
-        sys.exit(
-            "The infrastructure configuration workflow invokes deferred ReaverOS "
-            f"repository integration: {deferred_repository_operation}"
-        )
+    sys.exit("ReaverOS repository policy is not gated on reviewed GitHub configuration")
 
 github_configuration_app_inputs = app_token_inputs("github-configuration.yml", "deploy")
 if github_configuration_app_inputs.get("permission-actions") != "write":
     sys.exit("The infrastructure App token cannot converge repository OIDC policy.")
+reaveros_configuration_app_inputs = app_token_inputs("github-configuration.yml", "reaveros")
+if (
+    reaveros_configuration_app_inputs.get("client-id") != "${{ vars.INFRASTRUCTURE_APP_CLIENT_ID }}"
+    or reaveros_configuration_app_inputs.get("owner") != "reaver-project"
+    or reaveros_configuration_app_inputs.get("repositories") != "reaveros"
+    or reaveros_configuration_app_inputs.get("permission-actions") != "write"
+    or reaveros_configuration_app_inputs.get("permission-administration") != "write"
+):
+    sys.exit("ReaverOS policy must use a repository-scoped infrastructure App token")
 
 control_plane_plan_workflow = (root / ".github" / "workflows" / "aws-control-plane.yml").read_text(
     encoding="utf-8"
