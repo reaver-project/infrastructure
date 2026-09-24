@@ -1,4 +1,5 @@
 import json
+import re
 import sys
 from pathlib import Path
 
@@ -46,9 +47,10 @@ if not yaml_files:
 for yaml_file in yaml_files:
     contents = yaml_file.read_text(encoding="utf-8")
     for line_number, line in enumerate(contents.splitlines(), start=1):
-        if "uses:" not in line:
+        reference = re.match(r"^\s*(?:-\s*)?uses:\s*([^\s#]+)", line)
+        if reference is None:
             continue
-        action = line.split("uses:", 1)[1].split("#", 1)[0].strip()
+        action = reference.group(1)
         if action.startswith("./"):
             continue
         if "@" not in action or len(action.rsplit("@", 1)[1]) != 40:
@@ -116,16 +118,29 @@ deploy_workflow = (root / ".github" / "workflows" / "aws-infrastructure-deploy.y
 if "plan_run_id" in deploy_workflow or "plan_key" not in deploy_workflow:
     sys.exit("The deployment workflow does not consume the opaque plan key.")
 
-for deferred_consumer_operation in (
-    "repositories: reaveros",
-    "projects/reaveros/configure-ci",
-    "actions/update-infrastructure-consumer",
+deployment_jobs = workflow_document("aws-infrastructure-deploy.yml")["jobs"]
+publish_job = deployment_jobs["publish"]
+consumer_job = deployment_jobs["update-consumer"]
+if (
+    publish_job.get("needs") != "deploy"
+    or publish_job.get("environment") != "github-production"
+    or set(consumer_job.get("needs", [])) != {"deploy", "publish"}
+    or consumer_job.get("environment") != "github-production"
+    or "projects/reaveros/configure-ci" not in deploy_workflow
+    or "./actions/update-infrastructure-consumer" not in deploy_workflow
 ):
-    if deferred_consumer_operation in deploy_workflow:
-        sys.exit(
-            "The infrastructure deployment workflow invokes deferred ReaverOS "
-            f"repository integration: {deferred_consumer_operation}"
-        )
+    sys.exit("ReaverOS contract publication must follow the reviewed AWS deployment")
+publish_app_inputs = app_token_inputs("aws-infrastructure-deploy.yml", "publish")
+consumer_app_inputs = app_token_inputs("aws-infrastructure-deploy.yml", "update-consumer")
+if (
+    publish_app_inputs.get("client-id") != "${{ vars.INFRASTRUCTURE_APP_CLIENT_ID }}"
+    or publish_app_inputs.get("repositories") != "reaveros"
+    or publish_app_inputs.get("owner") != "reaver-project"
+    or consumer_app_inputs.get("app-id") != "${{ vars.MAINTENANCE_APP_ID }}"
+    or consumer_app_inputs.get("repositories") != "reaveros"
+    or consumer_app_inputs.get("owner") != "reaver-project"
+):
+    sys.exit("ReaverOS contract updates require separate repository-scoped App tokens")
 
 github_configuration_workflow = (
     root / ".github" / "workflows" / "github-configuration.yml"
