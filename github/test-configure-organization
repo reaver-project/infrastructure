@@ -58,9 +58,13 @@ cleanup()
 }
 trap cleanup EXIT
 
-"${self_dir}/configure-organization" \
-    "${self_dir}/organizations/reaver-project.json" \
-    > /dev/null
+configuration_output=$("${self_dir}/configure-organization" \
+    "${self_dir}/organizations/reaver-project.json")
+if [[ ${configuration_output} != *'Inherit access from source repository: false'* ||
+    ${configuration_output} != *'Member package creation: public=false, private=false, internal=false'* ]]; then
+    printf 'Manual organization package policy is not reported.\n' >&2
+    exit 1
+fi
 
 assert_log_contains()
 {

@@ -8,6 +8,7 @@
         "organization",
         "profile",
         "actions",
+        "packages",
         "code_security",
         "manual_controls"
     ],
@@ -54,6 +55,39 @@
         },
         "actions": {
             "$ref": "#/$defs/actions"
+        },
+        "packages": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": [
+                "inherit_access_from_source_repository",
+                "member_creation"
+            ],
+            "properties": {
+                "inherit_access_from_source_repository": {
+                    "type": "boolean"
+                },
+                "member_creation": {
+                    "type": "object",
+                    "additionalProperties": false,
+                    "required": [
+                        "public",
+                        "private",
+                        "internal"
+                    ],
+                    "properties": {
+                        "public": {
+                            "type": "boolean"
+                        },
+                        "private": {
+                            "type": "boolean"
+                        },
+                        "internal": {
+                            "type": "boolean"
+                        }
+                    }
+                }
+            }
         },
         "code_security": {
             "$ref": "#/$defs/code_security"
