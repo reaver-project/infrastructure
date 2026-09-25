@@ -972,10 +972,21 @@ Resources:
                           - ecr:PutImage
                           - ecr:UploadLayerPart
                         Resource:
-                          - !GetAtt BuildEnvironmentRepository.Arn
-                          - !GetAtt UnprunedBuildEnvironmentRepository.Arn
                           - !GetAtt CandidateBuildEnvironmentRepository.Arn
                           - !GetAtt CandidateUnprunedBuildEnvironmentRepository.Arn
+                      - Effect: Allow
+                        Action:
+                          - ecr:BatchCheckLayerAvailability
+                          - ecr:CompleteLayerUpload
+                          - ecr:InitiateLayerUpload
+                          - ecr:PutImage
+                          - ecr:UploadLayerPart
+                        Resource:
+                          - !GetAtt BuildEnvironmentRepository.Arn
+                          - !GetAtt UnprunedBuildEnvironmentRepository.Arn
+                        Condition:
+                            StringLike:
+                                token.actions.githubusercontent.com:sub: !Sub repo:${GitHubOidcImmutableRepositoryPattern}:workflow_ref:${GitHubOidcCallerWorkflowReferencePattern}:ref:refs/heads/main:job_workflow_ref:${GitHubOidcWorkflowReference}
             Tags:
               - Key: Project
                 Value: ReaverOS
