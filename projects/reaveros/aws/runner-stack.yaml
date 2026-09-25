@@ -936,7 +936,7 @@ Resources:
                         StringLike:
                             token.actions.githubusercontent.com:sub:
                               - !Sub repo:${GitHubOidcImmutableRepositoryPattern}:workflow_ref:${GitHubOidcCallerWorkflowReferencePattern}:ref:refs/heads/main:job_workflow_ref:${GitHubOidcWorkflowReference}
-                              - !Sub repo:${GitHubOidcImmutableRepositoryPattern}:workflow_ref:${GitHubOidcPullRequestCallerWorkflowReferencePattern}:pull_request:job_workflow_ref:${GitHubOidcPullRequestWorkflowReference}
+                              - !Sub repo:${GitHubOidcImmutableRepositoryPattern}:workflow_ref:${GitHubOidcPullRequestCallerWorkflowReferencePattern}:ref:refs/heads/pull-request/*:job_workflow_ref:${GitHubOidcPullRequestWorkflowReference}
             Policies:
               - PolicyName: ProvisionEphemeralRunner
                 PolicyDocument:
@@ -1034,7 +1034,7 @@ Outputs:
     InfrastructureRevision:
         Value: !Ref InfrastructureRevision
     InfrastructureContractVersion:
-        Value: '2'
+        Value: '3'
     GitHubActionsRoleArn:
         Value: !GetAtt GitHubActionsRole.Arn
     RunnerAppSecretId:

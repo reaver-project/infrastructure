@@ -238,7 +238,7 @@ for copied_branch_trust_invariant in \
     'Default: reaver-project/reaveros/.github/workflows/ci.yml@refs/heads/pull-request/*' \
     'Default: reaver-project/reaveros/.github/workflows/aws-*.yml@refs/heads/pull-request/*' \
     '- !Sub repo:${GitHubOidcImmutableRepositoryPattern}:workflow_ref:${GitHubOidcCallerWorkflowReferencePattern}:ref:refs/heads/main:job_workflow_ref:${GitHubOidcWorkflowReference}' \
-    '- !Sub repo:${GitHubOidcImmutableRepositoryPattern}:workflow_ref:${GitHubOidcPullRequestCallerWorkflowReferencePattern}:pull_request:job_workflow_ref:${GitHubOidcPullRequestWorkflowReference}'; do
+    '- !Sub repo:${GitHubOidcImmutableRepositoryPattern}:workflow_ref:${GitHubOidcPullRequestCallerWorkflowReferencePattern}:ref:refs/heads/pull-request/*:job_workflow_ref:${GitHubOidcPullRequestWorkflowReference}'; do
     if ! grep --fixed-strings --quiet \
         -- "${copied_branch_trust_invariant}" \
         "${self_dir}/runner-stack.yaml"; then
