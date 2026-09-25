@@ -106,10 +106,14 @@ class CiGateLibraryTests(unittest.TestCase):
         with self.assertRaisesRegex(ValueError, "head SHA"):
             lib.current_revision({**pull_request, "head": {"sha": "short"}})
 
-    def test_automatic_revisions_require_an_allowed_actor_and_local_branch(self):
+    def test_automatic_revisions_require_an_allowed_actor(self):
         pull_request = {
             "state": "open",
             "draft": False,
+            "base": {
+                "ref": "main",
+                "repo": {"default_branch": "main", "full_name": "reaver-project/reaveros"},
+            },
             "head": {
                 "sha": sha,
                 "repo": {"full_name": "reaver-project/reaveros"},
@@ -126,16 +130,43 @@ class CiGateLibraryTests(unittest.TestCase):
         )
         self.assertIsNone(lib.automatic_revision(pull_request, "reaver-project/reaveros", set()))
         pull_request["head"]["repo"]["full_name"] = "fork/reaveros"
-        self.assertIsNone(
+        self.assertEqual(
             lib.automatic_revision(
                 pull_request,
+                "reaver-project/reaveros",
+                {"griwes"},
+            ),
+            sha,
+        )
+        self.assertIsNone(
+            lib.automatic_revision(
+                {**pull_request, "draft": True},
                 "reaver-project/reaveros",
                 {"griwes"},
             )
         )
         self.assertIsNone(
             lib.automatic_revision(
-                {**pull_request, "draft": True},
+                {
+                    **pull_request,
+                    "base": {
+                        "ref": "feature/unsafe",
+                        "repo": {"default_branch": "main", "full_name": "reaver-project/reaveros"},
+                    },
+                },
+                "reaver-project/reaveros",
+                {"griwes"},
+            )
+        )
+        self.assertIsNone(
+            lib.automatic_revision(
+                {
+                    **pull_request,
+                    "base": {
+                        "ref": "main",
+                        "repo": {"default_branch": "main", "full_name": "other/repository"},
+                    },
+                },
                 "reaver-project/reaveros",
                 {"griwes"},
             )

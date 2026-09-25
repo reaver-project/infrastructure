@@ -53,6 +53,10 @@ def pull_request(*, sha=full_sha, actor="external", head_repository=repository):
         "state": "open",
         "draft": False,
         "commits": 1,
+        "base": {
+            "ref": "main",
+            "repo": {"default_branch": "main", "full_name": repository},
+        },
         "head": {"sha": sha, "repo": {"full_name": head_repository}},
         "user": {"login": actor},
     }
@@ -295,12 +299,18 @@ class CiGateIndexTests(unittest.TestCase):
         with mock.patch.object(
             ci_gate,
             "github_request",
-            side_effect=[None, {"permission": "write"}, {"permission": "read"}],
+            side_effect=[
+                None,
+                {"permission": "write"},
+                {"permission": "maintain"},
+                {"permission": "read"},
+            ],
         ) as github_request:
             ci_gate.comment("token", repository, 12, "message")
             self.assertTrue(ci_gate.approver_can_run_ci("token", repository, "griwes"))
+            self.assertTrue(ci_gate.approver_can_run_ci("token", repository, "maintainer"))
             self.assertFalse(ci_gate.approver_can_run_ci("token", repository, "reader"))
-        self.assertEqual(github_request.call_count, 3)
+        self.assertEqual(github_request.call_count, 4)
         self.assertFalse(ci_gate.approver_can_run_ci("token", repository, None))
 
         not_found = github_app.GitHubRequestError("GET", "/permission", 404, "missing")
@@ -339,6 +349,19 @@ class CiGateIndexTests(unittest.TestCase):
         self.assertEqual(result, "revision requires exact approval")
         copy.assert_not_called()
         delete.assert_called_once_with("token", repository, 12)
+
+    def test_signed_trusted_fork_revision_is_copied_automatically(self):
+        pr = pull_request(actor="griwes", head_repository="griwes/reaveros")
+        with (
+            mock.patch.object(ci_gate, "pull_request", return_value=pr),
+            mock.patch.object(ci_gate, "pull_request_commits", return_value=[signed_commit()]),
+            mock.patch.object(ci_gate, "set_copied_revision") as copy,
+        ):
+            result = ci_gate.handle_pull_request(
+                event_payload(action="synchronize", pr=pr), "token", repository
+            )
+        self.assertIn("automatically approved", result)
+        copy.assert_called_once_with("token", repository, 12, full_sha)
 
     def test_stale_pull_request_event_cannot_replace_the_copy(self):
         current = pull_request(sha=new_sha, actor="griwes")

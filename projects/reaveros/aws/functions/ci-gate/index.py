@@ -204,7 +204,7 @@ def approver_can_run_ci(token, repository, actor):
         if error.status == 404:
             return False
         raise
-    return permission.get("permission") in {"admin", "write"}
+    return permission.get("permission") in {"admin", "maintain", "write"}
 
 
 def handle_pull_request(payload, token, repository):

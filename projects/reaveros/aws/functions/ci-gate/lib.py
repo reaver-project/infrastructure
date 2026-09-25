@@ -133,16 +133,15 @@ def automatic_revision(pull_request, repository, automatic_actors):
         return None
     user = pull_request.get("user")
     actor = user.get("login") if isinstance(user, dict) else None
-    head = pull_request.get("head")
-    head_repository = head.get("repo") if isinstance(head, dict) else None
-    head_repository_name = (
-        head_repository.get("full_name") if isinstance(head_repository, dict) else None
-    )
+    base = pull_request.get("base")
+    base_repository = base.get("repo") if isinstance(base, dict) else None
     if (
         not isinstance(actor, str)
         or actor.casefold() not in automatic_actors
-        or not isinstance(head_repository_name, str)
-        or head_repository_name.casefold() != repository.casefold()
+        or not isinstance(base_repository, dict)
+        or not isinstance(base_repository.get("full_name"), str)
+        or base_repository["full_name"].casefold() != repository.casefold()
+        or base.get("ref") != base_repository.get("default_branch")
     ):
         return None
     return sha
