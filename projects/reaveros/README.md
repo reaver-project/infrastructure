@@ -4,7 +4,7 @@ This directory owns the cloud resources and shared integration contract used by
 ReaverOS. ReaverOS itself continues to own build commands, CI task matrices,
 spending authorization, build-environment cache keys, and image promotion.
 
-An approved AWS deployment publishes seven non-secret repository variables to
+An approved AWS deployment publishes eight non-secret repository variables to
 `reaver-project/reaveros` through the infrastructure GitHub App:
 
 - `AWS_REGION` identifies the region containing the runner stack;
@@ -14,8 +14,10 @@ An approved AWS deployment publishes seven non-secret repository variables to
   the deployed change set;
 - `AWS_RUNNER_STACK_NAME` identifies the stack whose outputs implement the
   contract;
-- `AWS_RUNNER_ROLE_ARN` is the narrowly trusted OIDC role used by ReaverOS
-  workflows; and
+- `AWS_RUNNER_ROLE_ARN` is the OIDC role used by runner and candidate-image
+  workflows;
+- `AWS_PRODUCTION_PROMOTION_ROLE_ARN` is the main-only OIDC role that writes
+  production ECR images;
 - `CI_GATE_APP_SLUG` identifies the App actor allowed to publish an approved
   pull request revision to a protected CI branch; and
 - `MAINTENANCE_APP_SLUG` identifies the only App actor allowed to propose an
@@ -48,3 +50,5 @@ and on `pull-request/*`. Repository rules reserve that latter namespace for the
 CI Gate App, which creates a branch only after resolving an approved revision
 to the pull request's current full head commit. This couples AWS authorization
 to an immutable reviewed object without granting fork workflows cloud access.
+The production promotion role trusts only the cache-promotion workflow called
+from `main`; the PR-capable role cannot write production ECR images.

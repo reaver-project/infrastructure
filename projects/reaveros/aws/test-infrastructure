@@ -248,10 +248,32 @@ for copied_branch_trust_invariant in \
     fi
 done
 
-if [[ $(grep --fixed-strings --count \
-    'token.actions.githubusercontent.com:sub: !Sub repo:${GitHubOidcImmutableRepositoryPattern}:workflow_ref:${GitHubOidcCallerWorkflowReferencePattern}:ref:refs/heads/main:job_workflow_ref:${GitHubOidcWorkflowReference}' \
-    "${self_dir}/runner-stack.yaml") -ne 1 ]]; then
-    printf 'Production ECR writes must require the main-branch OIDC subject.\n' >&2
+if ! grep --fixed-strings --quiet \
+    'token.actions.githubusercontent.com:sub: !Sub repo:${GitHubOidcImmutableRepositoryPattern}:workflow_ref:${GitHubOidcCallerWorkflowReferencePattern}:ref:refs/heads/main:job_workflow_ref:reaver-project/reaveros/.github/workflows/aws-cache-promotion.yml@refs/heads/main' \
+    "${self_dir}/runner-stack.yaml"; then
+    printf 'Production ECR promotion must trust only the main-branch workflow.\n' >&2
+    exit 1
+fi
+
+if ! awk '
+    /^    GitHubActionsRole:$/ { role = "shared"; next }
+    /^    ProductionPromotionRole:$/ { role = "production"; next }
+    /^    [A-Za-z][A-Za-z0-9]*:$/ { role = "" }
+    role != "" && /- Effect: Allow$/ { write = 0 }
+    role != "" && /- ecr:PutImage$/ { write = 1 }
+    role != "" && /- ecr:DescribeImageScanFindings$/ {
+        if (role == "shared") shared_scan = 1
+        if (role == "production") production_scan = 1
+    }
+    role != "" && write && /- !GetAtt (BuildEnvironmentRepository|UnprunedBuildEnvironmentRepository)\.Arn$/ {
+        if (role == "shared") shared_production_write = 1
+        if (role == "production") production_role_write = 1
+    }
+    END {
+        exit shared_production_write || !production_role_write || !shared_scan || !production_scan
+    }
+' "${self_dir}/runner-stack.yaml"; then
+    printf 'Production ECR writes must be isolated from the PR-capable role.\n' >&2
     exit 1
 fi
 

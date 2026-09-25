@@ -40,6 +40,7 @@ jobs:
             contract_version: ${{ steps.stack.outputs.contract_version }}
             infrastructure_revision: ${{ steps.stack.outputs.infrastructure_revision }}
             runner_role_arn: ${{ steps.stack.outputs.runner_role_arn }}
+            production_promotion_role_arn: ${{ steps.stack.outputs.production_promotion_role_arn }}
 
         steps:
           - name: Harden the runner
@@ -88,6 +89,7 @@ jobs:
             INFRASTRUCTURE_REVISION: ${{ needs.deploy.outputs.infrastructure_revision }}
             MAINTENANCE_APP_SLUG: ${{ vars.MAINTENANCE_APP_SLUG }}
             RUNNER_ROLE_ARN: ${{ needs.deploy.outputs.runner_role_arn }}
+            PRODUCTION_PROMOTION_ROLE_ARN: ${{ needs.deploy.outputs.production_promotion_role_arn }}
 
         steps:
           - name: Harden the runner
@@ -124,6 +126,7 @@ jobs:
                     --maintenance-app-slug "${MAINTENANCE_APP_SLUG}" \
                     --region "${AWS_REGION}" \
                     --runner-role-arn "${RUNNER_ROLE_ARN}" \
+                    --production-promotion-role-arn "${PRODUCTION_PROMOTION_ROLE_ARN}" \
                     --stack-name "${AWS_RUNNER_STACK_NAME}"
 
     update-consumer:
