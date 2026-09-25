@@ -9,6 +9,8 @@ required_environment=(
     CONTRACT_VERSION_FILE
     GH_TOKEN
     GITHUB_OUTPUT
+    GITHUB_RUN_ATTEMPT
+    GITHUB_RUN_ID
     GITHUB_SHA
     INFRASTRUCTURE_REVISION
     REVISION_FILE
@@ -25,6 +27,8 @@ done
 if [[ ! ${APP_SLUG} =~ ^[a-z0-9]+(-[a-z0-9]+)*$ ||
     ! ${CONSUMER_REPOSITORY} =~ ^[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+$ ||
     ! ${CONTRACT_VERSION} =~ ^[1-9][0-9]*$ ||
+    ! ${GITHUB_RUN_ID} =~ ^[1-9][0-9]*$ ||
+    ! ${GITHUB_RUN_ATTEMPT} =~ ^[1-9][0-9]*$ ||
     ! ${INFRASTRUCTURE_REVISION} =~ ^[0-9a-f]{40}$ ||
     ${INFRASTRUCTURE_REVISION} != "${GITHUB_SHA}" ]]; then
     printf 'Invalid infrastructure consumer update configuration.\n' >&2
@@ -56,8 +60,13 @@ fi
 test_directory=$(mktemp -d)
 body_file="${test_directory}/pull-request-body"
 checkout_directory="${test_directory}/consumer"
+staging_branch=
 cleanup()
 {
+    if [[ -n ${staging_branch} ]]; then
+        gh api "repos/${CONSUMER_REPOSITORY}/git/refs/heads/${staging_branch}" \
+            --method DELETE > /dev/null 2>&1 || true
+    fi
     rm -rf "${test_directory}"
 }
 trap cleanup EXIT
@@ -95,24 +104,27 @@ python3 "${action_directory}/../lib/infrastructure_consumer.py" validate \
     > /dev/null
 
 branch="maintenance/infrastructure/${INFRASTRUCTURE_REVISION}"
+staging_branch="maintenance/infrastructure-stage/${INFRASTRUCTURE_REVISION}-${GITHUB_RUN_ID}-${GITHUB_RUN_ATTEMPT}"
 base_revision=$(git -C "${checkout_directory}" rev-parse HEAD)
-remote_revision=$(gh api \
-    "repos/${CONSUMER_REPOSITORY}/git/ref/heads/${branch}" \
-    --jq '.object.sha' 2> /dev/null) || remote_revision=
-if [[ -n ${remote_revision} ]]; then
-    gh api "repos/${CONSUMER_REPOSITORY}/git/refs/heads/${branch}" \
+remote_revision=$(git -C "${checkout_directory}" ls-remote \
+    --heads origin "refs/heads/${branch}" | cut -f1)
+staging_revision=$(gh api \
+    "repos/${CONSUMER_REPOSITORY}/git/ref/heads/${staging_branch}" \
+    --jq '.object.sha' 2> /dev/null) || staging_revision=
+if [[ -n ${staging_revision} ]]; then
+    gh api "repos/${CONSUMER_REPOSITORY}/git/refs/heads/${staging_branch}" \
         --method PATCH \
         --field sha="${base_revision}" \
         --field force=true > /dev/null
 else
     gh api "repos/${CONSUMER_REPOSITORY}/git/refs" \
         --method POST \
-        --field ref="refs/heads/${branch}" \
+        --field ref="refs/heads/${staging_branch}" \
         --field sha="${base_revision}" > /dev/null
 fi
-if [[ $(gh api "repos/${CONSUMER_REPOSITORY}/git/ref/heads/${branch}" \
+if [[ $(gh api "repos/${CONSUMER_REPOSITORY}/git/ref/heads/${staging_branch}" \
     --jq '.object.sha') != "${base_revision}" ]]; then
-    printf 'Consumer update branch does not point to the validated base.\n' >&2
+    printf 'Consumer staging branch does not point to the validated base.\n' >&2
     exit 1
 fi
 
@@ -139,7 +151,7 @@ mutation='mutation($input: CreateCommitOnBranchInput!) { createCommitOnBranch(in
 jq --null-input \
     --arg query "${mutation}" \
     --arg repository "${CONSUMER_REPOSITORY}" \
-    --arg branch "${branch}" \
+    --arg branch "${staging_branch}" \
     --arg base "${base_revision}" \
     --arg headline "Update infrastructure integration to ${INFRASTRUCTURE_REVISION:0:12}" \
     --slurpfile additions "${additions_file}" \
@@ -168,6 +180,19 @@ head_revision=$(jq --exit-status --raw-output \
     printf 'GitHub did not create a verified Maintenance App commit.\n' >&2
     exit 1
 }
+git -C "${checkout_directory}" fetch origin "refs/heads/${staging_branch}"
+if [[ $(git -C "${checkout_directory}" rev-parse FETCH_HEAD) != "${head_revision}" ]]; then
+    printf 'Fetched Maintenance App commit differs from the verified revision.\n' >&2
+    exit 1
+fi
+git -C "${checkout_directory}" push \
+    --force-with-lease="refs/heads/${branch}:${remote_revision}" \
+    origin "${head_revision}:refs/heads/${branch}"
+if [[ $(git -C "${checkout_directory}" ls-remote \
+    --heads origin "refs/heads/${branch}" | cut -f1) != "${head_revision}" ]]; then
+    printf 'Consumer update branch differs from the verified Maintenance App commit.\n' >&2
+    exit 1
+fi
 
 printf '%s\n' \
     'This automated change aligns the repository with the deployed AWS infrastructure.' \
