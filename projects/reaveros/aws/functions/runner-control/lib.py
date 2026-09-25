@@ -15,6 +15,16 @@ def validate_repository(repository, allowed_repositories):
         raise ValueError("repository is not allowed to provision runners")
 
 
+def workflow_reference(repository, source_ref):
+    require_match(repository, r"[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+", "repository")
+    require_match(
+        source_ref,
+        r"refs/heads/(main|pull-request/[1-9][0-9]*)",
+        "workflow source ref",
+    )
+    return f"{repository}/.github/workflows/aws-runner.yml@{source_ref}"
+
+
 def runner_identity(event, parameter_prefix, parameter_nonce=None):
     runner_key = require_match(event.get("runner_key"), r"[a-z0-9-]{1,48}", "runner key")
     run_id = require_match(str(event.get("github_run_id")), r"[0-9]+", "run ID")

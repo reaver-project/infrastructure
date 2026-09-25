@@ -21,6 +21,16 @@ class RunnerControlTests(unittest.TestCase):
                 {"reaver-project/reaveros"},
             )
 
+    def test_restricts_runner_workflows_to_main_and_copied_pr_refs(self):
+        for ref in ("refs/heads/main", "refs/heads/pull-request/17"):
+            self.assertEqual(
+                runner_control.workflow_reference("reaver-project/reaveros", ref),
+                f"reaver-project/reaveros/.github/workflows/aws-runner.yml@{ref}",
+            )
+        for ref in ("refs/heads/feature/unsafe", "refs/heads/pull-request/0", "main"):
+            with self.assertRaisesRegex(ValueError, "workflow source ref"):
+                runner_control.workflow_reference("reaver-project/reaveros", ref)
+
     def test_builds_unique_runner_identity(self):
         self.assertEqual(
             runner_control.runner_identity(

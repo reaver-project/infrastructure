@@ -311,6 +311,49 @@ class RunnerControlIndexTests(unittest.TestCase):
             {},
         )
 
+    def test_admits_only_copied_workflows_to_the_restricted_runner_group(self):
+        main = "reaver-project/reaveros/.github/workflows/aws-runner.yml@refs/heads/main"
+        copied = (
+            "reaver-project/reaveros/.github/workflows/aws-runner.yml@refs/heads/pull-request/17"
+        )
+        group = {
+            "name": "reaveros",
+            "restricted_to_workflows": True,
+            "selected_workflows": [main],
+        }
+        with mock.patch.object(
+            runner_control,
+            "github_request",
+            side_effect=[group, {**group, "selected_workflows": [main, copied]}],
+        ) as request:
+            runner_control.ensure_workflow_access(
+                "token", "reaver-project/reaveros", "refs/heads/pull-request/17"
+            )
+        path = "/orgs/reaver-project/actions/runner-groups/7"
+        self.assertEqual(request.call_args_list[0], mock.call(path, "token"))
+        self.assertEqual(
+            request.call_args_list[1],
+            mock.call(path, "token", "PATCH", {"selected_workflows": [main, copied]}),
+        )
+
+        with mock.patch.object(runner_control, "github_request", return_value=group) as request:
+            runner_control.ensure_workflow_access(
+                "token", "reaver-project/reaveros", "refs/heads/main"
+            )
+        request.assert_called_once_with(path, "token")
+
+        with (
+            mock.patch.object(
+                runner_control,
+                "github_request",
+                return_value={**group, "restricted_to_workflows": False},
+            ),
+            self.assertRaisesRegex(ValueError, "not restricted"),
+        ):
+            runner_control.ensure_workflow_access(
+                "token", "reaver-project/reaveros", "refs/heads/pull-request/17"
+            )
+
     def test_runner_instance_lookup_follows_pagination(self):
         first = {"InstanceId": "i-first"}
         second = {"InstanceId": "i-second"}
@@ -377,6 +420,7 @@ class RunnerControlIndexTests(unittest.TestCase):
         with (
             mock.patch.object(runner_control, "runner_instances", return_value=[]),
             mock.patch.object(runner_control, "github_token", return_value="token"),
+            mock.patch.object(runner_control, "ensure_workflow_access") as access,
             mock.patch.object(
                 runner_control,
                 "github_request",
@@ -393,6 +437,7 @@ class RunnerControlIndexTests(unittest.TestCase):
                     "github_run_attempt": 2,
                     "github_run_id": 123,
                     "repository": "reaver-project/reaveros",
+                    "source_ref": "refs/heads/pull-request/17",
                     "runner_key": "unit-tests-amd64",
                     "runner_profile": "validation",
                     "runner_size": "medium",
@@ -412,6 +457,9 @@ class RunnerControlIndexTests(unittest.TestCase):
             },
         )
         github_request.assert_called_once()
+        access.assert_called_once_with(
+            "token", "reaver-project/reaveros", "refs/heads/pull-request/17"
+        )
         put_parameter = clients["ssm"].put_parameter.call_args.kwargs
         self.assertEqual(put_parameter["Tier"], "Advanced")
         self.assertEqual(
@@ -425,6 +473,7 @@ class RunnerControlIndexTests(unittest.TestCase):
             "github_run_attempt": 2,
             "github_run_id": 123,
             "repository": "reaver-project/reaveros",
+            "source_ref": "refs/heads/pull-request/17",
             "runner_key": "unit-tests-amd64",
             "runner_profile": "validation",
             "runner_size": "medium",
@@ -454,6 +503,7 @@ class RunnerControlIndexTests(unittest.TestCase):
         with (
             mock.patch.object(runner_control, "runner_instances", return_value=[]),
             mock.patch.object(runner_control, "github_token", return_value="token"),
+            mock.patch.object(runner_control, "ensure_workflow_access"),
             mock.patch.object(runner_control, "github_request", return_value=jit),
             mock.patch.object(runner_control, "cleanup_registration") as cleanup,
             mock.patch.object(
@@ -468,6 +518,7 @@ class RunnerControlIndexTests(unittest.TestCase):
                     "github_run_attempt": 2,
                     "github_run_id": 123,
                     "repository": "reaver-project/reaveros",
+                    "source_ref": "refs/heads/pull-request/17",
                     "runner_key": "unit-tests-amd64",
                     "runner_profile": "validation",
                     "runner_size": "medium",
@@ -738,6 +789,7 @@ class RunnerControlIndexTests(unittest.TestCase):
         with (
             mock.patch.object(runner_control, "runner_instances", return_value=[]),
             mock.patch.object(runner_control, "github_token", return_value="token"),
+            mock.patch.object(runner_control, "ensure_workflow_access"),
             mock.patch.object(runner_control, "github_request", return_value=jit),
             mock.patch.object(
                 runner_control,
@@ -757,6 +809,7 @@ class RunnerControlIndexTests(unittest.TestCase):
                     "github_run_attempt": 2,
                     "github_run_id": 123,
                     "repository": "reaver-project/reaveros",
+                    "source_ref": "refs/heads/pull-request/17",
                     "runner_key": "unit-tests-amd64",
                     "runner_profile": "validation",
                     "runner_size": "medium",

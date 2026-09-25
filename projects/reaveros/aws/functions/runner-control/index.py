@@ -17,6 +17,7 @@ from lib import (
     runner_identity,
     runner_tag_specifications,
     validate_repository,
+    workflow_reference,
 )
 
 ec2 = boto3.client("ec2")
@@ -103,12 +104,49 @@ def runner_instances(instance_ids=None):
         arguments["NextToken"] = next_token
 
 
+def ensure_workflow_access(token, repository, source_ref):
+    organization = os.environ["GITHUB_ORGANIZATION"]
+    group_id = int(os.environ["GITHUB_RUNNER_GROUP_ID"])
+    path = f"/orgs/{organization}/actions/runner-groups/{group_id}"
+    group = github_request(path, token)
+    selected = group.get("selected_workflows") if isinstance(group, dict) else None
+    if (
+        not isinstance(selected, list)
+        or not all(isinstance(reference, str) for reference in selected)
+        or group.get("restricted_to_workflows") is not True
+        or group.get("name") != "reaveros"
+    ):
+        raise ValueError("runner group is not restricted to ReaverOS workflows")
+    prefix = f"{repository}/.github/workflows/aws-runner.yml@"
+    for reference in selected:
+        if not reference.startswith(prefix):
+            raise ValueError("runner group contains an unexpected workflow")
+        workflow_reference(repository, reference.removeprefix(prefix))
+
+    requested = {
+        *selected,
+        workflow_reference(repository, "refs/heads/main"),
+        workflow_reference(repository, source_ref),
+    }
+    if requested != set(selected):
+        result = github_request(
+            path,
+            token,
+            "PATCH",
+            {"selected_workflows": sorted(requested)},
+        )
+        if not isinstance(result, dict) or set(result.get("selected_workflows", [])) != requested:
+            raise RuntimeError("runner group did not retain the approved workflow references")
+
+
 def launch(event):
     repository = event.get("repository")
     validate_repository(
         repository,
         set(os.environ["ALLOWED_REPOSITORIES"].split(",")),
     )
+    source_ref = event.get("source_ref")
+    workflow_reference(repository, source_ref)
     identity = runner_identity(event, os.environ["JIT_PARAMETER_PREFIX"])
     instance_types = {
         "medium": os.environ["MEDIUM_INSTANCE_TYPE"],
@@ -133,6 +171,7 @@ def launch(event):
         raise RuntimeError("ephemeral ReaverOS runner limit reached")
 
     token = github_token()
+    ensure_workflow_access(token, repository, source_ref)
     jit = github_request(
         f"/orgs/{os.environ['GITHUB_ORGANIZATION']}/actions/runners/generate-jitconfig",
         token,

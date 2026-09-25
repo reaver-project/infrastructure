@@ -29,6 +29,9 @@ mock_aws()
 
         case $(jq --exit-status --raw-output '.action' <<< "${payload}") in
             launch)
+                jq --exit-status \
+                    '.source_ref == "refs/heads/pull-request/17"' \
+                    <<< "${payload}" > /dev/null
                 jq --null-input '{
                     instance_id: "i-123abc",
                     labels: ["self-hosted", "reaveros-aws", "reaveros-101-2-unit-tests-amd64"],
@@ -87,6 +90,7 @@ fi
 
 export CONTROL_FUNCTION=runner-control
 export GITHUB_OUTPUT="${test_directory}/launch.output"
+export GITHUB_REF=refs/heads/pull-request/17
 export GITHUB_REPOSITORY=reaver-project/reaveros
 export GITHUB_RUN_ATTEMPT=2
 export GITHUB_RUN_ID=101
