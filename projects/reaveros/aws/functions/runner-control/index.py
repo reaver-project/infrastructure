@@ -115,6 +115,8 @@ def restricted_workflows(token, repository):
         or not all(isinstance(reference, str) for reference in selected)
         or group.get("restricted_to_workflows") is not True
         or group.get("name") != "reaveros"
+        or group.get("visibility") != "selected"
+        or group.get("allows_public_repositories") is not True
     ):
         raise ValueError("runner group is not restricted to ReaverOS workflows")
     prefix = f"{repository}/.github/workflows/aws-runner.yml@"
@@ -126,6 +128,32 @@ def restricted_workflows(token, repository):
     return path, set(selected)
 
 
+def set_restricted_workflows(path, token, requested):
+    result = github_request(
+        path,
+        token,
+        "PATCH",
+        {
+            "name": "reaveros",
+            "visibility": "selected",
+            "allows_public_repositories": True,
+            "restricted_to_workflows": True,
+            "selected_workflows": sorted(requested),
+        },
+    )
+    retained = result.get("selected_workflows") if isinstance(result, dict) else None
+    if (
+        not isinstance(result, dict)
+        or result.get("name") != "reaveros"
+        or result.get("visibility") != "selected"
+        or result.get("allows_public_repositories") is not True
+        or result.get("restricted_to_workflows") is not True
+        or not isinstance(retained, list)
+        or set(retained) != requested
+    ):
+        raise RuntimeError("runner group did not retain restricted workflow access")
+
+
 def ensure_workflow_access(token, repository, source_ref):
     path, selected = restricted_workflows(token, repository)
     requested = {
@@ -134,14 +162,7 @@ def ensure_workflow_access(token, repository, source_ref):
         workflow_reference(repository, source_ref),
     }
     if requested != selected:
-        result = github_request(
-            path,
-            token,
-            "PATCH",
-            {"selected_workflows": sorted(requested)},
-        )
-        if not isinstance(result, dict) or set(result.get("selected_workflows", [])) != requested:
-            raise RuntimeError("runner group did not retain the approved workflow references")
+        set_restricted_workflows(path, token, requested)
 
 
 def prune_workflow_access(repository, protected_refs=()):
@@ -157,21 +178,19 @@ def prune_workflow_access(repository, protected_refs=()):
         active.add(workflow_reference(repository, source_ref))
     for reference in references:
         source_ref = reference.get("ref") if isinstance(reference, dict) else None
-        active.add(workflow_reference(repository, source_ref))
+        if not isinstance(source_ref, str):
+            raise ValueError("GitHub returned an invalid copied CI ref")
+        try:
+            active.add(workflow_reference(repository, source_ref))
+        except ValueError:
+            continue
 
     token = github_token()
     path, selected = restricted_workflows(token, repository)
     requested = selected & active
     requested.add(workflow_reference(repository, "refs/heads/main"))
     if requested != selected:
-        result = github_request(
-            path,
-            token,
-            "PATCH",
-            {"selected_workflows": sorted(requested)},
-        )
-        if not isinstance(result, dict) or set(result.get("selected_workflows", [])) != requested:
-            raise RuntimeError("runner group did not prune revoked workflow references")
+        set_restricted_workflows(path, token, requested)
 
 
 def launch(event):

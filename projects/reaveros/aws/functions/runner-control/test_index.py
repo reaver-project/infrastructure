@@ -330,6 +330,8 @@ class RunnerControlIndexTests(unittest.TestCase):
         )
         group = {
             "name": "reaveros",
+            "visibility": "selected",
+            "allows_public_repositories": True,
             "restricted_to_workflows": True,
             "selected_workflows": [main],
         }
@@ -345,7 +347,18 @@ class RunnerControlIndexTests(unittest.TestCase):
         self.assertEqual(request.call_args_list[0], mock.call(path, "token"))
         self.assertEqual(
             request.call_args_list[1],
-            mock.call(path, "token", "PATCH", {"selected_workflows": [main, copied]}),
+            mock.call(
+                path,
+                "token",
+                "PATCH",
+                {
+                    "name": "reaveros",
+                    "visibility": "selected",
+                    "allows_public_repositories": True,
+                    "restricted_to_workflows": True,
+                    "selected_workflows": [main, copied],
+                },
+            ),
         )
 
         with mock.patch.object(runner_control, "github_request", return_value=group) as request:
@@ -378,7 +391,7 @@ class RunnerControlIndexTests(unittest.TestCase):
             )
         with (
             mock.patch.object(runner_control, "github_request", side_effect=[group, group]),
-            self.assertRaisesRegex(RuntimeError, "did not retain"),
+            self.assertRaisesRegex(RuntimeError, "restricted workflow access"),
         ):
             runner_control.ensure_workflow_access(
                 "token", "reaver-project/reaveros", "refs/heads/pull-request/17"
@@ -391,6 +404,8 @@ class RunnerControlIndexTests(unittest.TestCase):
         stale = prefix + "refs/heads/pull-request/18"
         group = {
             "name": "reaveros",
+            "visibility": "selected",
+            "allows_public_repositories": True,
             "restricted_to_workflows": True,
             "selected_workflows": [main, copied, stale],
         }
@@ -400,7 +415,10 @@ class RunnerControlIndexTests(unittest.TestCase):
                 runner_control,
                 "github_request",
                 side_effect=[
-                    [{"ref": "refs/heads/pull-request/17"}],
+                    [
+                        {"ref": "refs/heads/pull-request/17"},
+                        {"ref": "refs/heads/pull-request/wip"},
+                    ],
                     group,
                     {**group, "selected_workflows": [main, copied]},
                 ],
@@ -410,7 +428,13 @@ class RunnerControlIndexTests(unittest.TestCase):
         self.assertEqual(request.call_args_list[0].args[1], None)
         self.assertEqual(
             request.call_args_list[2].args[3],
-            {"selected_workflows": [main, copied]},
+            {
+                "name": "reaveros",
+                "visibility": "selected",
+                "allows_public_repositories": True,
+                "restricted_to_workflows": True,
+                "selected_workflows": [main, copied],
+            },
         )
 
         with (
@@ -436,7 +460,7 @@ class RunnerControlIndexTests(unittest.TestCase):
         with (
             mock.patch.object(runner_control, "github_token", return_value="token"),
             mock.patch.object(runner_control, "github_request", side_effect=[[], group, group]),
-            self.assertRaisesRegex(RuntimeError, "did not prune"),
+            self.assertRaisesRegex(RuntimeError, "restricted workflow access"),
         ):
             runner_control.prune_workflow_access("reaver-project/reaveros")
 
