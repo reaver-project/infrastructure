@@ -172,7 +172,7 @@ class CiGateLibraryTests(unittest.TestCase):
             )
         )
 
-    def test_automatic_admission_requires_a_verified_linear_commit_chain(self):
+    def test_automatic_admission_verifies_all_pr_commits_including_merges(self):
         parent = "a" * 40
         head = "b" * 40
 
@@ -187,32 +187,45 @@ class CiGateLibraryTests(unittest.TestCase):
             }
 
         commits = [node(parent, "0" * 40), node(head, parent)]
-        self.assertTrue(lib.signed_commit_chain(commits, 2, head, "griwes"))
-        self.assertFalse(lib.signed_commit_chain(commits, 3, head, "griwes"))
-        self.assertFalse(lib.signed_commit_chain(commits, 250, head, "griwes"))
-        self.assertFalse(lib.signed_commit_chain(commits, 2, parent, "griwes"))
+        self.assertTrue(lib.signed_pr_history(commits, 2, head, "griwes"))
+        self.assertFalse(lib.signed_pr_history(commits, 3, head, "griwes"))
+        self.assertFalse(lib.signed_pr_history(commits, 250, head, "griwes"))
+        self.assertFalse(lib.signed_pr_history(commits, 2, parent, "griwes"))
+
+        merge = node(head, parent)
+        side_sha = "c" * 40
+        merge["commit"]["parents"]["nodes"].append({"oid": side_sha})
+        side = node(side_sha, "0" * 40)
+        self.assertTrue(lib.signed_pr_history([commits[0], side, merge], 3, head, "griwes"))
         self.assertFalse(
-            lib.signed_commit_chain([commits[0], node(head, "0" * 40)], 2, head, "griwes")
-        )
-        self.assertFalse(
-            lib.signed_commit_chain(
-                [commits[0], node(head, parent, valid=False)], 2, head, "griwes"
+            lib.signed_pr_history(
+                [commits[0], node(side_sha, "0" * 40, valid=False), merge],
+                3,
+                head,
+                "griwes",
             )
         )
+        self.assertFalse(lib.signed_pr_history([commits[0], commits[0]], 2, head, "griwes"))
         self.assertFalse(
-            lib.signed_commit_chain(
+            lib.signed_pr_history([commits[0], node(head, parent, valid=False)], 2, head, "griwes")
+        )
+        self.assertFalse(
+            lib.signed_pr_history(
                 [commits[0], node(head, parent, signer="other")], 2, head, "griwes"
             )
         )
-        self.assertFalse(lib.signed_commit_chain([{"commit": {"oid": head}}], 1, head, "griwes"))
-        self.assertFalse(lib.signed_commit_chain([None], 1, head, "griwes"))
+        self.assertFalse(lib.signed_pr_history([{"commit": {"oid": head}}], 1, head, "griwes"))
+        self.assertFalse(lib.signed_pr_history([None], 1, head, "griwes"))
 
         bot = "reaver-project-maintenance[bot]"
         self.assertTrue(
-            lib.signed_commit_chain([node(head, parent, "web-flow", bot)], 1, head, bot, {head})
+            lib.signed_pr_history([node(head, parent, "web-flow", bot)], 1, head, bot, {head})
         )
         self.assertFalse(
-            lib.signed_commit_chain([node(head, parent, "web-flow", "other")], 1, head, bot)
+            lib.signed_pr_history([node(head, parent, "web-flow", "other")], 1, head, bot)
+        )
+        self.assertTrue(
+            lib.signed_pr_history([node(head, parent, "web-flow")], 1, head, "griwes", {head})
         )
 
     def test_constructs_only_numeric_copy_branches(self):

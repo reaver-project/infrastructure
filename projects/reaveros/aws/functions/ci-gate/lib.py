@@ -147,17 +147,19 @@ def automatic_revision(pull_request, repository, automatic_actors):
     return sha
 
 
-def signed_commit_chain(commits, expected_count, expected_head, actor, bot_authors=None):
+def signed_pr_history(commits, expected_count, expected_head, actor, web_flow_authors=None):
     if (
         not isinstance(expected_count, int)
         or not 1 <= expected_count <= 249
         or not isinstance(commits, list)
         or len(commits) != expected_count
+        or not isinstance(expected_head, str)
+        or re.fullmatch(r"[0-9a-f]{40}", expected_head) is None
         or not isinstance(actor, str)
     ):
         return False
 
-    previous_sha = None
+    seen = set()
     for node in commits:
         commit = node.get("commit") if isinstance(node, dict) else None
         if not isinstance(commit, dict):
@@ -166,31 +168,22 @@ def signed_commit_chain(commits, expected_count, expected_head, actor, bot_autho
         signature = commit.get("signature")
         signer = signature.get("signer") if isinstance(signature, dict) else None
         signer_login = signer.get("login") if isinstance(signer, dict) else None
-        parents = commit.get("parents")
-        parent_nodes = parents.get("nodes") if isinstance(parents, dict) else None
         if (
             not isinstance(sha, str)
             or re.fullmatch(r"[0-9a-f]{40}", sha) is None
+            or sha in seen
             or not isinstance(signature, dict)
             or signature.get("isValid") is not True
             or not isinstance(signer_login, str)
-            or not isinstance(parent_nodes, list)
-            or len(parent_nodes) != 1
         ):
             return False
         if signer_login.casefold() != actor.casefold() and not (
-            actor.endswith("[bot]")
-            and signer_login == "web-flow"
-            and bot_authors is not None
-            and sha in bot_authors
+            signer_login == "web-flow" and web_flow_authors is not None and sha in web_flow_authors
         ):
             return False
-        parent_sha = parent_nodes[0].get("oid") if isinstance(parent_nodes[0], dict) else None
-        if previous_sha is not None and parent_sha != previous_sha:
-            return False
-        previous_sha = sha
+        seen.add(sha)
 
-    return previous_sha == expected_head
+    return commits[-1]["commit"]["oid"] == expected_head
 
 
 def copied_branch(number):

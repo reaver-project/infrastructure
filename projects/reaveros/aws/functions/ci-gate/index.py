@@ -15,7 +15,7 @@ from lib import (
     parse_payload,
     pull_request_number,
     repository_identity,
-    signed_commit_chain,
+    signed_pr_history,
     starts_with_approval_command,
     verify_signature,
 )
@@ -70,7 +70,7 @@ def pull_request(token, repository, number):
     return github_request(f"/repos/{repository}/pulls/{number}", token)
 
 
-commit_chain_query = """
+pr_history_query = """
 query($owner: String!, $name: String!, $number: Int!, $cursor: String) {
   repository(owner: $owner, name: $name) {
     pullRequest(number: $number) {
@@ -81,7 +81,6 @@ query($owner: String!, $name: String!, $number: Int!, $cursor: String) {
           commit {
             oid
             signature { isValid signer { login } }
-            parents(first: 2) { nodes { oid } }
           }
         }
       }
@@ -103,7 +102,7 @@ def pull_request_commits(token, repository, number, expected_count):
             token,
             "POST",
             {
-                "query": commit_chain_query,
+                "query": pr_history_query,
                 "variables": {"owner": owner, "name": name, "number": number, "cursor": cursor},
             },
         )
@@ -132,8 +131,9 @@ def pull_request_commits(token, repository, number, expected_count):
     return None
 
 
-def github_signed_bot_commits(token, repository, commits, actor):
+def github_signed_actor_commits(token, repository, commits, actor):
     verified = set()
+    expected_type = "Bot" if actor.endswith("[bot]") else "User"
     for node in commits:
         commit = node.get("commit") if isinstance(node, dict) else None
         signature = commit.get("signature") if isinstance(commit, dict) else None
@@ -150,7 +150,7 @@ def github_signed_bot_commits(token, repository, commits, actor):
         if (
             isinstance(author, dict)
             and isinstance(verification, dict)
-            and author.get("type") == "Bot"
+            and author.get("type") == expected_type
             and isinstance(author.get("login"), str)
             and author["login"].casefold() == actor.casefold()
             and verification.get("verified") is True
@@ -263,12 +263,12 @@ def handle_pull_request(payload, token, repository):
         actor = current["user"]["login"]
         commit_count = current.get("commits")
         commits = pull_request_commits(token, repository, number, commit_count)
-        bot_authors = (
-            github_signed_bot_commits(token, repository, commits, actor)
-            if actor.endswith("[bot]") and isinstance(commits, list)
+        web_flow_authors = (
+            github_signed_actor_commits(token, repository, commits, actor)
+            if isinstance(commits, list)
             else None
         )
-        if not signed_commit_chain(commits, commit_count, automatic_sha, actor, bot_authors):
+        if not signed_pr_history(commits, commit_count, automatic_sha, actor, web_flow_authors):
             automatic_sha = None
     if automatic_sha is None:
         delete_copied_revision(token, repository, number)

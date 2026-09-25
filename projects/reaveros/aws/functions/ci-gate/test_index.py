@@ -380,7 +380,7 @@ class CiGateIndexTests(unittest.TestCase):
         self.assertIn("automatically approved", result)
         copy.assert_called_once_with("token", repository, 12, full_sha)
 
-    def test_github_signed_maintenance_commit_requires_the_bot_author(self):
+    def test_github_signed_commits_require_the_trusted_actor_as_author(self):
         bot = "reaver-project-maintenance[bot]"
         pr = pull_request(actor=bot)
         commit = signed_commit(actor=bot)
@@ -417,7 +417,7 @@ class CiGateIndexTests(unittest.TestCase):
 
         with mock.patch.object(ci_gate, "github_request") as request:
             self.assertEqual(
-                ci_gate.github_signed_bot_commits(
+                ci_gate.github_signed_actor_commits(
                     "token",
                     repository,
                     [
@@ -430,6 +430,25 @@ class CiGateIndexTests(unittest.TestCase):
                 set(),
             )
         request.assert_not_called()
+
+        human_pr = pull_request(actor="griwes")
+        human_commit = signed_commit()
+        human_commit["commit"]["signature"]["signer"]["login"] = "web-flow"
+        human_author = {
+            "author": {"login": "griwes", "type": "User"},
+            "commit": {"verification": {"verified": True}},
+        }
+        with (
+            mock.patch.object(ci_gate, "pull_request", return_value=human_pr),
+            mock.patch.object(ci_gate, "pull_request_commits", return_value=[human_commit]),
+            mock.patch.object(ci_gate, "github_request", return_value=human_author),
+            mock.patch.object(ci_gate, "set_copied_revision") as copy,
+        ):
+            result = ci_gate.handle_pull_request(
+                event_payload(action="synchronize", pr=human_pr), "token", repository
+            )
+        self.assertIn("automatically approved", result)
+        copy.assert_called_once_with("token", repository, 12, full_sha)
 
     def test_stale_pull_request_event_cannot_replace_the_copy(self):
         current = pull_request(sha=new_sha, actor="griwes")
