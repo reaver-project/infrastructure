@@ -15,6 +15,7 @@ from lib import (
     parse_payload,
     pull_request_number,
     repository_identity,
+    signed_commit_chain,
     starts_with_approval_command,
     verify_signature,
 )
@@ -67,6 +68,69 @@ def installation_token(app_credentials, event_installation_id, repository_id):
 
 def pull_request(token, repository, number):
     return github_request(f"/repos/{repository}/pulls/{number}", token)
+
+
+commit_chain_query = """
+query($owner: String!, $name: String!, $number: Int!, $cursor: String) {
+  repository(owner: $owner, name: $name) {
+    pullRequest(number: $number) {
+      commits(first: 100, after: $cursor) {
+        totalCount
+        pageInfo { hasNextPage endCursor }
+        nodes {
+          commit {
+            oid
+            signature { isValid signer { login } }
+            author { user { login } }
+            parents(first: 2) { nodes { oid } }
+          }
+        }
+      }
+    }
+  }
+}
+"""
+
+
+def pull_request_commits(token, repository, number, expected_count):
+    if not isinstance(expected_count, int) or not 1 <= expected_count <= 249:
+        return None
+    owner, name = repository.split("/", 1)
+    nodes = []
+    cursor = None
+    for _ in range(3):
+        response = github_request(
+            "/graphql",
+            token,
+            "POST",
+            {
+                "query": commit_chain_query,
+                "variables": {"owner": owner, "name": name, "number": number, "cursor": cursor},
+            },
+        )
+        if not isinstance(response, dict) or response.get("errors"):
+            return None
+        data = response.get("data")
+        repository_data = data.get("repository") if isinstance(data, dict) else None
+        pull_request_data = (
+            repository_data.get("pullRequest") if isinstance(repository_data, dict) else None
+        )
+        commits = pull_request_data.get("commits") if isinstance(pull_request_data, dict) else None
+        if not isinstance(commits, dict) or commits.get("totalCount") != expected_count:
+            return None
+        page_nodes = commits.get("nodes")
+        page_info = commits.get("pageInfo")
+        if not isinstance(page_nodes, list) or not isinstance(page_info, dict):
+            return None
+        nodes.extend(page_nodes)
+        if len(nodes) > expected_count:
+            return None
+        if page_info.get("hasNextPage") is False:
+            return nodes if len(nodes) == expected_count else None
+        cursor = page_info.get("endCursor")
+        if page_info.get("hasNextPage") is not True or not isinstance(cursor, str):
+            return None
+    return None
 
 
 def resolve_revision(token, repository, revision):
@@ -169,6 +233,12 @@ def handle_pull_request(payload, token, repository):
         if actor.strip()
     }
     automatic_sha = automatic_revision(current, repository, automatic_actors)
+    if automatic_sha is not None:
+        actor = current["user"]["login"]
+        commit_count = current.get("commits")
+        commits = pull_request_commits(token, repository, number, commit_count)
+        if not signed_commit_chain(commits, commit_count, automatic_sha, actor):
+            automatic_sha = None
     if automatic_sha is None:
         delete_copied_revision(token, repository, number)
         if action in {"opened", "ready_for_review", "reopened"}:

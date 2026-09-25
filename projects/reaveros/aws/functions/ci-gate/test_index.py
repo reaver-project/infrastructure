@@ -52,8 +52,20 @@ def pull_request(*, sha=full_sha, actor="external", head_repository=repository):
         "number": 12,
         "state": "open",
         "draft": False,
+        "commits": 1,
         "head": {"sha": sha, "repo": {"full_name": head_repository}},
         "user": {"login": actor},
+    }
+
+
+def signed_commit(sha=full_sha, actor="griwes"):
+    return {
+        "commit": {
+            "oid": sha,
+            "parents": {"nodes": [{"oid": "0" * 40}]},
+            "signature": {"isValid": True, "signer": {"login": actor}},
+            "author": {"user": {"login": actor}},
+        }
     }
 
 
@@ -174,6 +186,45 @@ class CiGateIndexTests(unittest.TestCase):
         ):
             ci_gate.resolve_revision("token", repository, full_sha[:7])
 
+    def test_loads_the_complete_pull_request_commit_sequence(self):
+        first_page = {
+            "data": {
+                "repository": {
+                    "pullRequest": {
+                        "commits": {
+                            "totalCount": 101,
+                            "nodes": [signed_commit() for _ in range(100)],
+                            "pageInfo": {"hasNextPage": True, "endCursor": "cursor"},
+                        }
+                    }
+                }
+            }
+        }
+        second_page = {
+            "data": {
+                "repository": {
+                    "pullRequest": {
+                        "commits": {
+                            "totalCount": 101,
+                            "nodes": [signed_commit(new_sha)],
+                            "pageInfo": {"hasNextPage": False, "endCursor": "last"},
+                        }
+                    }
+                }
+            }
+        }
+        with mock.patch.object(
+            ci_gate, "github_request", side_effect=[first_page, second_page]
+        ) as request:
+            commits = ci_gate.pull_request_commits("token", repository, 12, 101)
+        self.assertEqual(len(commits), 101)
+        self.assertEqual(request.call_args_list[0].args[:3], ("/graphql", "token", "POST"))
+        self.assertEqual(request.call_args_list[1].args[3]["variables"]["cursor"], "cursor")
+
+        with mock.patch.object(ci_gate, "github_request", return_value=first_page):
+            self.assertIsNone(ci_gate.pull_request_commits("token", repository, 12, 1))
+        self.assertIsNone(ci_gate.pull_request_commits("token", repository, 12, 250))
+
     def test_creates_a_missing_copy_ref_and_updates_an_existing_ref(self):
         not_found = github_app.GitHubRequestError("GET", "/ref", 404, "missing")
         with mock.patch.object(
@@ -260,6 +311,7 @@ class CiGateIndexTests(unittest.TestCase):
         pr = pull_request(actor="griwes")
         with (
             mock.patch.object(ci_gate, "pull_request", return_value=pr),
+            mock.patch.object(ci_gate, "pull_request_commits", return_value=[signed_commit()]),
             mock.patch.object(ci_gate, "set_copied_revision") as copy,
         ):
             result = ci_gate.handle_pull_request(
@@ -270,6 +322,23 @@ class CiGateIndexTests(unittest.TestCase):
 
         self.assertIn("automatically approved", result)
         copy.assert_called_once_with("token", repository, 12, full_sha)
+
+    def test_unsigned_automatic_revision_requires_exact_approval(self):
+        pr = pull_request(actor="griwes")
+        with (
+            mock.patch.object(ci_gate, "pull_request", return_value=pr),
+            mock.patch.object(
+                ci_gate, "pull_request_commits", return_value=[{"commit": {"oid": full_sha}}]
+            ),
+            mock.patch.object(ci_gate, "set_copied_revision") as copy,
+            mock.patch.object(ci_gate, "delete_copied_revision") as delete,
+        ):
+            result = ci_gate.handle_pull_request(
+                event_payload(action="synchronize", pr=pr), "token", repository
+            )
+        self.assertEqual(result, "revision requires exact approval")
+        copy.assert_not_called()
+        delete.assert_called_once_with("token", repository, 12)
 
     def test_stale_pull_request_event_cannot_replace_the_copy(self):
         current = pull_request(sha=new_sha, actor="griwes")

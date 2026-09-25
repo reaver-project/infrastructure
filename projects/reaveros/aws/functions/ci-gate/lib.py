@@ -148,6 +148,55 @@ def automatic_revision(pull_request, repository, automatic_actors):
     return sha
 
 
+def signed_commit_chain(commits, expected_count, expected_head, actor):
+    if (
+        not isinstance(expected_count, int)
+        or not 1 <= expected_count <= 249
+        or not isinstance(commits, list)
+        or len(commits) != expected_count
+        or not isinstance(actor, str)
+    ):
+        return False
+
+    previous_sha = None
+    for node in commits:
+        commit = node.get("commit") if isinstance(node, dict) else None
+        if not isinstance(commit, dict):
+            return False
+        sha = commit.get("oid")
+        signature = commit.get("signature")
+        signer = signature.get("signer") if isinstance(signature, dict) else None
+        signer_login = signer.get("login") if isinstance(signer, dict) else None
+        author = commit.get("author")
+        user = author.get("user") if isinstance(author, dict) else None
+        author_login = user.get("login") if isinstance(user, dict) else None
+        parents = commit.get("parents")
+        parent_nodes = parents.get("nodes") if isinstance(parents, dict) else None
+        if (
+            not isinstance(sha, str)
+            or re.fullmatch(r"[0-9a-f]{40}", sha) is None
+            or not isinstance(signature, dict)
+            or signature.get("isValid") is not True
+            or not isinstance(signer_login, str)
+            or not isinstance(parent_nodes, list)
+            or len(parent_nodes) != 1
+        ):
+            return False
+        if signer_login.casefold() != actor.casefold() and not (
+            actor.endswith("[bot]")
+            and signer_login == "web-flow"
+            and isinstance(author_login, str)
+            and author_login.casefold() == actor.casefold()
+        ):
+            return False
+        parent_sha = parent_nodes[0].get("oid") if isinstance(parent_nodes[0], dict) else None
+        if previous_sha is not None and parent_sha != previous_sha:
+            return False
+        previous_sha = sha
+
+    return previous_sha == expected_head
+
+
 def copied_branch(number):
     if not isinstance(number, int) or number < 1:
         raise ValueError("invalid pull request number")

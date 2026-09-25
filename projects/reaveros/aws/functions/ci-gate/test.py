@@ -141,6 +141,48 @@ class CiGateLibraryTests(unittest.TestCase):
             )
         )
 
+    def test_automatic_admission_requires_a_verified_linear_commit_chain(self):
+        parent = "a" * 40
+        head = "b" * 40
+
+        def node(oid, parent_oid, signer="griwes", author="griwes", valid=True):
+            return {
+                "commit": {
+                    "oid": oid,
+                    "parents": {"nodes": [{"oid": parent_oid}]},
+                    "signature": {"isValid": valid, "signer": {"login": signer}},
+                    "author": {"user": {"login": author}},
+                }
+            }
+
+        commits = [node(parent, "0" * 40), node(head, parent)]
+        self.assertTrue(lib.signed_commit_chain(commits, 2, head, "griwes"))
+        self.assertFalse(lib.signed_commit_chain(commits, 3, head, "griwes"))
+        self.assertFalse(lib.signed_commit_chain(commits, 250, head, "griwes"))
+        self.assertFalse(lib.signed_commit_chain(commits, 2, parent, "griwes"))
+        self.assertFalse(
+            lib.signed_commit_chain([commits[0], node(head, "0" * 40)], 2, head, "griwes")
+        )
+        self.assertFalse(
+            lib.signed_commit_chain(
+                [commits[0], node(head, parent, valid=False)], 2, head, "griwes"
+            )
+        )
+        self.assertFalse(
+            lib.signed_commit_chain(
+                [commits[0], node(head, parent, signer="other")], 2, head, "griwes"
+            )
+        )
+        self.assertFalse(lib.signed_commit_chain([{"commit": {"oid": head}}], 1, head, "griwes"))
+
+        bot = "reaver-project-maintenance[bot]"
+        self.assertTrue(
+            lib.signed_commit_chain([node(head, parent, "web-flow", bot)], 1, head, bot)
+        )
+        self.assertFalse(
+            lib.signed_commit_chain([node(head, parent, "web-flow", "other")], 1, head, bot)
+        )
+
     def test_constructs_only_numeric_copy_branches(self):
         self.assertEqual(lib.copied_branch(12), "pull-request/12")
         with self.assertRaisesRegex(ValueError, "invalid"):
