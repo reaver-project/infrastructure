@@ -23,6 +23,10 @@ if [[ $(basename -- "$0") == aws ]]; then
                 {
                     OutputKey: "ProductionPromotionRoleArn",
                     OutputValue: "arn:aws:iam::123456789012:role/reaveros-production-promotion"
+                },
+                {
+                    OutputKey: "GhcrPublisherRoleArn",
+                    OutputValue: "arn:aws:iam::123456789012:role/reaveros-ghcr-publisher"
                 }
             ]'
         exit
@@ -63,6 +67,9 @@ grep --fixed-strings --line-regexp \
     "${GITHUB_OUTPUT}" > /dev/null
 grep --fixed-strings --line-regexp \
     'production_promotion_role_arn=arn:aws:iam::123456789012:role/reaveros-production-promotion' \
+    "${GITHUB_OUTPUT}" > /dev/null
+grep --fixed-strings --line-regexp \
+    'ghcr_publisher_role_arn=arn:aws:iam::123456789012:role/reaveros-ghcr-publisher' \
     "${GITHUB_OUTPUT}" > /dev/null
 
 export TEST_CONTRACT_VERSION=$((contract_version + 1))

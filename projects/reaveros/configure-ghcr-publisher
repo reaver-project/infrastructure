@@ -1,0 +1,13 @@
+#!/usr/bin/env bash
+
+set -euo pipefail
+
+if [[ $# -ne 1 || -z ${GH_TOKEN:-} ||
+    ! $1 =~ ^arn:(aws|aws-us-gov|aws-cn):iam::[0-9]{12}:role/[A-Za-z0-9+=,.@_/-]+$ ]]; then
+    printf 'usage: %s <GHCR publisher role ARN>\n' "$0" >&2
+    exit 2
+fi
+
+gh variable set AWS_GHCR_PUBLISHER_ROLE_ARN \
+    --repo reaver-project/infrastructure \
+    --body "$1"

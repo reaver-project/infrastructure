@@ -61,7 +61,13 @@ shell_scripts=(
     projects/reaveros/aws/test-validate-policies
     projects/reaveros/aws/validate-policies
     projects/reaveros/configure-ci
+    projects/reaveros/configure-ghcr-publisher
+    projects/reaveros/ghcr/publish
+    projects/reaveros/ghcr/reserve
+    projects/reaveros/ghcr/select-run
+    projects/reaveros/ghcr/test-select-run
     projects/reaveros/test-configure-ci
+    projects/reaveros/test-configure-ghcr-publisher
     projects/reaveros/test-contract
 )
 bash -n "${shell_scripts[@]}"
@@ -130,6 +136,8 @@ projects/reaveros/aws/test-read-deployed-contract
 projects/reaveros/aws/test-configure-runner-app
 projects/reaveros/aws/test-validate-policies
 projects/reaveros/test-configure-ci
+projects/reaveros/test-configure-ghcr-publisher
+projects/reaveros/ghcr/test-select-run
 projects/reaveros/test-contract
 python3 projects/reaveros/aws/functions/runner-control/test.py
 python3 projects/reaveros/aws/functions/runner-control/test_index.py

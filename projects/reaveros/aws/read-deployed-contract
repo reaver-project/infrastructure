@@ -46,6 +46,7 @@ contract_version=$(read_stack_output InfrastructureContractVersion)
 infrastructure_revision=$(read_stack_output InfrastructureRevision)
 runner_role_arn=$(read_stack_output GitHubActionsRoleArn)
 production_promotion_role_arn=$(read_stack_output ProductionPromotionRoleArn)
+ghcr_publisher_role_arn=$(read_stack_output GhcrPublisherRoleArn)
 if [[ ! ${contract_version} =~ ^[1-9][0-9]*$ ||
     ${contract_version} != "${source_contract_version}" ]]; then
     printf 'Deployed contract version %s does not match source version %s.\n' \
@@ -69,10 +70,16 @@ if [[ ! ${production_promotion_role_arn} =~ ^arn:(aws|aws-us-gov|aws-cn):iam::[0
         "${production_promotion_role_arn}" >&2
     exit 1
 fi
+if [[ ! ${ghcr_publisher_role_arn} =~ ^arn:(aws|aws-us-gov|aws-cn):iam::[0-9]{12}:role/[A-Za-z0-9+=,.@_/-]+$ ]]; then
+    printf 'Invalid GhcrPublisherRoleArn stack output: %s\n' \
+        "${ghcr_publisher_role_arn}" >&2
+    exit 1
+fi
 
 {
     printf 'contract_version=%s\n' "${contract_version}"
     printf 'infrastructure_revision=%s\n' "${infrastructure_revision}"
     printf 'runner_role_arn=%s\n' "${runner_role_arn}"
     printf 'production_promotion_role_arn=%s\n' "${production_promotion_role_arn}"
+    printf 'ghcr_publisher_role_arn=%s\n' "${ghcr_publisher_role_arn}"
 } >> "${GITHUB_OUTPUT}"

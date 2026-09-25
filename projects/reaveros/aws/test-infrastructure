@@ -255,6 +255,22 @@ if ! grep --fixed-strings --quiet \
     exit 1
 fi
 
+if ! grep --fixed-strings --quiet \
+    'token.actions.githubusercontent.com:sub: repo:reaver-project@1804403/infrastructure@1341253705:workflow_ref:reaver-project/infrastructure/.github/workflows/reaveros-ghcr-publisher.yml@refs/heads/main:ref:refs/heads/main' \
+    "${self_dir}/runner-stack.yaml"; then
+    printf 'GHCR publication must trust only the infrastructure main workflow.\n' >&2
+    exit 1
+fi
+
+if ! awk '
+    /^    GhcrPublisherRole:$/ { in_role = 1; next }
+    in_role && /^    [A-Za-z][A-Za-z0-9]*:$/ { exit }
+    in_role && /- ecr:(PutImage|CompleteLayerUpload|InitiateLayerUpload|UploadLayerPart)$/ { exit 1 }
+' "${self_dir}/runner-stack.yaml"; then
+    printf 'The GHCR publisher must have read-only ECR access.\n' >&2
+    exit 1
+fi
+
 if ! awk '
     /^    GitHubActionsRole:$/ { role = "shared"; next }
     /^    ProductionPromotionRole:$/ { role = "production"; next }

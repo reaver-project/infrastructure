@@ -1,0 +1,48 @@
+#!/usr/bin/env bash
+
+set -euo pipefail
+
+self_dir=$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)
+current_sha=0123456789abcdef0123456789abcdef01234567
+old_sha=aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa
+runs=$(jq --null-input \
+    --arg current "${current_sha}" \
+    --arg old "${old_sha}" '{workflow_runs: [
+        {id: 9, run_attempt: 1, status: "completed", conclusion: "success",
+         head_branch: "main", head_sha: $current,
+         head_repository: {full_name: "reaver-project/reaveros"}, event: "push"},
+        {id: 10, run_attempt: 1, status: "completed", conclusion: "failure",
+         head_branch: "main", head_sha: $current,
+         head_repository: {full_name: "reaver-project/reaveros"}, event: "push"},
+        {id: 11, run_attempt: 1, status: "completed", conclusion: "success",
+         head_branch: "main", head_sha: $old,
+         head_repository: {full_name: "reaver-project/reaveros"}, event: "push"},
+        {id: 12, run_attempt: 1, status: "completed", conclusion: "success",
+         head_branch: "pull-request/3", head_sha: $current,
+         head_repository: {full_name: "reaver-project/reaveros"}, event: "push"},
+        {id: 13, run_attempt: 1, status: "completed", conclusion: "success",
+         head_branch: "main", head_sha: $current,
+         head_repository: {full_name: "someone-else/reaveros"}, event: "push"},
+        {id: 14, run_attempt: 2, status: "completed", conclusion: "success",
+         head_branch: "main", head_sha: $current,
+         head_repository: {full_name: "reaver-project/reaveros"}, event: "schedule"}
+    ]}')
+
+selected=$("${self_dir}/select-run" "${current_sha}" <<< "${runs}")
+if [[ $(jq --raw-output '.id' <<< "${selected}") != 14 ||
+$(jq --raw-output '.run_attempt' <<< "${selected}") != 2 ]]; then
+    printf 'Publisher selected the wrong main CI run.\n' >&2
+    exit 1
+fi
+
+if [[ -n $("${self_dir}/select-run" "${old_sha}" <<< '{"workflow_runs":[]}') ]]; then
+    printf 'Publisher accepted a missing successful main CI run.\n' >&2
+    exit 1
+fi
+
+if "${self_dir}/select-run" invalid <<< "${runs}" > /dev/null 2>&1; then
+    printf 'Publisher accepted an invalid main revision.\n' >&2
+    exit 1
+fi
+
+printf 'GHCR source-selection tests passed.\n'

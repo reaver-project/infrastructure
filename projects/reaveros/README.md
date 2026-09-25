@@ -2,7 +2,11 @@
 
 This directory owns the cloud resources and shared integration contract used by
 ReaverOS. ReaverOS itself continues to own build commands, CI task matrices,
-spending authorization, build-environment cache keys, and image promotion.
+spending authorization, build-environment cache keys, and ECR image promotion.
+This repository owns the trusted GHCR publisher for successful ReaverOS main
+builds. Its read-only ECR role is restricted to this repository's main-branch
+publisher workflow; only that workflow receives a token able to publish the
+two official GHCR build-environment packages.
 
 An approved AWS deployment publishes eight non-secret repository variables to
 `reaver-project/reaveros` through the infrastructure GitHub App:
@@ -52,3 +56,14 @@ to the pull request's current full head commit. This couples AWS authorization
 to an immutable reviewed object without granting fork workflows cloud access.
 The production promotion role trusts only the cache-promotion workflow called
 from `main`; the PR-capable role cannot write production ECR images.
+
+The deployment also publishes `AWS_GHCR_PUBLISHER_ROLE_ARN` as a variable on
+`reaver-project/infrastructure`. The publisher reconciles GHCR from a
+successful `ci.yml` run at ReaverOS's current signed main commit. It can be
+triggered manually or by its five-minute schedule. Package names are initially
+reserved as private packages from this repository using its manual reservation
+job; the organization package-creation policy is recorded in
+`github/organizations/reaver-project.json`. GitHub does not expose that policy
+through the supported API used by the configurator, so an owner must verify
+its effective value in organization settings. The official packages must grant
+Actions access to infrastructure only, with source-repository inheritance off.

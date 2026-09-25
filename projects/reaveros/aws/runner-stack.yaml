@@ -1032,6 +1032,46 @@ Resources:
               - Key: Project
                 Value: ReaverOS
 
+    GhcrPublisherRole:
+        Type: AWS::IAM::Role
+        Properties:
+            PermissionsBoundary: !Ref RunnerRolePermissionsBoundaryArn
+            AssumeRolePolicyDocument:
+                Version: '2012-10-17'
+                Statement:
+                  - Effect: Allow
+                    Principal:
+                        Federated: !Ref GitHubOidcProviderArn
+                    Action: sts:AssumeRoleWithWebIdentity
+                    Condition:
+                        StringEquals:
+                            token.actions.githubusercontent.com:aud: sts.amazonaws.com
+                            token.actions.githubusercontent.com:sub: repo:reaver-project@1804403/infrastructure@1341253705:workflow_ref:reaver-project/infrastructure/.github/workflows/reaveros-ghcr-publisher.yml@refs/heads/main:ref:refs/heads/main
+            Policies:
+              - PolicyName: ReadValidatedBuildEnvironments
+                PolicyDocument:
+                    Version: '2012-10-17'
+                    Statement:
+                      - Effect: Allow
+                        Action: cloudformation:DescribeStacks
+                        Resource: !Sub arn:${AWS::Partition}:cloudformation:${AWS::Region}:${AWS::AccountId}:stack/${AWS::StackName}/*
+                      - Effect: Allow
+                        Action: ecr:GetAuthorizationToken
+                        Resource: '*'
+                      - Effect: Allow
+                        Action:
+                          - ecr:BatchCheckLayerAvailability
+                          - ecr:BatchGetImage
+                          - ecr:DescribeImages
+                          - ecr:DescribeImageScanFindings
+                          - ecr:GetDownloadUrlForLayer
+                        Resource:
+                          - !GetAtt BuildEnvironmentRepository.Arn
+                          - !GetAtt UnprunedBuildEnvironmentRepository.Arn
+            Tags:
+              - Key: Project
+                Value: ReaverOS
+
     RunnerBudget:
         Type: AWS::Budgets::Budget
         Properties:
@@ -1091,6 +1131,8 @@ Outputs:
         Value: !GetAtt GitHubActionsRole.Arn
     ProductionPromotionRoleArn:
         Value: !GetAtt ProductionPromotionRole.Arn
+    GhcrPublisherRoleArn:
+        Value: !GetAtt GhcrPublisherRole.Arn
     RunnerAppSecretId:
         Value: !Ref RunnerAppSecret
     CiGateAppSecretId:

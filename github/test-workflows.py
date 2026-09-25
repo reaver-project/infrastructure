@@ -16,7 +16,7 @@ def workflow_document(workflow_name: str) -> dict:
     return document
 
 
-def app_token_step(workflow_name: str, job_name: str) -> dict:
+def app_token_step(workflow_name: str, job_name: str, step_id: str | None = None) -> dict:
     document = workflow_document(workflow_name)
     try:
         steps = document["jobs"][job_name]["steps"]
@@ -27,14 +27,16 @@ def app_token_step(workflow_name: str, job_name: str) -> dict:
         for step in steps
         if isinstance(step, dict)
         and str(step.get("uses", "")).startswith("actions/create-github-app-token@")
+        and (step_id is None or step.get("id") == step_id)
     ]
     if len(matches) != 1:
-        sys.exit(f"{workflow_name}:{job_name}: expected exactly one infrastructure App-token step")
+        token_name = step_id or "infrastructure"
+        sys.exit(f"{workflow_name}:{job_name}: expected exactly one {token_name} App-token step")
     return matches[0]
 
 
-def app_token_inputs(workflow_name: str, job_name: str) -> dict:
-    inputs = app_token_step(workflow_name, job_name).get("with")
+def app_token_inputs(workflow_name: str, job_name: str, step_id: str | None = None) -> dict:
+    inputs = app_token_step(workflow_name, job_name, step_id).get("with")
     if not isinstance(inputs, dict):
         sys.exit(f"{workflow_name}:{job_name}: App-token inputs are not a mapping")
     return inputs
@@ -131,27 +133,33 @@ if (
     or set(consumer_job.get("needs", [])) != {"deploy", "publish"}
     or consumer_job.get("environment") != "github-production"
     or "projects/reaveros/configure-ci" not in deploy_workflow
+    or "projects/reaveros/configure-ghcr-publisher" not in deploy_workflow
     or "./actions/update-infrastructure-consumer" not in deploy_workflow
 ):
     sys.exit("ReaverOS contract publication must follow the reviewed AWS deployment")
-publish_app_inputs = app_token_inputs("aws-infrastructure-deploy.yml", "publish")
+publish_app_inputs = app_token_inputs("aws-infrastructure-deploy.yml", "publish", "app")
+publisher_app_inputs = app_token_inputs("aws-infrastructure-deploy.yml", "publish", "publisher_app")
 consumer_app_inputs = app_token_inputs("aws-infrastructure-deploy.yml", "update-consumer")
 if (
     publish_app_inputs.get("client-id") != "${{ vars.INFRASTRUCTURE_APP_CLIENT_ID }}"
     or publish_app_inputs.get("repositories") != "reaveros"
     or publish_app_inputs.get("owner") != "reaver-project"
+    or publisher_app_inputs.get("client-id") != "${{ vars.INFRASTRUCTURE_APP_CLIENT_ID }}"
+    or publisher_app_inputs.get("repositories") != "infrastructure"
+    or publisher_app_inputs.get("owner") != "reaver-project"
     or consumer_app_inputs.get("app-id") != "${{ vars.MAINTENANCE_APP_ID }}"
     or consumer_app_inputs.get("repositories") != "reaveros"
     or consumer_app_inputs.get("owner") != "reaver-project"
 ):
     sys.exit("ReaverOS contract updates require separate repository-scoped App tokens")
 
-for workflow_name, job_name in (
-    ("aws-control-plane-deploy.yml", "publish"),
-    ("aws-infrastructure-deploy.yml", "publish"),
+for workflow_name, job_name, step_id in (
+    ("aws-control-plane-deploy.yml", "publish", None),
+    ("aws-infrastructure-deploy.yml", "publish", "app"),
+    ("aws-infrastructure-deploy.yml", "publish", "publisher_app"),
 ):
-    app_step = app_token_step(workflow_name, job_name)
-    inputs = app_token_inputs(workflow_name, job_name)
+    app_step = app_token_step(workflow_name, job_name, step_id)
+    inputs = app_token_inputs(workflow_name, job_name, step_id)
     if app_step.get("env", {}).get("INPUT_PERMISSION-ACTIONS-VARIABLES") != "write" or any(
         name.startswith("permission-") for name in inputs
     ):
@@ -276,6 +284,7 @@ credentialed_jobs = {
     "aws-infrastructure.yml": ["plan"],
     "aws-infrastructure-deploy.yml": ["deploy", "publish", "update-consumer"],
     "github-configuration.yml": ["deploy", "reaveros"],
+    "reaveros-ghcr-publisher.yml": ["reserve", "publish"],
     "security-analysis.yml": ["actions_security", "scorecard"],
 }
 for workflow_name, job_names in credentialed_jobs.items():
@@ -288,5 +297,28 @@ for workflow_name, job_names in credentialed_jobs.items():
                 f"{workflow_name}:{job_name}: credentialed job is not hardened "
                 "in audit mode before any other step"
             )
+
+publisher = workflow_document("reaveros-ghcr-publisher.yml")
+publisher_jobs = publisher["jobs"]
+if (
+    publisher.get("permissions") != {"contents": "read"}
+    or publisher_jobs["reserve"].get("permissions") != {"contents": "read", "packages": "write"}
+    or publisher_jobs["publish"].get("permissions")
+    != {"contents": "read", "id-token": "write", "packages": "write"}
+    or "github.ref == 'refs/heads/main'" not in publisher_jobs["reserve"].get("if", "")
+    or "github.ref == 'refs/heads/main'" not in publisher_jobs["publish"].get("if", "")
+    or "vars.AWS_GHCR_PUBLISHER_ROLE_ARN != ''" not in publisher_jobs["publish"].get("if", "")
+):
+    sys.exit("GHCR publication is not restricted to the trusted infrastructure main workflow")
+
+publisher_contents = (root / ".github/workflows/reaveros-ghcr-publisher.yml").read_text(
+    encoding="utf-8"
+)
+if (
+    "expected-contract-version: '4'" not in publisher_contents
+    or "projects/reaveros/ghcr/publish" not in publisher_contents
+    or "projects/reaveros/ghcr/reserve" not in publisher_contents
+):
+    sys.exit("GHCR publication must validate the deployed contract and use reviewed scripts")
 
 print("GitHub Actions workflow tests passed.")

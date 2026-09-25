@@ -1,0 +1,1 @@
+This image only reserves the ReaverOS GHCR package name during CI onboarding.

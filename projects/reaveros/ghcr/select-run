@@ -1,0 +1,20 @@
+#!/usr/bin/env bash
+
+set -euo pipefail
+
+if [[ $# -ne 1 || ! $1 =~ ^[0-9a-f]{40}$ ]]; then
+    printf 'usage: %s <current main SHA>\n' "$0" >&2
+    exit 2
+fi
+
+jq --compact-output --arg sha "$1" '
+    [.workflow_runs[]
+        | select(.status == "completed"
+            and .conclusion == "success"
+            and .head_branch == "main"
+            and .head_sha == $sha
+            and .head_repository.full_name == "reaver-project/reaveros"
+            and (.event == "push" or .event == "schedule" or .event == "workflow_dispatch"))]
+    | sort_by(.id, .run_attempt)
+    | last // empty
+'

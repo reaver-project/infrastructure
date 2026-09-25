@@ -1,0 +1,39 @@
+#!/usr/bin/env bash
+
+set -euo pipefail
+
+if [[ $(basename -- "$0") == gh ]]; then
+    printf '%s\n' "$*" >> "${PUBLISHER_CONFIG_TEST_LOG}"
+    exit
+fi
+
+self_dir=$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)
+test_directory=$(mktemp -d)
+mkdir "${test_directory}/bin"
+ln -s "${self_dir}/test-configure-ghcr-publisher" "${test_directory}/bin/gh"
+export PATH="${test_directory}/bin:${PATH}"
+export GH_TOKEN=test-token
+export PUBLISHER_CONFIG_TEST_LOG="${test_directory}/calls"
+: > "${PUBLISHER_CONFIG_TEST_LOG}"
+
+cleanup()
+{
+    rm -rf "${test_directory}"
+}
+trap cleanup EXIT
+
+"${self_dir}/configure-ghcr-publisher" \
+    arn:aws:iam::123456789012:role/reaveros-ghcr-publisher
+if ! grep --fixed-strings --line-regexp --quiet \
+    'variable set AWS_GHCR_PUBLISHER_ROLE_ARN --repo reaver-project/infrastructure --body arn:aws:iam::123456789012:role/reaveros-ghcr-publisher' \
+    "${PUBLISHER_CONFIG_TEST_LOG}"; then
+    printf 'The GHCR publisher role was not published.\n' >&2
+    exit 1
+fi
+
+if "${self_dir}/configure-ghcr-publisher" invalid > /dev/null 2>&1; then
+    printf 'An invalid GHCR publisher role was accepted.\n' >&2
+    exit 1
+fi
+
+printf 'GHCR publisher configuration tests passed.\n'

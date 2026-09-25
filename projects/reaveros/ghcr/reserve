@@ -1,0 +1,29 @@
+#!/usr/bin/env bash
+
+set -euo pipefail
+
+if [[ $# -ne 0 || -z ${GHCR_TOKEN:-} || -z ${GITHUB_ACTOR:-} ]]; then
+    printf 'GHCR_TOKEN and GITHUB_ACTOR are required.\n' >&2
+    exit 2
+fi
+
+self_dir=$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)
+pruned=ghcr.io/reaver-project/reaveros-build-env:bootstrap-reserved
+unpruned=ghcr.io/reaver-project/reaveros-build-env/unpruned:bootstrap-reserved
+
+export DOCKER_CONFIG
+DOCKER_CONFIG=$(mktemp -d /dev/shm/reaveros-ghcr-docker.XXXXXX)
+cleanup()
+{
+    rm -r -- "${DOCKER_CONFIG}"
+}
+trap cleanup EXIT
+
+printf '%s' "${GHCR_TOKEN}" |
+    docker login ghcr.io --username "${GITHUB_ACTOR}" --password-stdin
+docker build --file "${self_dir}/reservation.Dockerfile" --tag "${pruned}" "${self_dir}"
+docker tag "${pruned}" "${unpruned}"
+docker push "${pruned}"
+docker push "${unpruned}"
+
+printf 'Reserved both private ReaverOS GHCR package names.\n'
