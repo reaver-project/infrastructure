@@ -60,7 +60,7 @@ from `main`; the PR-capable role cannot write production ECR images.
 The deployment also publishes `AWS_GHCR_PUBLISHER_ROLE_ARN` as a variable on
 `reaver-project/infrastructure`. The publisher reconciles GHCR from a
 successful `ci.yml` run at ReaverOS's current signed main commit. It can be
-triggered manually or by its five-minute schedule. Package names are initially
+triggered manually or by its hourly schedule. Package names are initially
 reserved as private packages from this repository using its manual reservation
 job; the organization package-creation policy is recorded in
 `github/organizations/reaver-project.json`. GitHub does not expose that policy
