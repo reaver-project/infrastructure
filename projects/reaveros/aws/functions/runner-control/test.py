@@ -59,6 +59,7 @@ class RunnerControlTests(unittest.TestCase):
                     "runner_name": "reaveros-123-2-unit-tests-amd64",
                 },
                 "reaver-project/reaveros",
+                "refs/heads/pull-request/17",
                 "medium",
                 "validation",
                 "reaveros-github-runners-runner",
@@ -79,6 +80,10 @@ class RunnerControlTests(unittest.TestCase):
                         {
                             "Key": "GitHubRepository",
                             "Value": "reaver-project/reaveros",
+                        },
+                        {
+                            "Key": "GitHubSourceRef",
+                            "Value": "refs/heads/pull-request/17",
                         },
                         {"Key": "GitHubRunId", "Value": "123"},
                         {"Key": "GitHubRunnerId", "Value": "42"},

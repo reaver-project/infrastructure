@@ -48,6 +48,7 @@ def runner_identity(event, parameter_prefix, parameter_nonce=None):
 def runner_tag_specifications(
     identity,
     repository,
+    source_ref,
     runner_size,
     runner_profile,
     instance_name,
@@ -63,6 +64,7 @@ def runner_tag_specifications(
                 {"Key": "Name", "Value": instance_name},
                 *common_tags,
                 {"Key": "GitHubRepository", "Value": repository},
+                {"Key": "GitHubSourceRef", "Value": source_ref},
                 {"Key": "GitHubRunId", "Value": identity["run_id"]},
                 {"Key": "GitHubRunnerId", "Value": str(identity["runner_id"])},
                 {"Key": "GitHubRunnerName", "Value": identity["runner_name"]},
