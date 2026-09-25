@@ -1,4 +1,6 @@
+import base64
 import importlib.util
+import json
 import stat
 import subprocess
 import tempfile
@@ -74,6 +76,7 @@ jobs:
             mock_gh = mock_directory / "gh"
             mock_gh.write_text(
                 """#!/usr/bin/env python3
+import json
 import os
 import pathlib
 import subprocess
@@ -95,6 +98,28 @@ if arguments[:2] == ["repo", "clone"]:
         check=True,
     )
     sys.exit()
+if arguments[0] == "api":
+    path = arguments[1]
+    if path.startswith("repos/reaver-project/reaveros/git/ref/heads/"):
+        if not pathlib.Path(os.environ["TEST_BRANCH_CREATED"]).exists():
+            sys.exit(1)
+        print(os.environ["TEST_BASE_REVISION"])
+        sys.exit()
+    if path == "repos/reaver-project/reaveros/git/refs":
+        pathlib.Path(os.environ["TEST_BRANCH_CREATED"]).touch()
+        sys.exit()
+    if path == "graphql":
+        request_file = arguments[arguments.index("--input") + 1]
+        pathlib.Path(os.environ["TEST_GRAPHQL_PAYLOAD"]).write_text(
+            pathlib.Path(request_file).read_text(encoding="utf-8"), encoding="utf-8"
+        )
+        print(json.dumps({"data": {"createCommitOnBranch": {"commit": {
+            "oid": "a" * 40,
+            "signature": {"isValid": True, "wasSignedByGitHub": True,
+                "signer": {"login": "web-flow"}},
+            "author": {"user": {"login": "reaver-project-maintenance[bot]"}}
+        }}}}))
+        sys.exit()
 if arguments[:2] == ["pr", "create"]:
     pathlib.Path(os.environ["TEST_PR_CREATED"]).touch()
     sys.exit()
@@ -120,6 +145,8 @@ raise SystemExit(f"unexpected gh invocation: {arguments}")
             summary.touch()
             gh_log.touch()
             environment = infrastructure_consumer.isolated_git_environment()
+            base_revision = git(source, "rev-parse", "HEAD", capture_output=True).stdout.strip()
+            graphql_payload = temporary_path / "graphql-payload.json"
             environment.update(
                 {
                     "APP_SLUG": "reaver-project-maintenance",
@@ -137,6 +164,9 @@ raise SystemExit(f"unexpected gh invocation: {arguments}")
                         "projects/reaveros/infrastructure-contract-version"
                     ),
                     "TEST_CONSUMER_REMOTE": str(remote),
+                    "TEST_BASE_REVISION": base_revision,
+                    "TEST_BRANCH_CREATED": str(temporary_path / "branch-created"),
+                    "TEST_GRAPHQL_PAYLOAD": str(graphql_payload),
                     "TEST_GH_LOG": str(gh_log),
                     "TEST_PR_CREATED": str(temporary_path / "pr-created"),
                 }
@@ -148,28 +178,29 @@ raise SystemExit(f"unexpected gh invocation: {arguments}")
                 env=environment,
             )
 
-            branch = f"maintenance/infrastructure/{source_revision}"
-            published_revision = git(
-                temporary_path,
-                f"--git-dir={remote}",
-                "show",
-                f"{branch}:ci/aws/infrastructure-revision",
-                capture_output=True,
-            ).stdout.strip()
-            self.assertEqual(published_revision, source_revision)
-            published_contract = git(
-                temporary_path,
-                f"--git-dir={remote}",
-                "show",
-                f"{branch}:ci/aws/infrastructure-contract-version",
-                capture_output=True,
-            ).stdout.strip()
-            self.assertEqual(published_contract, contract_version)
+            payload = json.loads(graphql_payload.read_text(encoding="utf-8"))
+            mutation_input = payload["variables"]["input"]
+            self.assertEqual(mutation_input["expectedHeadOid"], base_revision)
+            self.assertEqual(
+                mutation_input["branch"]["branchName"],
+                f"maintenance/infrastructure/{source_revision}",
+            )
+            additions = {
+                item["path"]: base64.b64decode(item["contents"]).decode()
+                for item in mutation_input["fileChanges"]["additions"]
+            }
+            self.assertEqual(additions["ci/aws/infrastructure-revision"].strip(), source_revision)
+            self.assertEqual(
+                additions["ci/aws/infrastructure-contract-version"].strip(), contract_version
+            )
+            self.assertIn(source_revision, additions[".github/workflows/ci.yml"])
             self.assertIn("pull_request_number=17", output.read_text(encoding="utf-8"))
             calls = gh_log.read_text(encoding="utf-8")
             self.assertIn("pr\tcreate", calls)
             self.assertIn("pr\tmerge\t17", calls)
             self.assertIn("--auto", calls)
+            self.assertIn("api\tgraphql", calls)
+            self.assertIn("--match-head-commit\t" + "a" * 40, calls)
             self.assertNotIn("test-token", calls)
 
 
