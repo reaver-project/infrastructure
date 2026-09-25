@@ -171,8 +171,13 @@ if arguments[0] == "api":
             "signature": {"isValid": os.environ.get("TEST_SIGNATURE_VALID") != "false",
                 "wasSignedByGitHub": True,
                 "signer": {"login": "web-flow"}},
-            "author": {"user": {"login": "reaver-project-maintenance[bot]"}}
         }}}}))
+        sys.exit()
+    if path.startswith("repos/reaver-project/reaveros/commits/"):
+        author = "reaver-project-maintenance[bot]"
+        if os.environ.get("TEST_AUTHOR_VALID") == "false":
+            author = "other[bot]"
+        print(author + " Bot true")
         sys.exit()
 if arguments[:2] == ["pr", "create"]:
     pathlib.Path(os.environ["TEST_PR_CREATED"]).touch()
@@ -304,6 +309,22 @@ raise SystemExit(f"unexpected gh invocation: {arguments}")
                 ).stdout.strip(),
                 signed_head,
             )
+
+            wrong_author_environment = {
+                **environment,
+                "GITHUB_RUN_ATTEMPT": "4",
+                "TEST_AUTHOR_VALID": "false",
+            }
+            wrong_author = subprocess.run(
+                [str(repository_root / "actions/update-infrastructure-consumer/publish")],
+                cwd=repository_root,
+                check=False,
+                env=wrong_author_environment,
+                capture_output=True,
+                text=True,
+            )
+            self.assertNotEqual(wrong_author.returncode, 0)
+            self.assertIn("not authored by the Maintenance App", wrong_author.stderr)
 
 
 if __name__ == "__main__":

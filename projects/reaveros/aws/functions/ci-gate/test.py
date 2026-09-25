@@ -205,10 +205,11 @@ class CiGateLibraryTests(unittest.TestCase):
             )
         )
         self.assertFalse(lib.signed_commit_chain([{"commit": {"oid": head}}], 1, head, "griwes"))
+        self.assertFalse(lib.signed_commit_chain([None], 1, head, "griwes"))
 
         bot = "reaver-project-maintenance[bot]"
         self.assertTrue(
-            lib.signed_commit_chain([node(head, parent, "web-flow", bot)], 1, head, bot)
+            lib.signed_commit_chain([node(head, parent, "web-flow", bot)], 1, head, bot, {head})
         )
         self.assertFalse(
             lib.signed_commit_chain([node(head, parent, "web-flow", "other")], 1, head, bot)

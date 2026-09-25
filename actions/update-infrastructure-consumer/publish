@@ -147,7 +147,7 @@ if [[ ! -s ${additions_file} ]]; then
     exit 1
 fi
 
-mutation='mutation($input: CreateCommitOnBranchInput!) { createCommitOnBranch(input: $input) { commit { oid signature { isValid wasSignedByGitHub signer { login } } author { user { login } } } } }'
+mutation='mutation($input: CreateCommitOnBranchInput!) { createCommitOnBranch(input: $input) { commit { oid signature { isValid wasSignedByGitHub signer { login } } } } }'
 jq --null-input \
     --arg query "${mutation}" \
     --arg repository "${CONSUMER_REPOSITORY}" \
@@ -173,13 +173,18 @@ head_revision=$(jq --exit-status --raw-output \
         | select(.signature.isValid == true
             and .signature.wasSignedByGitHub == true
             and (.signature.signer.login == "web-flow"
-                or .signature.signer.login == $author)
-            and .author.user.login == $author)
+                or .signature.signer.login == $author))
         | .oid
         | select(test("^[0-9a-f]{40}$"))' <<< "${response}") || {
     printf 'GitHub did not create a verified Maintenance App commit.\n' >&2
     exit 1
 }
+author_identity=$(gh api "repos/${CONSUMER_REPOSITORY}/commits/${head_revision}" \
+    --jq '[.author.login, .author.type, .commit.verification.verified] | join(" ")')
+if [[ ${author_identity} != "${APP_SLUG}[bot] Bot true" ]]; then
+    printf 'Verified commit was not authored by the Maintenance App.\n' >&2
+    exit 1
+fi
 git -C "${checkout_directory}" fetch origin "refs/heads/${staging_branch}"
 if [[ $(git -C "${checkout_directory}" rev-parse FETCH_HEAD) != "${head_revision}" ]]; then
     printf 'Fetched Maintenance App commit differs from the verified revision.\n' >&2

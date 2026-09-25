@@ -228,6 +228,23 @@ class CiGateIndexTests(unittest.TestCase):
         with mock.patch.object(ci_gate, "github_request", return_value=first_page):
             self.assertIsNone(ci_gate.pull_request_commits("token", repository, 12, 1))
         self.assertIsNone(ci_gate.pull_request_commits("token", repository, 12, 250))
+        with mock.patch.object(ci_gate, "github_request", return_value={"errors": ["invalid"]}):
+            self.assertIsNone(ci_gate.pull_request_commits("token", repository, 12, 1))
+        missing_cursor = {
+            "data": {
+                "repository": {
+                    "pullRequest": {
+                        "commits": {
+                            "totalCount": 1,
+                            "nodes": [signed_commit()],
+                            "pageInfo": {"hasNextPage": True, "endCursor": None},
+                        }
+                    }
+                }
+            }
+        }
+        with mock.patch.object(ci_gate, "github_request", return_value=missing_cursor):
+            self.assertIsNone(ci_gate.pull_request_commits("token", repository, 12, 1))
 
     def test_creates_a_missing_copy_ref_and_updates_an_existing_ref(self):
         not_found = github_app.GitHubRequestError("GET", "/ref", 404, "missing")
@@ -362,6 +379,57 @@ class CiGateIndexTests(unittest.TestCase):
             )
         self.assertIn("automatically approved", result)
         copy.assert_called_once_with("token", repository, 12, full_sha)
+
+    def test_github_signed_maintenance_commit_requires_the_bot_author(self):
+        bot = "reaver-project-maintenance[bot]"
+        pr = pull_request(actor=bot)
+        commit = signed_commit(actor=bot)
+        commit["commit"]["signature"]["signer"]["login"] = "web-flow"
+        verified_author = {
+            "author": {"login": bot, "type": "Bot"},
+            "commit": {"verification": {"verified": True}},
+        }
+        with (
+            mock.patch.object(ci_gate, "pull_request", return_value=pr),
+            mock.patch.object(ci_gate, "pull_request_commits", return_value=[commit]),
+            mock.patch.object(ci_gate, "github_request", return_value=verified_author),
+            mock.patch.object(ci_gate, "set_copied_revision") as copy,
+        ):
+            result = ci_gate.handle_pull_request(
+                event_payload(action="synchronize", pr=pr), "token", repository
+            )
+        self.assertIn("automatically approved", result)
+        copy.assert_called_once_with("token", repository, 12, full_sha)
+
+        with (
+            mock.patch.object(ci_gate, "pull_request", return_value=pr),
+            mock.patch.object(ci_gate, "pull_request_commits", return_value=[commit]),
+            mock.patch.object(ci_gate, "github_request", return_value={"author": None}),
+            mock.patch.object(ci_gate, "set_copied_revision") as copy,
+            mock.patch.object(ci_gate, "delete_copied_revision") as delete,
+        ):
+            result = ci_gate.handle_pull_request(
+                event_payload(action="synchronize", pr=pr), "token", repository
+            )
+        self.assertEqual(result, "revision requires exact approval")
+        copy.assert_not_called()
+        delete.assert_called_once_with("token", repository, 12)
+
+        with mock.patch.object(ci_gate, "github_request") as request:
+            self.assertEqual(
+                ci_gate.github_signed_bot_commits(
+                    "token",
+                    repository,
+                    [
+                        signed_commit(actor=bot),
+                        {"commit": {"oid": "bad"}},
+                        {"commit": {"oid": "bad", "signature": {"signer": {"login": "web-flow"}}}},
+                    ],
+                    bot,
+                ),
+                set(),
+            )
+        request.assert_not_called()
 
     def test_stale_pull_request_event_cannot_replace_the_copy(self):
         current = pull_request(sha=new_sha, actor="griwes")

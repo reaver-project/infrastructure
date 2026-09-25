@@ -81,7 +81,6 @@ query($owner: String!, $name: String!, $number: Int!, $cursor: String) {
           commit {
             oid
             signature { isValid signer { login } }
-            author { user { login } }
             parents(first: 2) { nodes { oid } }
           }
         }
@@ -131,6 +130,33 @@ def pull_request_commits(token, repository, number, expected_count):
         if page_info.get("hasNextPage") is not True or not isinstance(cursor, str):
             return None
     return None
+
+
+def github_signed_bot_commits(token, repository, commits, actor):
+    verified = set()
+    for node in commits:
+        commit = node.get("commit") if isinstance(node, dict) else None
+        signature = commit.get("signature") if isinstance(commit, dict) else None
+        signer = signature.get("signer") if isinstance(signature, dict) else None
+        if not isinstance(signer, dict) or signer.get("login") != "web-flow":
+            continue
+        sha = commit.get("oid")
+        if not isinstance(sha, str) or re.fullmatch(r"[0-9a-f]{40}", sha) is None:
+            continue
+        response = github_request(f"/repos/{repository}/commits/{sha}", token)
+        author = response.get("author") if isinstance(response, dict) else None
+        details = response.get("commit") if isinstance(response, dict) else None
+        verification = details.get("verification") if isinstance(details, dict) else None
+        if (
+            isinstance(author, dict)
+            and isinstance(verification, dict)
+            and author.get("type") == "Bot"
+            and isinstance(author.get("login"), str)
+            and author["login"].casefold() == actor.casefold()
+            and verification.get("verified") is True
+        ):
+            verified.add(sha)
+    return verified
 
 
 def resolve_revision(token, repository, revision):
@@ -237,7 +263,12 @@ def handle_pull_request(payload, token, repository):
         actor = current["user"]["login"]
         commit_count = current.get("commits")
         commits = pull_request_commits(token, repository, number, commit_count)
-        if not signed_commit_chain(commits, commit_count, automatic_sha, actor):
+        bot_authors = (
+            github_signed_bot_commits(token, repository, commits, actor)
+            if actor.endswith("[bot]") and isinstance(commits, list)
+            else None
+        )
+        if not signed_commit_chain(commits, commit_count, automatic_sha, actor, bot_authors):
             automatic_sha = None
     if automatic_sha is None:
         delete_copied_revision(token, repository, number)

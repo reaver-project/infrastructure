@@ -147,7 +147,7 @@ def automatic_revision(pull_request, repository, automatic_actors):
     return sha
 
 
-def signed_commit_chain(commits, expected_count, expected_head, actor):
+def signed_commit_chain(commits, expected_count, expected_head, actor, bot_authors=None):
     if (
         not isinstance(expected_count, int)
         or not 1 <= expected_count <= 249
@@ -166,9 +166,6 @@ def signed_commit_chain(commits, expected_count, expected_head, actor):
         signature = commit.get("signature")
         signer = signature.get("signer") if isinstance(signature, dict) else None
         signer_login = signer.get("login") if isinstance(signer, dict) else None
-        author = commit.get("author")
-        user = author.get("user") if isinstance(author, dict) else None
-        author_login = user.get("login") if isinstance(user, dict) else None
         parents = commit.get("parents")
         parent_nodes = parents.get("nodes") if isinstance(parents, dict) else None
         if (
@@ -184,8 +181,8 @@ def signed_commit_chain(commits, expected_count, expected_head, actor):
         if signer_login.casefold() != actor.casefold() and not (
             actor.endswith("[bot]")
             and signer_login == "web-flow"
-            and isinstance(author_login, str)
-            and author_login.casefold() == actor.casefold()
+            and bot_authors is not None
+            and sha in bot_authors
         ):
             return False
         parent_sha = parent_nodes[0].get("oid") if isinstance(parent_nodes[0], dict) else None
