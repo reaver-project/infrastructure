@@ -112,5 +112,11 @@ jq --compact-output '.actions | {days: .artifact_and_log_retention_days}' \
 converge_code_security
 
 printf 'Converged API-manageable organization settings for %s.\n' "${organization}"
+printf 'Owner-managed package settings require verification in GitHub settings:\n'
+jq --raw-output '
+    .packages as $packages |
+    "- Inherit access from source repository: \($packages.inherit_access_from_source_repository)",
+    "- Member package creation: public=\($packages.member_creation.public), private=\($packages.member_creation.private), internal=\($packages.member_creation.internal)"
+' "${configuration}"
 printf 'Owner-managed controls that cannot be converged through this API:\n'
 jq --raw-output '.manual_controls[] | "- " + .' "${configuration}"

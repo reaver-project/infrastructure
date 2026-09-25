@@ -6,6 +6,7 @@ contract_version=
 ci_gate_app_slug=
 infrastructure_revision=
 maintenance_app_slug=
+production_promotion_role_arn=
 region=
 repository=reaver-project/reaveros
 runner_role_arn=
@@ -17,7 +18,8 @@ usage()
         "usage: $0 --contract-version <version> --infrastructure-revision <sha>" \
         '    --ci-gate-app-slug <slug> --maintenance-app-slug <slug>' \
         '    --region <region>' \
-        '    --runner-role-arn <arn> --stack-name <name>' \
+        '    --runner-role-arn <arn> --production-promotion-role-arn <arn>' \
+        '    --stack-name <name>' \
         '    [--repository <owner/repository>]'
 }
 
@@ -41,6 +43,10 @@ while [[ $# -gt 0 ]]; do
             ;;
         --region)
             region=$2
+            shift 2
+            ;;
+        --production-promotion-role-arn)
+            production_promotion_role_arn=$2
             shift 2
             ;;
         --repository)
@@ -73,6 +79,7 @@ if [[ ! ${contract_version} =~ ^[1-9][0-9]*$ ||
     ! ${repository} =~ ^[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+$ ||
     ! ${region} =~ ^[a-z]{2}(-[a-z]+)+-[0-9]+$ ||
     ! ${stack_name} =~ ^[A-Za-z][-A-Za-z0-9]*$ ||
+    ! ${production_promotion_role_arn} =~ ^arn:(aws|aws-us-gov|aws-cn):iam::[0-9]{12}:role/[A-Za-z0-9+=,.@_/-]+$ ||
     ! ${runner_role_arn} =~ ^arn:(aws|aws-us-gov|aws-cn):iam::[0-9]{12}:role/[A-Za-z0-9+=,.@_/-]+$ ]]; then
     usage >&2
     exit 2
@@ -87,6 +94,7 @@ set_variable AWS_REGION "${region}"
 set_variable AWS_INFRASTRUCTURE_CONTRACT_VERSION "${contract_version}"
 set_variable AWS_INFRASTRUCTURE_REVISION "${infrastructure_revision}"
 set_variable AWS_RUNNER_ROLE_ARN "${runner_role_arn}"
+set_variable AWS_PRODUCTION_PROMOTION_ROLE_ARN "${production_promotion_role_arn}"
 set_variable AWS_RUNNER_STACK_NAME "${stack_name}"
 set_variable CI_GATE_APP_SLUG "${ci_gate_app_slug}"
 set_variable MAINTENANCE_APP_SLUG "${maintenance_app_slug}"

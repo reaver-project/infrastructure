@@ -1,0 +1,86 @@
+#!/usr/bin/env bash
+
+set -euo pipefail
+
+self_dir=$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)
+
+required_environment=(
+    AWS_REGION
+    BUILD_ENVIRONMENT
+    GHCR_TOKEN
+    GH_TOKEN
+    GITHUB_ACTOR
+    UNPRUNED_BUILD_ENVIRONMENT
+)
+for variable in "${required_environment[@]}"; do
+    if [[ -z ${!variable:-} ]]; then
+        printf 'Required publisher input is empty: %s\n' "${variable}" >&2
+        exit 2
+    fi
+done
+
+repository=reaver-project/reaveros
+main_sha=$(gh api "repos/${repository}/git/ref/heads/main" --jq '.object.sha')
+if [[ ! ${main_sha} =~ ^[0-9a-f]{40}$ ]]; then
+    printf 'ReaverOS main does not identify a full commit.\n' >&2
+    exit 1
+fi
+
+runs=$(gh api \
+    "repos/${repository}/actions/workflows/ci.yml/runs?branch=main&status=success&per_page=20")
+selected_run=$("${self_dir}/select-run" "${main_sha}" <<< "${runs}")
+if [[ -z ${selected_run} ]]; then
+    printf 'No successful CI run exists for current ReaverOS main %s.\n' "${main_sha}"
+    exit 0
+fi
+
+run_id=$(jq --exit-status --raw-output '.id' <<< "${selected_run}")
+run_attempt=$(jq --exit-status --raw-output '.run_attempt' <<< "${selected_run}")
+if [[ ! ${run_id} =~ ^[1-9][0-9]*$ || ! ${run_attempt} =~ ^[1-9][0-9]*$ ]]; then
+    printf 'Selected CI run has an invalid identity.\n' >&2
+    exit 1
+fi
+
+verified=$(gh api "repos/${repository}/commits/${main_sha}" \
+    --jq '.commit.verification.verified')
+if [[ ${verified} != true ]]; then
+    printf 'Selected ReaverOS main commit is not signature-verified.\n' >&2
+    exit 1
+fi
+
+checkout_directory=$(mktemp -d /tmp/reaveros-ghcr-publisher.XXXXXX)
+case ${checkout_directory} in
+    /tmp/reaveros-ghcr-publisher.*) ;;
+    *) exit 2 ;;
+esac
+cleanup()
+{
+    rm -r -- "${checkout_directory}"
+}
+trap cleanup EXIT
+
+git clone --quiet --depth=1 --branch main \
+    "https://github.com/${repository}.git" \
+    "${checkout_directory}/reaveros"
+if [[ $(git -C "${checkout_directory}/reaveros" rev-parse HEAD) != "${main_sha}" ]]; then
+    printf 'ReaverOS main moved while selecting a publishable run; retry later.\n'
+    exit 0
+fi
+
+content_tag=$("${checkout_directory}/reaveros/docker/toolchain-key" \
+    "${checkout_directory}/reaveros")
+if [[ ! ${content_tag} =~ ^[0-9a-f]{64}$ ]]; then
+    printf 'Selected ReaverOS source produced an invalid image tag.\n' >&2
+    exit 1
+fi
+
+"${checkout_directory}/reaveros/ci/aws/publish-build-environment" \
+    "${BUILD_ENVIRONMENT}" \
+    "${UNPRUNED_BUILD_ENVIRONMENT}" \
+    ghcr.io/reaver-project/reaveros-build-env \
+    ghcr.io/reaver-project/reaveros-build-env/unpruned \
+    "${content_tag}" \
+    "ci-run-${run_id}-${run_attempt}"
+
+printf 'Published ReaverOS main %s from CI run %s/%s.\n' \
+    "${main_sha}" "${run_id}" "${run_attempt}"

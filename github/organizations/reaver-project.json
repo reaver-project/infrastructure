@@ -26,6 +26,14 @@
         "sha_pinning_required": true,
         "verified_allowed": false
     },
+    "packages": {
+        "inherit_access_from_source_repository": false,
+        "member_creation": {
+            "public": false,
+            "private": false,
+            "internal": false
+        }
+    },
     "code_security": {
         "attachment_scope": "all",
         "default_for_new_repositories": "all",
