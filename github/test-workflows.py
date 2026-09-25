@@ -1,4 +1,5 @@
 import json
+import re
 import sys
 from pathlib import Path
 
@@ -15,7 +16,7 @@ def workflow_document(workflow_name: str) -> dict:
     return document
 
 
-def app_token_inputs(workflow_name: str, job_name: str) -> dict:
+def app_token_step(workflow_name: str, job_name: str) -> dict:
     document = workflow_document(workflow_name)
     try:
         steps = document["jobs"][job_name]["steps"]
@@ -29,7 +30,11 @@ def app_token_inputs(workflow_name: str, job_name: str) -> dict:
     ]
     if len(matches) != 1:
         sys.exit(f"{workflow_name}:{job_name}: expected exactly one infrastructure App-token step")
-    inputs = matches[0].get("with")
+    return matches[0]
+
+
+def app_token_inputs(workflow_name: str, job_name: str) -> dict:
+    inputs = app_token_step(workflow_name, job_name).get("with")
     if not isinstance(inputs, dict):
         sys.exit(f"{workflow_name}:{job_name}: App-token inputs are not a mapping")
     return inputs
@@ -46,9 +51,10 @@ if not yaml_files:
 for yaml_file in yaml_files:
     contents = yaml_file.read_text(encoding="utf-8")
     for line_number, line in enumerate(contents.splitlines(), start=1):
-        if "uses:" not in line:
+        reference = re.match(r"^\s*(?:-\s*)?uses:\s*([^\s#]+)", line)
+        if reference is None:
             continue
-        action = line.split("uses:", 1)[1].split("#", 1)[0].strip()
+        action = reference.group(1)
         if action.startswith("./"):
             continue
         if "@" not in action or len(action.rsplit("@", 1)[1]) != 40:
@@ -116,33 +122,67 @@ deploy_workflow = (root / ".github" / "workflows" / "aws-infrastructure-deploy.y
 if "plan_run_id" in deploy_workflow or "plan_key" not in deploy_workflow:
     sys.exit("The deployment workflow does not consume the opaque plan key.")
 
-for deferred_consumer_operation in (
-    "repositories: reaveros",
-    "projects/reaveros/configure-ci",
-    "actions/update-infrastructure-consumer",
+deployment_jobs = workflow_document("aws-infrastructure-deploy.yml")["jobs"]
+publish_job = deployment_jobs["publish"]
+consumer_job = deployment_jobs["update-consumer"]
+if (
+    publish_job.get("needs") != "deploy"
+    or publish_job.get("environment") != "github-production"
+    or set(consumer_job.get("needs", [])) != {"deploy", "publish"}
+    or consumer_job.get("environment") != "github-production"
+    or "projects/reaveros/configure-ci" not in deploy_workflow
+    or "./actions/update-infrastructure-consumer" not in deploy_workflow
 ):
-    if deferred_consumer_operation in deploy_workflow:
-        sys.exit(
-            "The infrastructure deployment workflow invokes deferred ReaverOS "
-            f"repository integration: {deferred_consumer_operation}"
-        )
+    sys.exit("ReaverOS contract publication must follow the reviewed AWS deployment")
+publish_app_inputs = app_token_inputs("aws-infrastructure-deploy.yml", "publish")
+consumer_app_inputs = app_token_inputs("aws-infrastructure-deploy.yml", "update-consumer")
+if (
+    publish_app_inputs.get("client-id") != "${{ vars.INFRASTRUCTURE_APP_CLIENT_ID }}"
+    or publish_app_inputs.get("repositories") != "reaveros"
+    or publish_app_inputs.get("owner") != "reaver-project"
+    or consumer_app_inputs.get("app-id") != "${{ vars.MAINTENANCE_APP_ID }}"
+    or consumer_app_inputs.get("repositories") != "reaveros"
+    or consumer_app_inputs.get("owner") != "reaver-project"
+):
+    sys.exit("ReaverOS contract updates require separate repository-scoped App tokens")
+
+for workflow_name, job_name in (
+    ("aws-control-plane-deploy.yml", "publish"),
+    ("aws-infrastructure-deploy.yml", "publish"),
+):
+    app_step = app_token_step(workflow_name, job_name)
+    inputs = app_token_inputs(workflow_name, job_name)
+    if app_step.get("env", {}).get("INPUT_PERMISSION-ACTIONS-VARIABLES") != "write" or any(
+        name.startswith("permission-") for name in inputs
+    ):
+        sys.exit(f"{workflow_name}:{job_name}: publication token must grant only variables write")
 
 github_configuration_workflow = (
     root / ".github" / "workflows" / "github-configuration.yml"
 ).read_text(encoding="utf-8")
-for deferred_repository_operation in (
-    "repositories: reaveros",
-    "github/repositories/reaveros.json",
+reaveros_configuration_job = workflow_document("github-configuration.yml")["jobs"]["reaveros"]
+if (
+    reaveros_configuration_job.get("needs") != "deploy"
+    or reaveros_configuration_job.get("environment") != "github-production"
+    or "github/configure-repository github/repositories/reaveros.json"
+    not in github_configuration_workflow
+    or "CI_GATE_APP_ID: ${{ vars.CI_GATE_APP_ID }}" not in github_configuration_workflow
 ):
-    if deferred_repository_operation in github_configuration_workflow:
-        sys.exit(
-            "The infrastructure configuration workflow invokes deferred ReaverOS "
-            f"repository integration: {deferred_repository_operation}"
-        )
+    sys.exit("ReaverOS repository policy is not gated on reviewed GitHub configuration")
 
 github_configuration_app_inputs = app_token_inputs("github-configuration.yml", "deploy")
 if github_configuration_app_inputs.get("permission-actions") != "write":
     sys.exit("The infrastructure App token cannot converge repository OIDC policy.")
+reaveros_configuration_app_inputs = app_token_inputs("github-configuration.yml", "reaveros")
+if (
+    reaveros_configuration_app_inputs.get("client-id") != "${{ vars.INFRASTRUCTURE_APP_CLIENT_ID }}"
+    or reaveros_configuration_app_inputs.get("owner") != "reaver-project"
+    or reaveros_configuration_app_inputs.get("repositories") != "reaveros"
+    or reaveros_configuration_app_inputs.get("permission-actions") != "write"
+    or reaveros_configuration_app_inputs.get("permission-administration") != "write"
+    or "permission-organization-administration" in reaveros_configuration_app_inputs
+):
+    sys.exit("ReaverOS policy must use a repository-scoped infrastructure App token")
 
 control_plane_plan_workflow = (root / ".github" / "workflows" / "aws-control-plane.yml").read_text(
     encoding="utf-8"
@@ -234,8 +274,8 @@ credentialed_jobs = {
     "aws-control-plane.yml": ["plan"],
     "aws-control-plane-deploy.yml": ["deploy", "publish"],
     "aws-infrastructure.yml": ["plan"],
-    "aws-infrastructure-deploy.yml": ["deploy"],
-    "github-configuration.yml": ["deploy"],
+    "aws-infrastructure-deploy.yml": ["deploy", "publish", "update-consumer"],
+    "github-configuration.yml": ["deploy", "reaveros"],
     "security-analysis.yml": ["actions_security", "scorecard"],
 }
 for workflow_name, job_names in credentialed_jobs.items():

@@ -17,6 +17,7 @@ from lib import (
     runner_identity,
     runner_tag_specifications,
     validate_repository,
+    workflow_reference,
 )
 
 ec2 = boto3.client("ec2")
@@ -103,12 +104,103 @@ def runner_instances(instance_ids=None):
         arguments["NextToken"] = next_token
 
 
+def restricted_workflows(token, repository):
+    organization = os.environ["GITHUB_ORGANIZATION"]
+    group_id = int(os.environ["GITHUB_RUNNER_GROUP_ID"])
+    path = f"/orgs/{organization}/actions/runner-groups/{group_id}"
+    group = github_request(path, token)
+    selected = group.get("selected_workflows") if isinstance(group, dict) else None
+    if (
+        not isinstance(selected, list)
+        or not all(isinstance(reference, str) for reference in selected)
+        or group.get("restricted_to_workflows") is not True
+        or group.get("name") != "reaveros"
+        or group.get("visibility") != "selected"
+        or group.get("allows_public_repositories") is not True
+    ):
+        raise ValueError("runner group is not restricted to ReaverOS workflows")
+    prefix = f"{repository}/.github/workflows/aws-runner.yml@"
+    for reference in selected:
+        if not reference.startswith(prefix):
+            raise ValueError("runner group contains an unexpected workflow")
+        workflow_reference(repository, reference.removeprefix(prefix))
+
+    return path, set(selected)
+
+
+def set_restricted_workflows(path, token, requested):
+    result = github_request(
+        path,
+        token,
+        "PATCH",
+        {
+            "name": "reaveros",
+            "visibility": "selected",
+            "allows_public_repositories": True,
+            "restricted_to_workflows": True,
+            "selected_workflows": sorted(requested),
+        },
+    )
+    retained = result.get("selected_workflows") if isinstance(result, dict) else None
+    if (
+        not isinstance(result, dict)
+        or result.get("name") != "reaveros"
+        or result.get("visibility") != "selected"
+        or result.get("allows_public_repositories") is not True
+        or result.get("restricted_to_workflows") is not True
+        or not isinstance(retained, list)
+        or set(retained) != requested
+    ):
+        raise RuntimeError("runner group did not retain restricted workflow access")
+
+
+def ensure_workflow_access(token, repository, source_ref):
+    path, selected = restricted_workflows(token, repository)
+    requested = {
+        *selected,
+        workflow_reference(repository, "refs/heads/main"),
+        workflow_reference(repository, source_ref),
+    }
+    if requested != selected:
+        set_restricted_workflows(path, token, requested)
+
+
+def prune_workflow_access(repository, protected_refs=()):
+    # ReaverOS is public, so this read does not expand the Runner App installation.
+    references = github_request(
+        f"/repos/{repository}/git/matching-refs/heads/pull-request/",
+        None,
+    )
+    if not isinstance(references, list):
+        raise ValueError("GitHub did not return copied CI refs")
+    active = {workflow_reference(repository, "refs/heads/main")}
+    for source_ref in protected_refs:
+        active.add(workflow_reference(repository, source_ref))
+    for reference in references:
+        source_ref = reference.get("ref") if isinstance(reference, dict) else None
+        if not isinstance(source_ref, str):
+            raise ValueError("GitHub returned an invalid copied CI ref")
+        try:
+            active.add(workflow_reference(repository, source_ref))
+        except ValueError:
+            continue
+
+    token = github_token()
+    path, selected = restricted_workflows(token, repository)
+    requested = selected & active
+    requested.add(workflow_reference(repository, "refs/heads/main"))
+    if requested != selected:
+        set_restricted_workflows(path, token, requested)
+
+
 def launch(event):
     repository = event.get("repository")
     validate_repository(
         repository,
         set(os.environ["ALLOWED_REPOSITORIES"].split(",")),
     )
+    source_ref = event.get("source_ref")
+    workflow_reference(repository, source_ref)
     identity = runner_identity(event, os.environ["JIT_PARAMETER_PREFIX"])
     instance_types = {
         "medium": os.environ["MEDIUM_INSTANCE_TYPE"],
@@ -133,6 +225,7 @@ def launch(event):
         raise RuntimeError("ephemeral ReaverOS runner limit reached")
 
     token = github_token()
+    ensure_workflow_access(token, repository, source_ref)
     jit = github_request(
         f"/orgs/{os.environ['GITHUB_ORGANIZATION']}/actions/runners/generate-jitconfig",
         token,
@@ -174,6 +267,7 @@ def launch(event):
             TagSpecifications=runner_tag_specifications(
                 identity,
                 repository,
+                source_ref,
                 runner_size,
                 runner_profile,
                 os.environ["RUNNER_INSTANCE_NAME"],
@@ -289,8 +383,11 @@ def terminate(event):
 
 def reap(_event):
     live_states = {"pending", "running", "stopping", "stopped"}
+    instances = [
+        instance for instance in runner_instances() if instance["State"]["Name"] in live_states
+    ]
     cleanup = expired_runner_cleanup(
-        [instance for instance in runner_instances() if instance["State"]["Name"] in live_states],
+        instances,
         datetime.datetime.now(datetime.UTC),
         int(os.environ["MAXIMUM_AGE_MINUTES"]),
         os.environ["JIT_PARAMETER_PREFIX"],
@@ -305,6 +402,18 @@ def reap(_event):
         terminated.append(runner["instance_id"])
     if terminated:
         ec2.terminate_instances(InstanceIds=terminated)
+    for repository in os.environ["ALLOWED_REPOSITORIES"].split(","):
+        protected_refs = []
+        for instance in instances:
+            if instance["InstanceId"] in terminated:
+                continue
+            tags = {tag["Key"]: tag["Value"] for tag in instance.get("Tags", [])}
+            if tags.get("GitHubRepository") == repository and tags.get("GitHubSourceRef"):
+                protected_refs.append(tags["GitHubSourceRef"])
+        try:
+            prune_workflow_access(repository, protected_refs)
+        except (BotoCoreError, ClientError, GitHubRequestError, RuntimeError, ValueError) as error:
+            print(f"Could not prune revoked runner workflow references: {error}")
     if failures:
         summary = "; ".join(f"{instance_id}: {error}" for instance_id, error in failures)
         raise RuntimeError(f"expired runner cleanup failed: {summary}") from failures[0][1]

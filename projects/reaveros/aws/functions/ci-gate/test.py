@@ -106,10 +106,14 @@ class CiGateLibraryTests(unittest.TestCase):
         with self.assertRaisesRegex(ValueError, "head SHA"):
             lib.current_revision({**pull_request, "head": {"sha": "short"}})
 
-    def test_automatic_revisions_require_an_allowed_actor_and_local_branch(self):
+    def test_automatic_revisions_require_an_allowed_actor(self):
         pull_request = {
             "state": "open",
             "draft": False,
+            "base": {
+                "ref": "main",
+                "repo": {"default_branch": "main", "full_name": "reaver-project/reaveros"},
+            },
             "head": {
                 "sha": sha,
                 "repo": {"full_name": "reaver-project/reaveros"},
@@ -126,12 +130,13 @@ class CiGateLibraryTests(unittest.TestCase):
         )
         self.assertIsNone(lib.automatic_revision(pull_request, "reaver-project/reaveros", set()))
         pull_request["head"]["repo"]["full_name"] = "fork/reaveros"
-        self.assertIsNone(
+        self.assertEqual(
             lib.automatic_revision(
                 pull_request,
                 "reaver-project/reaveros",
                 {"griwes"},
-            )
+            ),
+            sha,
         )
         self.assertIsNone(
             lib.automatic_revision(
@@ -139,6 +144,88 @@ class CiGateLibraryTests(unittest.TestCase):
                 "reaver-project/reaveros",
                 {"griwes"},
             )
+        )
+        self.assertIsNone(
+            lib.automatic_revision(
+                {
+                    **pull_request,
+                    "base": {
+                        "ref": "feature/unsafe",
+                        "repo": {"default_branch": "main", "full_name": "reaver-project/reaveros"},
+                    },
+                },
+                "reaver-project/reaveros",
+                {"griwes"},
+            )
+        )
+        self.assertIsNone(
+            lib.automatic_revision(
+                {
+                    **pull_request,
+                    "base": {
+                        "ref": "main",
+                        "repo": {"default_branch": "main", "full_name": "other/repository"},
+                    },
+                },
+                "reaver-project/reaveros",
+                {"griwes"},
+            )
+        )
+
+    def test_automatic_admission_verifies_all_pr_commits_including_merges(self):
+        parent = "a" * 40
+        head = "b" * 40
+
+        def node(oid, parent_oid, signer="griwes", author="griwes", valid=True):
+            return {
+                "commit": {
+                    "oid": oid,
+                    "parents": {"nodes": [{"oid": parent_oid}]},
+                    "signature": {"isValid": valid, "signer": {"login": signer}},
+                    "author": {"user": {"login": author}},
+                }
+            }
+
+        commits = [node(parent, "0" * 40), node(head, parent)]
+        self.assertTrue(lib.signed_pr_history(commits, 2, head, "griwes"))
+        self.assertFalse(lib.signed_pr_history(commits, 3, head, "griwes"))
+        self.assertFalse(lib.signed_pr_history(commits, 250, head, "griwes"))
+        self.assertFalse(lib.signed_pr_history(commits, 2, parent, "griwes"))
+
+        merge = node(head, parent)
+        side_sha = "c" * 40
+        merge["commit"]["parents"]["nodes"].append({"oid": side_sha})
+        side = node(side_sha, "0" * 40)
+        self.assertTrue(lib.signed_pr_history([commits[0], side, merge], 3, head, "griwes"))
+        self.assertFalse(
+            lib.signed_pr_history(
+                [commits[0], node(side_sha, "0" * 40, valid=False), merge],
+                3,
+                head,
+                "griwes",
+            )
+        )
+        self.assertFalse(lib.signed_pr_history([commits[0], commits[0]], 2, head, "griwes"))
+        self.assertFalse(
+            lib.signed_pr_history([commits[0], node(head, parent, valid=False)], 2, head, "griwes")
+        )
+        self.assertFalse(
+            lib.signed_pr_history(
+                [commits[0], node(head, parent, signer="other")], 2, head, "griwes"
+            )
+        )
+        self.assertFalse(lib.signed_pr_history([{"commit": {"oid": head}}], 1, head, "griwes"))
+        self.assertFalse(lib.signed_pr_history([None], 1, head, "griwes"))
+
+        bot = "reaver-project-maintenance[bot]"
+        self.assertTrue(
+            lib.signed_pr_history([node(head, parent, "web-flow", bot)], 1, head, bot, {head})
+        )
+        self.assertFalse(
+            lib.signed_pr_history([node(head, parent, "web-flow", "other")], 1, head, bot)
+        )
+        self.assertTrue(
+            lib.signed_pr_history([node(head, parent, "web-flow")], 1, head, "griwes", {head})
         )
 
     def test_constructs_only_numeric_copy_branches(self):

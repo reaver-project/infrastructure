@@ -61,16 +61,18 @@ def retry_delay(error, attempt):
 
 
 def request(path, token, method="GET", body=None, *, user_agent):
+    headers = {
+        "Accept": "application/vnd.github+json",
+        "User-Agent": user_agent,
+        "X-GitHub-Api-Version": "2026-03-10",
+    }
+    if token is not None:
+        headers["Authorization"] = f"Bearer {token}"
     github_request = urllib.request.Request(
         f"https://api.github.com{path}",
         data=None if body is None else json.dumps(body).encode(),
         method=method,
-        headers={
-            "Accept": "application/vnd.github+json",
-            "Authorization": f"Bearer {token}",
-            "User-Agent": user_agent,
-            "X-GitHub-Api-Version": "2026-03-10",
-        },
+        headers=headers,
     )
     retry_statuses = {429, 500, 502, 503, 504}
     attempts = 3

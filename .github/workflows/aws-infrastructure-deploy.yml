@@ -71,3 +71,106 @@ jobs:
           - name: Read the deployed ReaverOS contract
             id: stack
             run: projects/reaveros/aws/read-deployed-contract
+
+    publish:
+        name: Publish the deployed ReaverOS contract
+        needs: deploy
+        runs-on: ubuntu-latest
+        timeout-minutes: 15
+        environment: github-production
+        permissions:
+            contents: read
+        env:
+            AWS_REGION: ${{ vars.AWS_REGION }}
+            AWS_RUNNER_STACK_NAME: ${{ vars.AWS_RUNNER_STACK_NAME }}
+            CI_GATE_APP_SLUG: ${{ vars.CI_GATE_APP_SLUG }}
+            CONTRACT_VERSION: ${{ needs.deploy.outputs.contract_version }}
+            INFRASTRUCTURE_REVISION: ${{ needs.deploy.outputs.infrastructure_revision }}
+            MAINTENANCE_APP_SLUG: ${{ vars.MAINTENANCE_APP_SLUG }}
+            RUNNER_ROLE_ARN: ${{ needs.deploy.outputs.runner_role_arn }}
+
+        steps:
+          - name: Harden the runner
+            uses: step-security/harden-runner@05e31511f85b41b11d1cf0ef85d0992719546e2c # v2.21.0
+            with:
+                egress-policy: audit
+
+          - name: Check out infrastructure
+            uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
+            with:
+                persist-credentials: false
+
+          - name: Create a ReaverOS-scoped infrastructure App token
+            id: app
+            uses: actions/create-github-app-token@bcd2ba49218906704ab6c1aa796996da409d3eb1 # zizmor: ignore[github-app] narrowed through INPUT_PERMISSION-ACTIONS-VARIABLES
+            env:
+                # This pinned action reads INPUT_PERMISSION-* even for permissions
+                # absent from its action.yml. Avoid an undeclared-input warning.
+                INPUT_PERMISSION-ACTIONS-VARIABLES: write
+            with:
+                client-id: ${{ vars.INFRASTRUCTURE_APP_CLIENT_ID }}
+                private-key: ${{ secrets.INFRASTRUCTURE_APP_PRIVATE_KEY }}
+                owner: reaver-project
+                repositories: reaveros
+
+          - name: Publish the verified stack outputs
+            env:
+                GH_TOKEN: ${{ steps.app.outputs.token }}
+            run: |
+                projects/reaveros/configure-ci \
+                    --contract-version "${CONTRACT_VERSION}" \
+                    --infrastructure-revision "${INFRASTRUCTURE_REVISION}" \
+                    --ci-gate-app-slug "${CI_GATE_APP_SLUG}" \
+                    --maintenance-app-slug "${MAINTENANCE_APP_SLUG}" \
+                    --region "${AWS_REGION}" \
+                    --runner-role-arn "${RUNNER_ROLE_ARN}" \
+                    --stack-name "${AWS_RUNNER_STACK_NAME}"
+
+    update-consumer:
+        name: Propose the deployed ReaverOS contract revision
+        needs:
+          - deploy
+          - publish
+        runs-on: ubuntu-latest
+        timeout-minutes: 15
+        environment: github-production
+        permissions:
+            contents: read
+
+        steps:
+          - name: Harden the runner
+            uses: step-security/harden-runner@05e31511f85b41b11d1cf0ef85d0992719546e2c # v2.21.0
+            with:
+                egress-policy: audit
+
+          - name: Check out infrastructure
+            uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
+            with:
+                persist-credentials: false
+
+          - name: Create a ReaverOS-scoped maintenance App token
+            id: app
+            uses: actions/create-github-app-token@bcd2ba49218906704ab6c1aa796996da409d3eb1 # v3.2.0
+            with:
+                app-id: ${{ vars.MAINTENANCE_APP_ID }}
+                private-key: ${{ secrets.MAINTENANCE_APP_PRIVATE_KEY }}
+                owner: reaver-project
+                repositories: reaveros
+                permission-checks: read
+                permission-contents: write
+                permission-pull-requests: write
+                permission-statuses: read
+                permission-workflows: write
+
+          - name: Propose the exact deployed revision
+            uses: ./actions/update-infrastructure-consumer
+            env:
+                GH_TOKEN: ${{ steps.app.outputs.token }}
+            with:
+                repository: reaver-project/reaveros
+                revision-file: ci/aws/infrastructure-revision
+                contract-version-file: ci/aws/infrastructure-contract-version
+                source-contract-version-file: projects/reaveros/infrastructure-contract-version
+                infrastructure-revision: ${{ needs.deploy.outputs.infrastructure_revision }}
+                contract-version: ${{ needs.deploy.outputs.contract_version }}
+                app-slug: ${{ vars.MAINTENANCE_APP_SLUG }}

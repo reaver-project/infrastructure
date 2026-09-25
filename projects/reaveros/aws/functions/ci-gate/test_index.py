@@ -52,8 +52,24 @@ def pull_request(*, sha=full_sha, actor="external", head_repository=repository):
         "number": 12,
         "state": "open",
         "draft": False,
+        "commits": 1,
+        "base": {
+            "ref": "main",
+            "repo": {"default_branch": "main", "full_name": repository},
+        },
         "head": {"sha": sha, "repo": {"full_name": head_repository}},
         "user": {"login": actor},
+    }
+
+
+def signed_commit(sha=full_sha, actor="griwes"):
+    return {
+        "commit": {
+            "oid": sha,
+            "parents": {"nodes": [{"oid": "0" * 40}]},
+            "signature": {"isValid": True, "signer": {"login": actor}},
+            "author": {"user": {"login": actor}},
+        }
     }
 
 
@@ -174,6 +190,62 @@ class CiGateIndexTests(unittest.TestCase):
         ):
             ci_gate.resolve_revision("token", repository, full_sha[:7])
 
+    def test_loads_the_complete_pull_request_commit_sequence(self):
+        first_page = {
+            "data": {
+                "repository": {
+                    "pullRequest": {
+                        "commits": {
+                            "totalCount": 101,
+                            "nodes": [signed_commit() for _ in range(100)],
+                            "pageInfo": {"hasNextPage": True, "endCursor": "cursor"},
+                        }
+                    }
+                }
+            }
+        }
+        second_page = {
+            "data": {
+                "repository": {
+                    "pullRequest": {
+                        "commits": {
+                            "totalCount": 101,
+                            "nodes": [signed_commit(new_sha)],
+                            "pageInfo": {"hasNextPage": False, "endCursor": "last"},
+                        }
+                    }
+                }
+            }
+        }
+        with mock.patch.object(
+            ci_gate, "github_request", side_effect=[first_page, second_page]
+        ) as request:
+            commits = ci_gate.pull_request_commits("token", repository, 12, 101)
+        self.assertEqual(len(commits), 101)
+        self.assertEqual(request.call_args_list[0].args[:3], ("/graphql", "token", "POST"))
+        self.assertEqual(request.call_args_list[1].args[3]["variables"]["cursor"], "cursor")
+
+        with mock.patch.object(ci_gate, "github_request", return_value=first_page):
+            self.assertIsNone(ci_gate.pull_request_commits("token", repository, 12, 1))
+        self.assertIsNone(ci_gate.pull_request_commits("token", repository, 12, 250))
+        with mock.patch.object(ci_gate, "github_request", return_value={"errors": ["invalid"]}):
+            self.assertIsNone(ci_gate.pull_request_commits("token", repository, 12, 1))
+        missing_cursor = {
+            "data": {
+                "repository": {
+                    "pullRequest": {
+                        "commits": {
+                            "totalCount": 1,
+                            "nodes": [signed_commit()],
+                            "pageInfo": {"hasNextPage": True, "endCursor": None},
+                        }
+                    }
+                }
+            }
+        }
+        with mock.patch.object(ci_gate, "github_request", return_value=missing_cursor):
+            self.assertIsNone(ci_gate.pull_request_commits("token", repository, 12, 1))
+
     def test_creates_a_missing_copy_ref_and_updates_an_existing_ref(self):
         not_found = github_app.GitHubRequestError("GET", "/ref", 404, "missing")
         with mock.patch.object(
@@ -244,12 +316,18 @@ class CiGateIndexTests(unittest.TestCase):
         with mock.patch.object(
             ci_gate,
             "github_request",
-            side_effect=[None, {"permission": "write"}, {"permission": "read"}],
+            side_effect=[
+                None,
+                {"permission": "write"},
+                {"permission": "maintain"},
+                {"permission": "read"},
+            ],
         ) as github_request:
             ci_gate.comment("token", repository, 12, "message")
             self.assertTrue(ci_gate.approver_can_run_ci("token", repository, "griwes"))
+            self.assertTrue(ci_gate.approver_can_run_ci("token", repository, "maintainer"))
             self.assertFalse(ci_gate.approver_can_run_ci("token", repository, "reader"))
-        self.assertEqual(github_request.call_count, 3)
+        self.assertEqual(github_request.call_count, 4)
         self.assertFalse(ci_gate.approver_can_run_ci("token", repository, None))
 
         not_found = github_app.GitHubRequestError("GET", "/permission", 404, "missing")
@@ -260,6 +338,7 @@ class CiGateIndexTests(unittest.TestCase):
         pr = pull_request(actor="griwes")
         with (
             mock.patch.object(ci_gate, "pull_request", return_value=pr),
+            mock.patch.object(ci_gate, "pull_request_commits", return_value=[signed_commit()]),
             mock.patch.object(ci_gate, "set_copied_revision") as copy,
         ):
             result = ci_gate.handle_pull_request(
@@ -268,6 +347,106 @@ class CiGateIndexTests(unittest.TestCase):
                 repository,
             )
 
+        self.assertIn("automatically approved", result)
+        copy.assert_called_once_with("token", repository, 12, full_sha)
+
+    def test_unsigned_automatic_revision_requires_exact_approval(self):
+        pr = pull_request(actor="griwes")
+        with (
+            mock.patch.object(ci_gate, "pull_request", return_value=pr),
+            mock.patch.object(
+                ci_gate, "pull_request_commits", return_value=[{"commit": {"oid": full_sha}}]
+            ),
+            mock.patch.object(ci_gate, "set_copied_revision") as copy,
+            mock.patch.object(ci_gate, "delete_copied_revision") as delete,
+        ):
+            result = ci_gate.handle_pull_request(
+                event_payload(action="synchronize", pr=pr), "token", repository
+            )
+        self.assertEqual(result, "revision requires exact approval")
+        copy.assert_not_called()
+        delete.assert_called_once_with("token", repository, 12)
+
+    def test_signed_trusted_fork_revision_is_copied_automatically(self):
+        pr = pull_request(actor="griwes", head_repository="griwes/reaveros")
+        with (
+            mock.patch.object(ci_gate, "pull_request", return_value=pr),
+            mock.patch.object(ci_gate, "pull_request_commits", return_value=[signed_commit()]),
+            mock.patch.object(ci_gate, "set_copied_revision") as copy,
+        ):
+            result = ci_gate.handle_pull_request(
+                event_payload(action="synchronize", pr=pr), "token", repository
+            )
+        self.assertIn("automatically approved", result)
+        copy.assert_called_once_with("token", repository, 12, full_sha)
+
+    def test_github_signed_commits_require_the_trusted_actor_as_author(self):
+        bot = "reaver-project-maintenance[bot]"
+        pr = pull_request(actor=bot)
+        commit = signed_commit(actor=bot)
+        commit["commit"]["signature"]["signer"]["login"] = "web-flow"
+        verified_author = {
+            "author": {"login": bot, "type": "Bot"},
+            "commit": {"verification": {"verified": True}},
+        }
+        with (
+            mock.patch.object(ci_gate, "pull_request", return_value=pr),
+            mock.patch.object(ci_gate, "pull_request_commits", return_value=[commit]),
+            mock.patch.object(ci_gate, "github_request", return_value=verified_author),
+            mock.patch.object(ci_gate, "set_copied_revision") as copy,
+        ):
+            result = ci_gate.handle_pull_request(
+                event_payload(action="synchronize", pr=pr), "token", repository
+            )
+        self.assertIn("automatically approved", result)
+        copy.assert_called_once_with("token", repository, 12, full_sha)
+
+        with (
+            mock.patch.object(ci_gate, "pull_request", return_value=pr),
+            mock.patch.object(ci_gate, "pull_request_commits", return_value=[commit]),
+            mock.patch.object(ci_gate, "github_request", return_value={"author": None}),
+            mock.patch.object(ci_gate, "set_copied_revision") as copy,
+            mock.patch.object(ci_gate, "delete_copied_revision") as delete,
+        ):
+            result = ci_gate.handle_pull_request(
+                event_payload(action="synchronize", pr=pr), "token", repository
+            )
+        self.assertEqual(result, "revision requires exact approval")
+        copy.assert_not_called()
+        delete.assert_called_once_with("token", repository, 12)
+
+        with mock.patch.object(ci_gate, "github_request") as request:
+            self.assertEqual(
+                ci_gate.github_signed_actor_commits(
+                    "token",
+                    repository,
+                    [
+                        signed_commit(actor=bot),
+                        {"commit": {"oid": "bad"}},
+                        {"commit": {"oid": "bad", "signature": {"signer": {"login": "web-flow"}}}},
+                    ],
+                    bot,
+                ),
+                set(),
+            )
+        request.assert_not_called()
+
+        human_pr = pull_request(actor="griwes")
+        human_commit = signed_commit()
+        human_commit["commit"]["signature"]["signer"]["login"] = "web-flow"
+        human_author = {
+            "author": {"login": "griwes", "type": "User"},
+            "commit": {"verification": {"verified": True}},
+        }
+        with (
+            mock.patch.object(ci_gate, "pull_request", return_value=human_pr),
+            mock.patch.object(ci_gate, "pull_request_commits", return_value=[human_commit]),
+            mock.patch.object(ci_gate, "github_request", return_value=human_author),
+            mock.patch.object(ci_gate, "set_copied_revision") as copy,
+        ):
+            result = ci_gate.handle_pull_request(
+                event_payload(action="synchronize", pr=human_pr), "token", repository
+            )
         self.assertIn("automatically approved", result)
         copy.assert_called_once_with("token", repository, 12, full_sha)
 

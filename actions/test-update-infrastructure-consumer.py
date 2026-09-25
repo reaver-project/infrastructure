@@ -1,4 +1,6 @@
+import base64
 import importlib.util
+import json
 import stat
 import subprocess
 import tempfile
@@ -74,6 +76,8 @@ jobs:
             mock_gh = mock_directory / "gh"
             mock_gh.write_text(
                 """#!/usr/bin/env python3
+import base64
+import json
 import os
 import pathlib
 import subprocess
@@ -95,6 +99,86 @@ if arguments[:2] == ["repo", "clone"]:
         check=True,
     )
     sys.exit()
+if arguments[0] == "api":
+    path = arguments[1]
+    remote = os.environ["TEST_CONSUMER_REMOTE"]
+    if path.startswith("repos/reaver-project/reaveros/git/ref/heads/"):
+        branch = path.split("/git/ref/heads/", 1)[1]
+        if "--method" in arguments and arguments[arguments.index("--method") + 1] == "DELETE":
+            subprocess.run(
+                ["git", "--git-dir", remote, "update-ref", "-d", "refs/heads/" + branch],
+                check=True,
+            )
+            sys.exit()
+        result = subprocess.run(
+            ["git", "--git-dir", remote, "rev-parse", "--verify", "refs/heads/" + branch],
+            capture_output=True, text=True,
+        )
+        if result.returncode:
+            sys.exit(1)
+        print(result.stdout.strip())
+        sys.exit()
+    if path == "repos/reaver-project/reaveros/git/refs":
+        fields = dict(item.split("=", 1) for item in arguments if item.startswith(("ref=", "sha=")))
+        subprocess.run(
+            ["git", "--git-dir", remote, "update-ref", fields["ref"], fields["sha"]],
+            check=True,
+        )
+        sys.exit()
+    if path.startswith("repos/reaver-project/reaveros/git/refs/heads/"):
+        branch = path.split("/git/refs/heads/", 1)[1]
+        if "--method" in arguments and arguments[arguments.index("--method") + 1] == "DELETE":
+            subprocess.run(
+                ["git", "--git-dir", remote, "update-ref", "-d", "refs/heads/" + branch],
+                check=True,
+            )
+            sys.exit()
+        sha = next(item.split("=", 1)[1] for item in arguments if item.startswith("sha="))
+        subprocess.run(
+            ["git", "--git-dir", remote, "update-ref", "refs/heads/" + branch, sha],
+            check=True,
+        )
+        sys.exit()
+    if path == "graphql":
+        request_file = arguments[arguments.index("--input") + 1]
+        payload = json.loads(pathlib.Path(request_file).read_text(encoding="utf-8"))
+        pathlib.Path(os.environ["TEST_GRAPHQL_PAYLOAD"]).write_text(
+            json.dumps(payload), encoding="utf-8"
+        )
+        mutation = payload["variables"]["input"]
+        branch = mutation["branch"]["branchName"]
+        source = os.environ["TEST_CONSUMER_SOURCE"]
+        subprocess.run(
+            ["git", "-C", source, "switch", "-C", branch, mutation["expectedHeadOid"]],
+            check=True,
+        )
+        for addition in mutation["fileChanges"]["additions"]:
+            (pathlib.Path(source) / addition["path"]).write_bytes(
+                base64.b64decode(addition["contents"])
+            )
+        subprocess.run(["git", "-C", source, "add", "--all"], check=True)
+        subprocess.run(
+            ["git", "-c", "core.hooksPath=/dev/null", "-C", source,
+             "commit", "--quiet", "--no-gpg-sign", "-m", mutation["message"]["headline"]],
+            check=True,
+        )
+        subprocess.run(["git", "-C", source, "push", "--force", remote,
+            "HEAD:refs/heads/" + branch], check=True)
+        oid = subprocess.run(["git", "-C", source, "rev-parse", "HEAD"],
+            capture_output=True, text=True, check=True).stdout.strip()
+        print(json.dumps({"data": {"createCommitOnBranch": {"commit": {
+            "oid": oid,
+            "signature": {"isValid": os.environ.get("TEST_SIGNATURE_VALID") != "false",
+                "wasSignedByGitHub": True,
+                "signer": {"login": "web-flow"}},
+        }}}}))
+        sys.exit()
+    if path.startswith("repos/reaver-project/reaveros/commits/"):
+        author = "reaver-project-maintenance[bot]"
+        if os.environ.get("TEST_AUTHOR_VALID") == "false":
+            author = "other[bot]"
+        print(author + " Bot true")
+        sys.exit()
 if arguments[:2] == ["pr", "create"]:
     pathlib.Path(os.environ["TEST_PR_CREATED"]).touch()
     sys.exit()
@@ -120,6 +204,8 @@ raise SystemExit(f"unexpected gh invocation: {arguments}")
             summary.touch()
             gh_log.touch()
             environment = infrastructure_consumer.isolated_git_environment()
+            base_revision = git(source, "rev-parse", "HEAD", capture_output=True).stdout.strip()
+            graphql_payload = temporary_path / "graphql-payload.json"
             environment.update(
                 {
                     "APP_SLUG": "reaver-project-maintenance",
@@ -128,6 +214,8 @@ raise SystemExit(f"unexpected gh invocation: {arguments}")
                     "CONTRACT_VERSION_FILE": "ci/aws/infrastructure-contract-version",
                     "GH_TOKEN": "test-token",
                     "GITHUB_OUTPUT": str(output),
+                    "GITHUB_RUN_ATTEMPT": "2",
+                    "GITHUB_RUN_ID": "101",
                     "GITHUB_SHA": source_revision,
                     "GITHUB_STEP_SUMMARY": str(summary),
                     "INFRASTRUCTURE_REVISION": source_revision,
@@ -137,6 +225,8 @@ raise SystemExit(f"unexpected gh invocation: {arguments}")
                         "projects/reaveros/infrastructure-contract-version"
                     ),
                     "TEST_CONSUMER_REMOTE": str(remote),
+                    "TEST_CONSUMER_SOURCE": str(source),
+                    "TEST_GRAPHQL_PAYLOAD": str(graphql_payload),
                     "TEST_GH_LOG": str(gh_log),
                     "TEST_PR_CREATED": str(temporary_path / "pr-created"),
                 }
@@ -148,6 +238,22 @@ raise SystemExit(f"unexpected gh invocation: {arguments}")
                 env=environment,
             )
 
+            payload = json.loads(graphql_payload.read_text(encoding="utf-8"))
+            mutation_input = payload["variables"]["input"]
+            self.assertEqual(mutation_input["expectedHeadOid"], base_revision)
+            self.assertEqual(
+                mutation_input["branch"]["branchName"],
+                f"maintenance/infrastructure-stage/{source_revision}-101-2",
+            )
+            additions = {
+                item["path"]: base64.b64decode(item["contents"]).decode()
+                for item in mutation_input["fileChanges"]["additions"]
+            }
+            self.assertEqual(additions["ci/aws/infrastructure-revision"].strip(), source_revision)
+            self.assertEqual(
+                additions["ci/aws/infrastructure-contract-version"].strip(), contract_version
+            )
+            self.assertIn(source_revision, additions[".github/workflows/ci.yml"])
             branch = f"maintenance/infrastructure/{source_revision}"
             published_revision = git(
                 temporary_path,
@@ -157,20 +263,68 @@ raise SystemExit(f"unexpected gh invocation: {arguments}")
                 capture_output=True,
             ).stdout.strip()
             self.assertEqual(published_revision, source_revision)
-            published_contract = git(
+            signed_head = git(
                 temporary_path,
                 f"--git-dir={remote}",
-                "show",
-                f"{branch}:ci/aws/infrastructure-contract-version",
+                "rev-parse",
+                branch,
                 capture_output=True,
             ).stdout.strip()
-            self.assertEqual(published_contract, contract_version)
             self.assertIn("pull_request_number=17", output.read_text(encoding="utf-8"))
             calls = gh_log.read_text(encoding="utf-8")
             self.assertIn("pr\tcreate", calls)
             self.assertIn("pr\tmerge\t17", calls)
             self.assertIn("--auto", calls)
+            self.assertIn("api\tgraphql", calls)
+            self.assertIn("--match-head-commit\t" + signed_head, calls)
             self.assertNotIn("test-token", calls)
+
+            staged_ref = f"refs/heads/maintenance/infrastructure-stage/{source_revision}-101-2"
+            self.assertNotEqual(
+                subprocess.run(
+                    ["git", f"--git-dir={remote}", "show-ref", "--verify", "--quiet", staged_ref],
+                    check=False,
+                ).returncode,
+                0,
+            )
+
+            failed_environment = {
+                **environment,
+                "GITHUB_RUN_ATTEMPT": "3",
+                "TEST_SIGNATURE_VALID": "false",
+            }
+            failed = subprocess.run(
+                [str(repository_root / "actions/update-infrastructure-consumer/publish")],
+                cwd=repository_root,
+                check=False,
+                env=failed_environment,
+                capture_output=True,
+                text=True,
+            )
+            self.assertNotEqual(failed.returncode, 0)
+            self.assertIn("verified Maintenance App commit", failed.stderr)
+            self.assertEqual(
+                git(
+                    temporary_path, f"--git-dir={remote}", "rev-parse", branch, capture_output=True
+                ).stdout.strip(),
+                signed_head,
+            )
+
+            wrong_author_environment = {
+                **environment,
+                "GITHUB_RUN_ATTEMPT": "4",
+                "TEST_AUTHOR_VALID": "false",
+            }
+            wrong_author = subprocess.run(
+                [str(repository_root / "actions/update-infrastructure-consumer/publish")],
+                cwd=repository_root,
+                check=False,
+                env=wrong_author_environment,
+                capture_output=True,
+                text=True,
+            )
+            self.assertNotEqual(wrong_author.returncode, 0)
+            self.assertIn("not authored by the Maintenance App", wrong_author.stderr)
 
 
 if __name__ == "__main__":

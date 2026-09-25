@@ -9,6 +9,8 @@ required_environment=(
     CONTRACT_VERSION_FILE
     GH_TOKEN
     GITHUB_OUTPUT
+    GITHUB_RUN_ATTEMPT
+    GITHUB_RUN_ID
     GITHUB_SHA
     INFRASTRUCTURE_REVISION
     REVISION_FILE
@@ -25,6 +27,8 @@ done
 if [[ ! ${APP_SLUG} =~ ^[a-z0-9]+(-[a-z0-9]+)*$ ||
     ! ${CONSUMER_REPOSITORY} =~ ^[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+$ ||
     ! ${CONTRACT_VERSION} =~ ^[1-9][0-9]*$ ||
+    ! ${GITHUB_RUN_ID} =~ ^[1-9][0-9]*$ ||
+    ! ${GITHUB_RUN_ATTEMPT} =~ ^[1-9][0-9]*$ ||
     ! ${INFRASTRUCTURE_REVISION} =~ ^[0-9a-f]{40}$ ||
     ${INFRASTRUCTURE_REVISION} != "${GITHUB_SHA}" ]]; then
     printf 'Invalid infrastructure consumer update configuration.\n' >&2
@@ -56,8 +60,13 @@ fi
 test_directory=$(mktemp -d)
 body_file="${test_directory}/pull-request-body"
 checkout_directory="${test_directory}/consumer"
+staging_branch=
 cleanup()
 {
+    if [[ -n ${staging_branch} ]]; then
+        gh api "repos/${CONSUMER_REPOSITORY}/git/refs/heads/${staging_branch}" \
+            --method DELETE > /dev/null 2>&1 || true
+    fi
     rm -rf "${test_directory}"
 }
 trap cleanup EXIT
@@ -95,22 +104,99 @@ python3 "${action_directory}/../lib/infrastructure_consumer.py" validate \
     > /dev/null
 
 branch="maintenance/infrastructure/${INFRASTRUCTURE_REVISION}"
-git -C "${checkout_directory}" switch --create "${branch}"
-git -C "${checkout_directory}" config user.name "${APP_SLUG}[bot]"
-git -C "${checkout_directory}" config user.email \
-    "${APP_SLUG}[bot]@users.noreply.github.com"
-git -C "${checkout_directory}" add --all
-git -C "${checkout_directory}" commit --no-gpg-sign \
-    --message "Update infrastructure integration to ${INFRASTRUCTURE_REVISION:0:12}"
-
+staging_branch="maintenance/infrastructure-stage/${INFRASTRUCTURE_REVISION}-${GITHUB_RUN_ID}-${GITHUB_RUN_ATTEMPT}"
+base_revision=$(git -C "${checkout_directory}" rev-parse HEAD)
 remote_revision=$(git -C "${checkout_directory}" ls-remote \
     --heads origin "refs/heads/${branch}" | cut -f1)
-if [[ -n ${remote_revision} ]]; then
-    git -C "${checkout_directory}" push \
-        --force-with-lease="refs/heads/${branch}:${remote_revision}" \
-        origin "HEAD:refs/heads/${branch}"
+staging_revision=$(gh api \
+    "repos/${CONSUMER_REPOSITORY}/git/ref/heads/${staging_branch}" \
+    --jq '.object.sha' 2> /dev/null) || staging_revision=
+if [[ -n ${staging_revision} ]]; then
+    gh api "repos/${CONSUMER_REPOSITORY}/git/refs/heads/${staging_branch}" \
+        --method PATCH \
+        --field sha="${base_revision}" \
+        --field force=true > /dev/null
 else
-    git -C "${checkout_directory}" push origin "HEAD:refs/heads/${branch}"
+    gh api "repos/${CONSUMER_REPOSITORY}/git/refs" \
+        --method POST \
+        --field ref="refs/heads/${staging_branch}" \
+        --field sha="${base_revision}" > /dev/null
+fi
+if [[ $(gh api "repos/${CONSUMER_REPOSITORY}/git/ref/heads/${staging_branch}" \
+    --jq '.object.sha') != "${base_revision}" ]]; then
+    printf 'Consumer staging branch does not point to the validated base.\n' >&2
+    exit 1
+fi
+
+additions_file="${test_directory}/additions.jsonl"
+: > "${additions_file}"
+while IFS= read -r -d '' changed_path; do
+    if [[ ! -f ${checkout_directory}/${changed_path} ||
+        -L ${checkout_directory}/${changed_path} ]]; then
+        printf 'Consumer update changed a non-regular file: %s\n' "${changed_path}" >&2
+        exit 1
+    fi
+    contents=$(base64 --wrap=0 "${checkout_directory}/${changed_path}")
+    jq --null-input --compact-output \
+        --arg path "${changed_path}" \
+        --arg contents "${contents}" \
+        '{path: $path, contents: $contents}' >> "${additions_file}"
+done < <(git -C "${checkout_directory}" diff --name-only -z)
+if [[ ! -s ${additions_file} ]]; then
+    printf 'Consumer update did not contain any regular file additions.\n' >&2
+    exit 1
+fi
+
+mutation='mutation($input: CreateCommitOnBranchInput!) { createCommitOnBranch(input: $input) { commit { oid signature { isValid wasSignedByGitHub signer { login } } } } }'
+jq --null-input \
+    --arg query "${mutation}" \
+    --arg repository "${CONSUMER_REPOSITORY}" \
+    --arg branch "${staging_branch}" \
+    --arg base "${base_revision}" \
+    --arg headline "Update infrastructure integration to ${INFRASTRUCTURE_REVISION:0:12}" \
+    --slurpfile additions "${additions_file}" \
+    '{
+        query: $query,
+        variables: {
+            input: {
+                branch: {repositoryNameWithOwner: $repository, branchName: $branch},
+                expectedHeadOid: $base,
+                message: {headline: $headline},
+                fileChanges: {additions: $additions}
+            }
+        }
+    }' > "${test_directory}/signed-commit.json"
+response=$(gh api graphql --input "${test_directory}/signed-commit.json")
+head_revision=$(jq --exit-status --raw-output \
+    --arg author "${APP_SLUG}[bot]" \
+    '.data.createCommitOnBranch.commit
+        | select(.signature.isValid == true
+            and .signature.wasSignedByGitHub == true
+            and (.signature.signer.login == "web-flow"
+                or .signature.signer.login == $author))
+        | .oid
+        | select(test("^[0-9a-f]{40}$"))' <<< "${response}") || {
+    printf 'GitHub did not create a verified Maintenance App commit.\n' >&2
+    exit 1
+}
+author_identity=$(gh api "repos/${CONSUMER_REPOSITORY}/commits/${head_revision}" \
+    --jq '[.author.login, .author.type, .commit.verification.verified] | join(" ")')
+if [[ ${author_identity} != "${APP_SLUG}[bot] Bot true" ]]; then
+    printf 'Verified commit was not authored by the Maintenance App.\n' >&2
+    exit 1
+fi
+git -C "${checkout_directory}" fetch origin "refs/heads/${staging_branch}"
+if [[ $(git -C "${checkout_directory}" rev-parse FETCH_HEAD) != "${head_revision}" ]]; then
+    printf 'Fetched Maintenance App commit differs from the verified revision.\n' >&2
+    exit 1
+fi
+git -C "${checkout_directory}" push \
+    --force-with-lease="refs/heads/${branch}:${remote_revision}" \
+    origin "${head_revision}:refs/heads/${branch}"
+if [[ $(git -C "${checkout_directory}" ls-remote \
+    --heads origin "refs/heads/${branch}" | cut -f1) != "${head_revision}" ]]; then
+    printf 'Consumer update branch differs from the verified Maintenance App commit.\n' >&2
+    exit 1
 fi
 
 printf '%s\n' \
@@ -158,7 +244,6 @@ if [[ ! ${pull_request_number} =~ ^[1-9][0-9]*$ ]]; then
     exit 1
 fi
 
-head_revision=$(git -C "${checkout_directory}" rev-parse HEAD)
 gh pr merge "${pull_request_number}" \
     --repo "${CONSUMER_REPOSITORY}" \
     --auto \

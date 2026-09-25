@@ -6,6 +6,7 @@ for required_variable in \
     AWS_REGION \
     CONTROL_FUNCTION \
     GITHUB_OUTPUT \
+    GITHUB_REF \
     GITHUB_REPOSITORY \
     GITHUB_RUN_ATTEMPT \
     GITHUB_RUN_ID \
@@ -18,7 +19,8 @@ for required_variable in \
     fi
 done
 
-if [[ ! ${RUNNER_KEY} =~ ^[a-z0-9-]{1,48}$ ||
+if [[ ! ${GITHUB_REF} =~ ^refs/heads/(main|pull-request/[1-9][0-9]*)$ ||
+    ! ${RUNNER_KEY} =~ ^[a-z0-9-]{1,48}$ ||
     ! ${RUNNER_SIZE} =~ ^(medium|large)$ ||
     ! ${RUNNER_PROFILE} =~ ^(builder|validation)$ ]]; then
     printf 'Invalid runner request: key=%s size=%s profile=%s\n' \
@@ -67,6 +69,7 @@ trap cleanup EXIT
 launch_payload=$(jq --null-input --compact-output \
     --arg github_run_attempt "${GITHUB_RUN_ATTEMPT}" \
     --arg github_run_id "${GITHUB_RUN_ID}" \
+    --arg github_ref "${GITHUB_REF}" \
     --arg repository "${GITHUB_REPOSITORY}" \
     --arg runner_key "${RUNNER_KEY}" \
     --arg runner_profile "${RUNNER_PROFILE}" \
@@ -75,6 +78,7 @@ launch_payload=$(jq --null-input --compact-output \
         action: "launch",
         github_run_attempt: $github_run_attempt,
         github_run_id: $github_run_id,
+        source_ref: $github_ref,
         repository: $repository,
         runner_key: $runner_key,
         runner_profile: $runner_profile,
