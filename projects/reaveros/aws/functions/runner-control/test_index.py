@@ -351,13 +351,7 @@ class RunnerControlIndexTests(unittest.TestCase):
                 path,
                 "token",
                 "PATCH",
-                {
-                    "name": "reaveros",
-                    "visibility": "selected",
-                    "allows_public_repositories": True,
-                    "restricted_to_workflows": True,
-                    "selected_workflows": [main, copied],
-                },
+                {"selected_workflows": [main, copied]},
             ),
         )
 
@@ -428,13 +422,7 @@ class RunnerControlIndexTests(unittest.TestCase):
         self.assertEqual(request.call_args_list[0].args[1], None)
         self.assertEqual(
             request.call_args_list[2].args[3],
-            {
-                "name": "reaveros",
-                "visibility": "selected",
-                "allows_public_repositories": True,
-                "restricted_to_workflows": True,
-                "selected_workflows": [main, copied],
-            },
+            {"selected_workflows": [main, copied]},
         )
 
         with (
@@ -692,6 +680,15 @@ class RunnerControlIndexTests(unittest.TestCase):
             "Could not read EC2 console output: ClientError",
         )
 
+    def test_console_output_accepts_predecoded_text(self):
+        clients["ec2"].get_console_output.return_value = {
+            "Output": "[    0.000000] démarrage du runner",
+        }
+        self.assertEqual(
+            runner_control.console_output("i-123abc"),
+            "[    0.000000] démarrage du runner",
+        )
+
     def test_cleanup_tolerates_resources_that_are_already_absent(self):
         clients["ssm"].delete_parameter.side_effect = ClientError("ParameterNotFound")
         not_found = runner_control.GitHubRequestError(
@@ -799,6 +796,24 @@ class RunnerControlIndexTests(unittest.TestCase):
                 return_value="output",
             ),
             self.assertRaisesRegex(RuntimeError, "cleanup failed"),
+        ):
+            runner_control.terminate({"instance_id": "i-123abc"})
+
+        clients["ec2"].terminate_instances.assert_called_once_with(
+            InstanceIds=["i-123abc"],
+        )
+
+    def test_terminate_stops_the_instance_after_console_failure(self):
+        instance = {"InstanceId": "i-123abc", "Tags": []}
+        with (
+            mock.patch.object(runner_control, "runner_instances", return_value=[instance]),
+            mock.patch.object(runner_control, "cleanup_registration"),
+            mock.patch.object(
+                runner_control,
+                "console_output",
+                side_effect=ValueError("invalid console text"),
+            ),
+            self.assertRaisesRegex(ValueError, "invalid console text"),
         ):
             runner_control.terminate({"instance_id": "i-123abc"})
 
