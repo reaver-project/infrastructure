@@ -1,0 +1,44 @@
+name: Verify Maintenance App squash signing
+
+on:
+    workflow_dispatch:
+
+permissions:
+    contents: read
+
+concurrency:
+    group: maintenance-signing-probe
+    cancel-in-progress: false
+
+jobs:
+    probe:
+        name: Verify a signed squash on isolated ReaverOS branches
+        runs-on: ubuntu-latest
+        timeout-minutes: 10
+        environment: github-production
+        steps:
+          - name: Harden the runner
+            uses: step-security/harden-runner@05e31511f85b41b11d1cf0ef85d0992719546e2c # v2.21.0
+            with:
+                egress-policy: audit
+
+          - name: Check out infrastructure
+            uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
+            with:
+                persist-credentials: false
+
+          - name: Create a ReaverOS-scoped Maintenance App token
+            id: app
+            uses: actions/create-github-app-token@bcd2ba49218906704ab6c1aa796996da409d3eb1 # v3.2.0
+            with:
+                client-id: ${{ vars.MAINTENANCE_APP_CLIENT_ID }}
+                private-key: ${{ secrets.MAINTENANCE_APP_PRIVATE_KEY }}
+                owner: reaver-project
+                repositories: reaveros
+                permission-contents: write
+                permission-pull-requests: write
+
+          - name: Verify GitHub signs the App squash
+            env:
+                GH_TOKEN: ${{ steps.app.outputs.token }}
+            run: github/apps/probe-maintenance-squash

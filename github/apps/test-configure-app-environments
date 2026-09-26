@@ -69,8 +69,10 @@ assert_log_contains $'gh\tvariable\tset\tINFRASTRUCTURE_APP_CLIENT_ID\t--repo\tr
 assert_log_contains $'gh\tsecret\tset\tINFRASTRUCTURE_APP_PRIVATE_KEY\t--repo\treaver-project/infrastructure\t--env\tgithub-production'
 assert_log_contains $'gh\tapi\trepos/reaver-project/reaveros/environments/maintenance'
 assert_log_contains $'gh\tvariable\tset\tMAINTENANCE_APP_ID\t--repo\treaver-project/reaveros\t--env\tmaintenance\t--body\t1234'
+assert_log_contains $'gh\tvariable\tset\tMAINTENANCE_APP_CLIENT_ID\t--repo\treaver-project/reaveros\t--env\tmaintenance\t--body\tIv23testclient'
 assert_log_contains $'gh\tsecret\tset\tMAINTENANCE_APP_PRIVATE_KEY\t--repo\treaver-project/reaveros\t--env\tmaintenance'
 assert_log_contains $'gh\tvariable\tset\tMAINTENANCE_APP_ID\t--repo\treaver-project/infrastructure\t--env\tgithub-production\t--body\t1234'
+assert_log_contains $'gh\tvariable\tset\tMAINTENANCE_APP_CLIENT_ID\t--repo\treaver-project/infrastructure\t--env\tgithub-production\t--body\tIv23testclient'
 assert_log_contains $'gh\tsecret\tset\tMAINTENANCE_APP_PRIVATE_KEY\t--repo\treaver-project/infrastructure\t--env\tgithub-production'
 
 printf 'App environment configuration tests passed.\n'
