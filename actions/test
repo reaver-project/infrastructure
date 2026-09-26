@@ -62,6 +62,11 @@ if [[ $(basename -- "$0") == aws ]]; then
 fi
 
 self_dir=$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)
+if ! grep --fixed-strings --quiet 'mask-aws-account-id: false' \
+    "${self_dir}/ephemeral-runner/action.yml"; then
+    printf 'Runner action would suppress ECR URI job outputs.\n' >&2
+    exit 1
+fi
 test_directory=$(mktemp -d)
 mkdir "${test_directory}/bin"
 ln -s "${self_dir}/test" "${test_directory}/bin/aws"

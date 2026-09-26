@@ -68,7 +68,9 @@ runs:
         uses: aws-actions/configure-aws-credentials@e6de054238d6b7531b4efff3b6587d9aade6a06c # v6.2.3
         with:
             aws-region: ${{ inputs.aws-region }}
-            mask-aws-account-id: true
+            # ECR URIs cross job boundaries; masking the account ID makes
+            # GitHub suppress those job outputs as possible secrets.
+            mask-aws-account-id: false
             role-session-name: reaver-project-runner-${{ github.run_id }}-${{ inputs.operation }}
             role-to-assume: ${{ inputs.role-arn }}
             unset-current-credentials: true

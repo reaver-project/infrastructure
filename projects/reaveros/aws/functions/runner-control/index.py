@@ -1,4 +1,5 @@
 import base64
+import binascii
 import calendar
 import datetime
 import json
@@ -133,13 +134,7 @@ def set_restricted_workflows(path, token, requested):
         path,
         token,
         "PATCH",
-        {
-            "name": "reaveros",
-            "visibility": "selected",
-            "allows_public_repositories": True,
-            "restricted_to_workflows": True,
-            "selected_workflows": sorted(requested),
-        },
+        {"selected_workflows": sorted(requested)},
     )
     retained = result.get("selected_workflows") if isinstance(result, dict) else None
     if (
@@ -311,7 +306,12 @@ def status(event):
 def console_output(instance_id):
     try:
         response = ec2.get_console_output(InstanceId=instance_id, Latest=True)
-        return base64.b64decode(response.get("Output", "")).decode(errors="replace")
+        output = response.get("Output") or ""
+        try:
+            return base64.b64decode(output, validate=True).decode(errors="replace")
+        except (ValueError, binascii.Error):
+            # EC2 sometimes returns decoded console text despite documenting base64.
+            return output
     except (BotoCoreError, ClientError) as error:
         return f"Could not read EC2 console output: {type(error).__name__}"
 
@@ -374,8 +374,10 @@ def terminate(event):
     except RuntimeError as error:
         cleanup_error = error
 
-    output = console_output(instance_id)
-    ec2.terminate_instances(InstanceIds=[instance_id])
+    try:
+        output = console_output(instance_id)
+    finally:
+        ec2.terminate_instances(InstanceIds=[instance_id])
     if cleanup_error is not None:
         raise cleanup_error
     return {"console_output": output, "instance_id": instance_id}
