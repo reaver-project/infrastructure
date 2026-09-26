@@ -102,6 +102,21 @@ if arguments[:2] == ["repo", "clone"]:
 if arguments[0] == "api":
     path = arguments[1]
     remote = os.environ["TEST_CONSUMER_REMOTE"]
+    if path == "repos/reaver-project/reaveros/rules/branches/main":
+        if os.environ.get("TEST_REQUIRED_RULES") == "false":
+            print("[]")
+        else:
+            print(json.dumps([
+                {"type": "pull_request"},
+                {"type": "required_status_checks", "parameters": {
+                    "strict_required_status_checks_policy": True,
+                    "required_status_checks": [
+                        {"context": "CI result"},
+                        {"context": "Dependency review"},
+                    ],
+                }},
+            ]))
+        sys.exit()
     if path.startswith("repos/reaver-project/reaveros/git/ref/heads/"):
         branch = path.split("/git/ref/heads/", 1)[1]
         if "--method" in arguments and arguments[arguments.index("--method") + 1] == "DELETE":
@@ -275,9 +290,37 @@ raise SystemExit(f"unexpected gh invocation: {arguments}")
             self.assertIn("pr\tcreate", calls)
             self.assertIn("pr\tmerge\t17", calls)
             self.assertIn("--auto", calls)
+            self.assertIn("--squash", calls)
+            self.assertNotIn("--rebase", calls)
             self.assertIn("api\tgraphql", calls)
             self.assertIn("--match-head-commit\t" + signed_head, calls)
             self.assertNotIn("test-token", calls)
+
+            missing_rules_environment = {
+                **environment,
+                "GITHUB_RUN_ATTEMPT": "5",
+                "TEST_REQUIRED_RULES": "false",
+            }
+            missing_rules = subprocess.run(
+                [str(repository_root / "actions/update-infrastructure-consumer/publish")],
+                cwd=repository_root,
+                check=False,
+                env=missing_rules_environment,
+                capture_output=True,
+                text=True,
+            )
+            self.assertNotEqual(missing_rules.returncode, 0)
+            self.assertIn("lacks the required", missing_rules.stderr)
+            self.assertEqual(
+                git(
+                    temporary_path,
+                    f"--git-dir={remote}",
+                    "rev-parse",
+                    branch,
+                    capture_output=True,
+                ).stdout.strip(),
+                signed_head,
+            )
 
             staged_ref = f"refs/heads/maintenance/infrastructure-stage/{source_revision}-101-2"
             self.assertNotEqual(
