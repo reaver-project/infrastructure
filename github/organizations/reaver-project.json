@@ -30,7 +30,7 @@
         "inherit_access_from_source_repository": false,
         "member_creation": {
             "public": false,
-            "private": false,
+            "private": true,
             "internal": false
         }
     },

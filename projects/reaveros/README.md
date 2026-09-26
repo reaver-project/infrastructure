@@ -65,5 +65,8 @@ reserved as private packages from this repository using its manual reservation
 job; the organization package-creation policy is recorded in
 `github/organizations/reaver-project.json`. GitHub does not expose that policy
 through the supported API used by the configurator, so an owner must verify
-its effective value in organization settings. The official packages must grant
-Actions access to infrastructure only, with source-repository inheritance off.
+its effective value in organization settings. Private package creation remains
+enabled there, so this setting is not a deny-all control for new package names.
+The official packages must grant Actions write access to infrastructure only,
+with source-repository inheritance off. Package source attribution can point
+to ReaverOS independently of that Actions access.
