@@ -41,6 +41,7 @@ shell_scripts=(
     github/apps/configure-ci-gate-app
     github/apps/configure-infrastructure-app
     github/apps/configure-maintenance-app
+    github/apps/probe-maintenance-squash
     github/apps/test-configure-app-environments
     github/apps/test-configure-ci-gate-app
     github/test-configure-organization

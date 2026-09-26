@@ -57,6 +57,20 @@ if [[ ! ${default_branch} =~ ^[A-Za-z0-9._/-]+$ ||
     exit 1
 fi
 
+effective_rules=$(gh api \
+    "repos/${CONSUMER_REPOSITORY}/rules/branches/${default_branch}")
+if ! jq --exit-status '
+    any(.[]; .type == "pull_request")
+    and any(.[];
+        .type == "required_status_checks"
+        and (.parameters.strict_required_status_checks_policy == true)
+        and ([.parameters.required_status_checks[].context]
+            | index("CI result") != null and index("Dependency review") != null))
+' <<< "${effective_rules}" > /dev/null; then
+    printf 'Consumer main lacks the required pull-request and CI checks.\n' >&2
+    exit 1
+fi
+
 test_directory=$(mktemp -d)
 body_file="${test_directory}/pull-request-body"
 checkout_directory="${test_directory}/consumer"
@@ -247,7 +261,7 @@ fi
 gh pr merge "${pull_request_number}" \
     --repo "${CONSUMER_REPOSITORY}" \
     --auto \
-    --rebase \
+    --squash \
     --delete-branch \
     --match-head-commit "${head_revision}"
 

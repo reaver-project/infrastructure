@@ -147,7 +147,7 @@ if (
     or publisher_app_inputs.get("client-id") != "${{ vars.INFRASTRUCTURE_APP_CLIENT_ID }}"
     or publisher_app_inputs.get("repositories") != "infrastructure"
     or publisher_app_inputs.get("owner") != "reaver-project"
-    or consumer_app_inputs.get("app-id") != "${{ vars.MAINTENANCE_APP_ID }}"
+    or consumer_app_inputs.get("client-id") != "${{ vars.MAINTENANCE_APP_CLIENT_ID }}"
     or consumer_app_inputs.get("repositories") != "reaveros"
     or consumer_app_inputs.get("owner") != "reaver-project"
 ):
@@ -284,6 +284,7 @@ credentialed_jobs = {
     "aws-infrastructure.yml": ["plan"],
     "aws-infrastructure-deploy.yml": ["deploy", "publish", "update-consumer"],
     "github-configuration.yml": ["deploy", "reaveros"],
+    "maintenance-signing-probe.yml": ["probe"],
     "reaveros-ghcr-publisher.yml": ["reserve", "publish"],
     "security-analysis.yml": ["actions_security", "scorecard"],
 }
