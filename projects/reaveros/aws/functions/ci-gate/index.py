@@ -55,8 +55,7 @@ def installation_token(app_credentials, event_installation_id, repository_id):
             "repository_ids": [repository_id],
             "permissions": {
                 "contents": "write",
-                "issues": "write",
-                "pull_requests": "read",
+                "pull_requests": "write",
             },
         },
     )
@@ -197,6 +196,14 @@ def set_copied_revision(token, repository, number, sha):
         github_request(update_path, token, "PATCH", {"sha": sha, "force": True})
 
 
+def github_error_message(error):
+    try:
+        detail = json.loads(error.detail)
+    except (TypeError, ValueError):
+        return None
+    return detail.get("message") if isinstance(detail, dict) else None
+
+
 def delete_copied_revision(token, repository, number):
     try:
         github_request(
@@ -205,8 +212,11 @@ def delete_copied_revision(token, repository, number):
             "DELETE",
         )
     except GitHubRequestError as error:
-        if error.status != 404:
-            raise
+        if error.status == 404 or (
+            error.status == 422 and github_error_message(error) == "Reference does not exist"
+        ):
+            return
+        raise
 
 
 def comment(token, repository, number, message):

@@ -155,8 +155,7 @@ class CiGateIndexTests(unittest.TestCase):
                 "repository_ids": [42],
                 "permissions": {
                     "contents": "write",
-                    "issues": "write",
-                    "pull_requests": "read",
+                    "pull_requests": "write",
                 },
             },
         )
@@ -305,6 +304,21 @@ class CiGateIndexTests(unittest.TestCase):
         with mock.patch.object(ci_gate, "github_request", side_effect=not_found):
             ci_gate.delete_copied_revision("token", repository, 12)
 
+        missing_ref = github_app.GitHubRequestError(
+            "DELETE", "/ref", 422, '{"message":"Reference does not exist"}'
+        )
+        with mock.patch.object(ci_gate, "github_request", side_effect=missing_ref):
+            ci_gate.delete_copied_revision("token", repository, 12)
+
+        other_unprocessable = github_app.GitHubRequestError(
+            "DELETE", "/ref", 422, '{"message":"Validation failed"}'
+        )
+        with (
+            mock.patch.object(ci_gate, "github_request", side_effect=other_unprocessable),
+            self.assertRaises(github_app.GitHubRequestError),
+        ):
+            ci_gate.delete_copied_revision("token", repository, 12)
+
         failure = github_app.GitHubRequestError("DELETE", "/ref", 403, "denied")
         with (
             mock.patch.object(ci_gate, "github_request", side_effect=failure),
@@ -333,6 +347,30 @@ class CiGateIndexTests(unittest.TestCase):
         not_found = github_app.GitHubRequestError("GET", "/permission", 404, "missing")
         with mock.patch.object(ci_gate, "github_request", side_effect=not_found):
             self.assertFalse(ci_gate.approver_can_run_ci("token", repository, "external"))
+
+    def test_denied_feedback_is_an_error(self):
+        denied_feedback = github_app.GitHubRequestError(
+            "POST", "/comments", 403, '{"message":"Resource not accessible by integration"}'
+        )
+        with (
+            mock.patch.object(ci_gate, "github_request", side_effect=denied_feedback),
+            self.assertRaises(github_app.GitHubRequestError),
+        ):
+            ci_gate.comment("token", repository, 12, "message")
+
+    def test_opened_untrusted_pr_tolerates_missing_copy(self):
+        pr = pull_request()
+        missing_ref = github_app.GitHubRequestError(
+            "DELETE", "/ref", 422, '{"message":"Reference does not exist"}'
+        )
+        with (
+            mock.patch.object(ci_gate, "pull_request", return_value=pr),
+            mock.patch.object(ci_gate, "github_request", side_effect=[missing_ref, None]),
+        ):
+            result = ci_gate.handle_pull_request(
+                event_payload(action="opened", pr=pr), "token", repository
+            )
+        self.assertEqual(result, "revision requires exact approval")
 
     def test_automatically_copies_an_allowlisted_local_actor(self):
         pr = pull_request(actor="griwes")
