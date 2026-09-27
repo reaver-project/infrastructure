@@ -49,6 +49,20 @@ def decrypt(path, passphrase):
 
 
 class CreateAppTests(unittest.TestCase):
+    def test_ci_gate_manifest_keeps_issue_comment_subscription(self):
+        manifest_path = Path(__file__).with_name("ci-gate") / "manifest.json"
+        manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
+
+        self.assertIn("issue_comment", manifest["default_events"])
+        self.assertEqual(
+            manifest["default_permissions"],
+            {
+                "contents": "write",
+                "issues": "read",
+                "pull_requests": "write",
+            },
+        )
+
     def test_request_log_omits_manifest_callback_parameters(self):
         line = create_app.request_log_line(
             "GET",

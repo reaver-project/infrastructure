@@ -5,8 +5,8 @@
     "public": false,
     "default_permissions": {
         "contents": "write",
-        "issues": "write",
-        "pull_requests": "read"
+        "issues": "read",
+        "pull_requests": "write"
     },
     "default_events": [
         "issue_comment",

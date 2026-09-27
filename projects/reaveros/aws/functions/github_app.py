@@ -12,6 +12,7 @@ class GitHubRequestError(RuntimeError):
     def __init__(self, method, path, status, detail):
         super().__init__(f"GitHub {method} {path} failed: {status} {detail}")
         self.status = status
+        self.detail = detail
 
 
 def base64_url(value):
