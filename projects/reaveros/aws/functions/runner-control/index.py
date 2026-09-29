@@ -105,6 +105,12 @@ def runner_instances(instance_ids=None):
         arguments["NextToken"] = next_token
 
 
+def instance_cache_trust(instance):
+    tags = {tag["Key"]: tag["Value"] for tag in instance.get("Tags", [])}
+    # Instances launched before the cache split had no trust tag.
+    return tags.get("ReaverProjectCacheTrust", "candidate")
+
+
 def restricted_workflows(token, repository):
     organization = os.environ["GITHUB_ORGANIZATION"]
     group_id = int(os.environ["GITHUB_RUNNER_GROUP_ID"])
@@ -207,16 +213,26 @@ def launch(event):
     }
     runner_size = event.get("runner_size")
     runner_profile = event.get("runner_profile")
+    cache_trust = os.environ["CACHE_TRUST_CLASS"]
     if runner_size not in instance_types:
         raise ValueError("invalid runner size")
     if runner_profile not in profiles:
         raise ValueError("invalid runner profile")
+    if cache_trust not in {"candidate", "trusted"}:
+        raise ValueError("invalid cache trust class")
 
     live_states = {"pending", "running", "stopping", "stopped"}
     live_runners = [
         instance for instance in runner_instances() if instance["State"]["Name"] in live_states
     ]
-    if len(live_runners) >= int(os.environ["MAXIMUM_CONCURRENT_RUNNERS"]):
+    # The candidate and trusted functions can each admit one runner at once.
+    # Reserve the other in-flight launch before checking the global limit.
+    admission_limit = (
+        int(os.environ["MAXIMUM_CONCURRENT_RUNNERS"])
+        - int(os.environ["MAXIMUM_PARALLEL_CONTROLLER_LAUNCHES"])
+        + 1
+    )
+    if admission_limit < 1 or len(live_runners) >= admission_limit:
         raise RuntimeError("ephemeral ReaverOS runner limit reached")
 
     token = github_token()
@@ -265,6 +281,7 @@ def launch(event):
                 source_ref,
                 runner_size,
                 runner_profile,
+                cache_trust,
                 os.environ["RUNNER_INSTANCE_NAME"],
             ),
         )
@@ -362,6 +379,8 @@ def terminate(event):
     instances = runner_instances([instance_id])
     if len(instances) != 1:
         raise ValueError("instance is not a ReaverOS runner")
+    if instance_cache_trust(instances[0]) != os.environ["CACHE_TRUST_CLASS"]:
+        raise ValueError("runner belongs to another cache trust class")
 
     cleanup = runner_cleanup(
         instances[0],
@@ -388,8 +407,13 @@ def reap(_event):
     instances = [
         instance for instance in runner_instances() if instance["State"]["Name"] in live_states
     ]
+    owned_instances = [
+        instance
+        for instance in instances
+        if instance_cache_trust(instance) == os.environ["CACHE_TRUST_CLASS"]
+    ]
     cleanup = expired_runner_cleanup(
-        instances,
+        owned_instances,
         datetime.datetime.now(datetime.UTC),
         int(os.environ["MAXIMUM_AGE_MINUTES"]),
         os.environ["JIT_PARAMETER_PREFIX"],
@@ -404,18 +428,25 @@ def reap(_event):
         terminated.append(runner["instance_id"])
     if terminated:
         ec2.terminate_instances(InstanceIds=terminated)
-    for repository in os.environ["ALLOWED_REPOSITORIES"].split(","):
-        protected_refs = []
-        for instance in instances:
-            if instance["InstanceId"] in terminated:
-                continue
-            tags = {tag["Key"]: tag["Value"] for tag in instance.get("Tags", [])}
-            if tags.get("GitHubRepository") == repository and tags.get("GitHubSourceRef"):
-                protected_refs.append(tags["GitHubSourceRef"])
-        try:
-            prune_workflow_access(repository, protected_refs)
-        except (BotoCoreError, ClientError, GitHubRequestError, RuntimeError, ValueError) as error:
-            print(f"Could not prune revoked runner workflow references: {error}")
+    if os.environ["CACHE_TRUST_CLASS"] == "candidate":
+        for repository in os.environ["ALLOWED_REPOSITORIES"].split(","):
+            protected_refs = []
+            for instance in instances:
+                if instance["InstanceId"] in terminated:
+                    continue
+                tags = {tag["Key"]: tag["Value"] for tag in instance.get("Tags", [])}
+                if tags.get("GitHubRepository") == repository and tags.get("GitHubSourceRef"):
+                    protected_refs.append(tags["GitHubSourceRef"])
+            try:
+                prune_workflow_access(repository, protected_refs)
+            except (
+                BotoCoreError,
+                ClientError,
+                GitHubRequestError,
+                RuntimeError,
+                ValueError,
+            ) as error:
+                print(f"Could not prune revoked runner workflow references: {error}")
     if failures:
         summary = "; ".join(f"{instance_id}: {error}" for instance_id, error in failures)
         raise RuntimeError(f"expired runner cleanup failed: {summary}") from failures[0][1]

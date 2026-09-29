@@ -1,0 +1,104 @@
+#!/usr/bin/env bash
+
+set -euo pipefail
+
+case $(basename -- "$0") in
+    aws)
+        case "$1:$2" in
+            cloudformation:describe-stacks)
+                jq --null-input --compact-output --arg bucket \
+                    "${TEST_BUCKET:-reaver-project-example-cache-123456789012-us-west-2}" \
+                    '[{OutputKey: "CompilerCacheBucketName", OutputValue: $bucket}]'
+                ;;
+            sts:get-caller-identity)
+                printf '123456789012\n'
+                ;;
+            *)
+                printf 'Unexpected AWS call: %s\n' "$*" >&2
+                exit 2
+                ;;
+        esac
+        exit
+        ;;
+    curl)
+        case ${!#} in
+            */api/token) printf 'metadata-token\n' ;;
+            */ReaverProjectCacheTrust) printf '%s\n' "${TEST_CACHE_TRUST}" ;;
+            *)
+                printf 'Unexpected metadata request: %s\n' "${!#}" >&2
+                exit 2
+                ;;
+        esac
+        exit
+        ;;
+    sccache)
+        printf '%s\t%s\t%s\n' \
+            "${SCCACHE_BUCKET:-}" "${SCCACHE_S3_KEY_PREFIX:-}" \
+            "${SCCACHE_CLIENT_SIDE:-}" >> "${TEST_CACHE_LOG}"
+        case $1 in
+            --start-server)
+                python3 -c '
+import socket
+import sys
+
+server = socket.socket(socket.AF_UNIX)
+server.bind(sys.argv[1])
+server.close()
+' "${SCCACHE_SERVER_UDS}"
+                ;;
+            --show-stats) printf '{}\n' ;;
+            *) exit 2 ;;
+        esac
+        exit
+        ;;
+esac
+
+self_dir=$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)
+test_directory=$(mktemp -d)
+cleanup()
+{
+    rm -rf -- "${test_directory}"
+}
+trap cleanup EXIT
+install -d "${test_directory}/bin"
+ln -s "${self_dir}/test" "${test_directory}/bin/aws"
+ln -s "${self_dir}/test" "${test_directory}/bin/curl"
+export PATH="${test_directory}/bin:${PATH}"
+export AWS_REGION=us-west-2
+export PROJECT_SLUG=example
+export STACK_NAME=example-runners
+export TEST_CACHE_LOG="${test_directory}/cache.log"
+
+for trust in candidate trusted; do
+    export TEST_CACHE_TRUST=${trust}
+    export RUNNER_TEMP="${test_directory}/${trust}"
+    export GITHUB_ENV="${RUNNER_TEMP}/environment"
+    export GITHUB_OUTPUT="${RUNNER_TEMP}/outputs"
+    export SCCACHE_BINARY="${RUNNER_TEMP}/reaver-project-compiler-cache/sccache"
+    install -d "$(dirname -- "${SCCACHE_BINARY}")"
+    cp "${self_dir}/test" "${SCCACHE_BINARY}"
+    : > "${TEST_CACHE_LOG}"
+    "${self_dir}/configure" > /dev/null
+    expected_log=$(printf 'reaver-project-example-cache-123456789012-us-west-2\t%s/\t' "${trust}")
+    if ! grep --fixed-strings --line-regexp \
+        "${expected_log}" "${TEST_CACHE_LOG}" > /dev/null; then
+        printf 'The %s runner did not use its own S3 cache namespace.\n' \
+            "${trust}" >&2
+        exit 1
+    fi
+    grep --fixed-strings --line-regexp \
+        "host_directory=${RUNNER_TEMP}/reaver-project-compiler-cache" \
+        "${GITHUB_OUTPUT}" > /dev/null
+done
+
+export TEST_CACHE_TRUST=unknown
+export RUNNER_TEMP="${test_directory}/candidate"
+export GITHUB_ENV="${RUNNER_TEMP}/invalid-environment"
+export GITHUB_OUTPUT="${RUNNER_TEMP}/invalid-outputs"
+export SCCACHE_BINARY="${RUNNER_TEMP}/reaver-project-compiler-cache/sccache"
+if "${self_dir}/configure" > /dev/null 2>&1; then
+    printf 'Accepted an unknown cache trust class.\n' >&2
+    exit 1
+fi
+
+printf 'Shared compiler-cache configuration tests passed.\n'

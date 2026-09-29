@@ -224,6 +224,13 @@ Resources:
                     Action: cloudformation:DescribeStacks
                     Resource: !Sub arn:${AWS::Partition}:cloudformation:${AWS::Region}:${AWS::AccountId}:stack/${RunnerStackName}/*
                   - Effect: Allow
+                    Action:
+                      - s3:GetObject
+                      - s3:PutObject
+                    Resource:
+                      - !Sub arn:${AWS::Partition}:s3:::reaver-project-reaveros-cache-${AWS::AccountId}-${AWS::Region}/candidate/*
+                      - !Sub arn:${AWS::Partition}:s3:::reaver-project-reaveros-cache-${AWS::AccountId}-${AWS::Region}/trusted/*
+                  - Effect: Allow
                     Action: iam:PassRole
                     Resource: !Sub arn:${AWS::Partition}:iam::${AWS::AccountId}:role/${RunnerStackName}-*
                     Condition:
@@ -375,6 +382,17 @@ Resources:
                           - iam:GetPolicyVersion
                         Resource: !Ref RunnerRolePermissionsBoundary
                       - Effect: Allow
+                        Action:
+                          - iam:CreatePolicy
+                          - iam:CreatePolicyVersion
+                          - iam:DeletePolicy
+                          - iam:DeletePolicyVersion
+                          - iam:GetPolicy
+                          - iam:GetPolicyVersion
+                          - iam:ListEntitiesForPolicy
+                          - iam:ListPolicyVersions
+                        Resource: !Sub arn:${AWS::Partition}:iam::${AWS::AccountId}:policy/${RunnerStackName}-*
+                      - Effect: Allow
                         Action: iam:PassRole
                         Resource: !Sub arn:${AWS::Partition}:iam::${AWS::AccountId}:role/${RunnerStackName}-*
                         Condition:
@@ -522,6 +540,48 @@ Resources:
                         Condition:
                             StringEquals:
                                 iam:AWSServiceName: budgets.amazonaws.com
+              - PolicyName: ManageCompilerCache
+                PolicyDocument:
+                    Version: '2012-10-17'
+                    Statement:
+                      - Effect: Allow
+                        Action:
+                          - cloudformation:CreateChangeSet
+                          - cloudformation:CreateStack
+                          - cloudformation:DeleteChangeSet
+                          - cloudformation:DeleteStack
+                          - cloudformation:DescribeChangeSet
+                          - cloudformation:DescribeStackEvents
+                          - cloudformation:DescribeStackResources
+                          - cloudformation:DescribeStacks
+                          - cloudformation:ExecuteChangeSet
+                          - cloudformation:GetTemplate
+                          - cloudformation:ListStackResources
+                          - cloudformation:UpdateStack
+                        Resource: !Sub arn:${AWS::Partition}:cloudformation:${AWS::Region}:${AWS::AccountId}:stack/${RunnerStackName}-CompilerCache-*/*
+                      - Effect: Allow
+                        Action:
+                          - s3:CreateBucket
+                          - s3:DeleteBucket
+                          - s3:DeleteBucketPolicy
+                          - s3:GetBucketLocation
+                          - s3:GetBucketOwnershipControls
+                          - s3:GetBucketPolicy
+                          - s3:GetBucketPolicyStatus
+                          - s3:GetBucketPublicAccessBlock
+                          - s3:GetBucketTagging
+                          - s3:GetBucketVersioning
+                          - s3:GetEncryptionConfiguration
+                          - s3:GetLifecycleConfiguration
+                          - s3:ListBucket
+                          - s3:PutBucketOwnershipControls
+                          - s3:PutBucketPolicy
+                          - s3:PutBucketPublicAccessBlock
+                          - s3:PutBucketTagging
+                          - s3:PutBucketVersioning
+                          - s3:PutEncryptionConfiguration
+                          - s3:PutLifecycleConfiguration
+                        Resource: !Sub arn:${AWS::Partition}:s3:::reaver-project-reaveros-cache-${AWS::AccountId}-${AWS::Region}
             Tags:
               - Key: Project
                 Value: ReaverProjectInfrastructure

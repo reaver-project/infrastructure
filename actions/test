@@ -7,7 +7,8 @@ mock_aws()
     if [[ $1 == cloudformation && $2 == describe-stacks ]]; then
         jq --null-input '[
             {OutputKey: "InfrastructureContractVersion", OutputValue: "1"},
-            {OutputKey: "RunnerControlFunctionName", OutputValue: "runner-control"}
+            {OutputKey: "RunnerControlFunctionName", OutputValue: "runner-control"},
+            {OutputKey: "TrustedRunnerControlFunctionName", OutputValue: "trusted-runner-control"}
         ]'
         return
     fi
@@ -67,6 +68,12 @@ if ! grep --fixed-strings --quiet 'mask-aws-account-id: false' \
     printf 'Runner action would suppress ECR URI job outputs.\n' >&2
     exit 1
 fi
+if [[ $(grep --fixed-strings --count \
+    'fromJSON(steps.stack.outputs.outputs)[inputs.control-function-output]' \
+    "${self_dir}/ephemeral-runner/action.yml") -ne 2 ]]; then
+    printf 'Runner action does not select the authorized controller for both operations.\n' >&2
+    exit 1
+fi
 test_directory=$(mktemp -d)
 mkdir "${test_directory}/bin"
 ln -s "${self_dir}/test" "${test_directory}/bin/aws"
@@ -86,6 +93,7 @@ export EXPECTED_CONTRACT_VERSION=1
 "${self_dir}/aws-stack-contract/read"
 grep --fixed-strings --line-regexp 'contract_version=1' "${GITHUB_OUTPUT}" > /dev/null
 grep --fixed-strings 'RunnerControlFunctionName' "${GITHUB_OUTPUT}" > /dev/null
+grep --fixed-strings 'TrustedRunnerControlFunctionName' "${GITHUB_OUTPUT}" > /dev/null
 
 export EXPECTED_CONTRACT_VERSION=2
 if "${self_dir}/aws-stack-contract/read" > /dev/null 2>&1; then
@@ -108,5 +116,7 @@ grep --fixed-strings --line-regexp 'instance_id=i-123abc' "${GITHUB_OUTPUT}" > /
 
 export INSTANCE_ID=i-123abc
 [[ $("${self_dir}/ephemeral-runner/terminate") == 'runner stopped' ]]
+
+"${self_dir}/compiler-cache/test"
 
 printf 'Shared action tests passed.\n'

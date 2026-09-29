@@ -1,0 +1,39 @@
+name: Configure the Reaver Project compiler cache
+description: Start a host-side sccache storage proxy without passing AWS credentials to build containers.
+
+inputs:
+    aws-region:
+        description: AWS region containing the runner stack and cache bucket
+        required: true
+    project-slug:
+        description: Stable project identifier used in the cache bucket name
+        required: true
+    stack-name:
+        description: CloudFormation runner stack with a CompilerCacheBucketName output
+        required: true
+
+outputs:
+    host-directory:
+        description: Host directory containing the binary and Unix socket
+        value: ${{ steps.configure.outputs.host_directory }}
+    container-directory:
+        description: Directory to mount the host cache into build containers
+        value: ${{ steps.configure.outputs.container_directory }}
+
+runs:
+    using: composite
+    steps:
+      - name: Install the pinned sccache client
+        id: install
+        shell: bash
+        run: "${GITHUB_ACTION_PATH}/install"
+
+      - name: Start the scoped S3 cache server
+        id: configure
+        shell: bash
+        env:
+            AWS_REGION: ${{ inputs.aws-region }}
+            PROJECT_SLUG: ${{ inputs.project-slug }}
+            SCCACHE_BINARY: ${{ steps.install.outputs.binary }}
+            STACK_NAME: ${{ inputs.stack-name }}
+        run: "${GITHUB_ACTION_PATH}/configure"

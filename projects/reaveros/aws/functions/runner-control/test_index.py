@@ -89,6 +89,7 @@ class RunnerControlIndexTests(unittest.TestCase):
             {
                 "ALLOWED_REPOSITORIES": "reaver-project/reaveros",
                 "BUILDER_PROFILE_ARN": "arn:builder",
+                "CACHE_TRUST_CLASS": "candidate",
                 "GITHUB_ORGANIZATION": "reaver-project",
                 "GITHUB_RUNNER_GROUP_ID": "7",
                 "GITHUB_APP_SECRET_ID": "runner-app-secret",
@@ -96,6 +97,7 @@ class RunnerControlIndexTests(unittest.TestCase):
                 "LARGE_INSTANCE_TYPE": "c8i.8xlarge",
                 "LAUNCH_TEMPLATE_ID": "lt-123",
                 "MAXIMUM_CONCURRENT_RUNNERS": "4",
+                "MAXIMUM_PARALLEL_CONTROLLER_LAUNCHES": "2",
                 "MAXIMUM_AGE_MINUTES": "180",
                 "MEDIUM_INSTANCE_TYPE": "c8i.4xlarge",
                 "RUNNER_INSTANCE_NAME": "reaveros-runner",
@@ -565,6 +567,48 @@ class RunnerControlIndexTests(unittest.TestCase):
             "Expiration",
         )
         clients["ec2"].run_instances.assert_called_once()
+        tags = clients["ec2"].run_instances.call_args.kwargs["TagSpecifications"][0]["Tags"]
+        self.assertIn(
+            {"Key": "ReaverProjectCacheTrust", "Value": "candidate"},
+            tags,
+        )
+
+    def test_trusted_controller_uses_only_the_trusted_builder_profile(self):
+        clients["ec2"].run_instances.return_value = {
+            "Instances": [{"InstanceId": "i-trusted"}],
+        }
+        with (
+            mock.patch.dict(
+                os.environ,
+                {"BUILDER_PROFILE_ARN": "arn:trusted-builder", "CACHE_TRUST_CLASS": "trusted"},
+            ),
+            mock.patch.object(runner_control, "runner_instances", return_value=[]),
+            mock.patch.object(runner_control, "github_token", return_value="token"),
+            mock.patch.object(runner_control, "ensure_workflow_access"),
+            mock.patch.object(
+                runner_control,
+                "github_request",
+                return_value={"encoded_jit_config": "encoded", "runner": {"id": 43}},
+            ),
+        ):
+            runner_control.launch(
+                {
+                    "github_run_attempt": 1,
+                    "github_run_id": 124,
+                    "repository": "reaver-project/reaveros",
+                    "source_ref": "refs/heads/main",
+                    "runner_key": "prepare",
+                    "runner_profile": "builder",
+                    "runner_size": "large",
+                }
+            )
+
+        launch = clients["ec2"].run_instances.call_args.kwargs
+        self.assertEqual(launch["IamInstanceProfile"], {"Arn": "arn:trusted-builder"})
+        self.assertIn(
+            {"Key": "ReaverProjectCacheTrust", "Value": "trusted"},
+            launch["TagSpecifications"][0]["Tags"],
+        )
 
     def test_launch_rejects_invalid_profiles_sizes_and_capacity(self):
         base_event = {
@@ -584,13 +628,26 @@ class RunnerControlIndexTests(unittest.TestCase):
             with self.subTest(field=field), self.assertRaisesRegex(ValueError, message):
                 runner_control.launch(event)
 
+        with (
+            mock.patch.dict(os.environ, {"CACHE_TRUST_CLASS": "other"}),
+            self.assertRaisesRegex(ValueError, "invalid cache trust class"),
+        ):
+            runner_control.launch(base_event)
+
         live_runner = {"State": {"Name": "running"}}
         with (
             mock.patch.object(
                 runner_control,
                 "runner_instances",
-                return_value=[live_runner] * 4,
+                return_value=[live_runner] * 3,
             ),
+            self.assertRaisesRegex(RuntimeError, "runner limit reached"),
+        ):
+            runner_control.launch(base_event)
+
+        with (
+            mock.patch.dict(os.environ, {"MAXIMUM_CONCURRENT_RUNNERS": "1"}),
+            mock.patch.object(runner_control, "runner_instances", return_value=[]),
             self.assertRaisesRegex(RuntimeError, "runner limit reached"),
         ):
             runner_control.launch(base_event)
@@ -776,6 +833,24 @@ class RunnerControlIndexTests(unittest.TestCase):
         ):
             runner_control.terminate({"instance_id": "i-123abc"})
 
+    def test_candidate_controller_cannot_terminate_a_trusted_runner(self):
+        with (
+            mock.patch.object(
+                runner_control,
+                "runner_instances",
+                return_value=[
+                    {
+                        "InstanceId": "i-123abc",
+                        "Tags": [{"Key": "ReaverProjectCacheTrust", "Value": "trusted"}],
+                    }
+                ],
+            ),
+            self.assertRaisesRegex(ValueError, "another cache trust class"),
+        ):
+            runner_control.terminate({"instance_id": "i-123abc"})
+
+        clients["ec2"].terminate_instances.assert_not_called()
+
     def test_terminate_stops_the_instance_after_cleanup_failure(self):
         instance = {"InstanceId": "i-123abc", "Tags": []}
         failure = RuntimeError("cleanup failed")
@@ -844,6 +919,37 @@ class RunnerControlIndexTests(unittest.TestCase):
             InstanceIds=["i-123abc"],
         )
         self.assertEqual(result, {"terminated": ["i-123abc"]})
+
+    def test_reapers_only_terminate_their_own_trust_class(self):
+        expired = datetime.datetime(2000, 1, 1, tzinfo=datetime.UTC)
+        instances = [
+            {
+                "InstanceId": f"i-{trust}",
+                "LaunchTime": expired,
+                "State": {"Name": "running"},
+                "Tags": [
+                    {"Key": "ReaverProjectCacheTrust", "Value": trust},
+                    {"Key": "GitHubRepository", "Value": "reaver-project/reaveros"},
+                    {"Key": "GitHubSourceRef", "Value": f"refs/heads/{trust}"},
+                ],
+            }
+            for trust in ("candidate", "trusted")
+        ]
+        with (
+            mock.patch.object(runner_control, "runner_instances", return_value=instances),
+            mock.patch.object(runner_control, "cleanup_registration"),
+            mock.patch.object(runner_control, "prune_workflow_access") as prune,
+        ):
+            self.assertEqual(runner_control.reap({}), {"terminated": ["i-candidate"]})
+            prune.assert_called_once_with("reaver-project/reaveros", ["refs/heads/trusted"])
+            clients["ec2"].terminate_instances.assert_called_once_with(InstanceIds=["i-candidate"])
+
+            clients["ec2"].terminate_instances.reset_mock()
+            prune.reset_mock()
+            with mock.patch.dict(os.environ, {"CACHE_TRUST_CLASS": "trusted"}):
+                self.assertEqual(runner_control.reap({}), {"terminated": ["i-trusted"]})
+            prune.assert_not_called()
+            clients["ec2"].terminate_instances.assert_called_once_with(InstanceIds=["i-trusted"])
 
     def test_reap_preserves_a_live_runner_workflow_and_survives_prune_failure(self):
         instance = {

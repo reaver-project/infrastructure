@@ -68,7 +68,7 @@ jobs:
             uses: ./actions/aws-stack-contract
             with:
                 aws-region: ${{ vars.AWS_REGION }}
-                expected-contract-version: '4'
+                expected-contract-version: '5'
                 role-arn: ${{ vars.AWS_GHCR_PUBLISHER_ROLE_ARN }}
                 role-session-name: reaveros-ghcr-${{ github.run_id }}
                 stack-name: ${{ vars.AWS_RUNNER_STACK_NAME }}

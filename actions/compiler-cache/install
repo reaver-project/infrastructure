@@ -1,0 +1,37 @@
+#!/usr/bin/env bash
+
+set -euo pipefail
+
+if [[ -z ${RUNNER_TEMP:-} || ${RUNNER_TEMP} != /* || -z ${GITHUB_OUTPUT:-} ]]; then
+    printf 'RUNNER_TEMP and GITHUB_OUTPUT are required.\n' >&2
+    exit 2
+fi
+
+version=0.18.0
+asset=sccache-v${version}-x86_64-unknown-linux-musl
+archive_sha256=45f1447fbe231e3037bde351ef70677dd212216c8d62ae7ca409fecc4d6acc89
+directory=${RUNNER_TEMP}/reaver-project-compiler-cache
+binary=${directory}/sccache
+scratch=$(mktemp -d)
+cleanup()
+{
+    rm -rf -- "${scratch}"
+}
+trap cleanup EXIT
+
+archive=${scratch}/${asset}.tar.gz
+curl --proto '=https' --tlsv1.2 --fail --location --retry 5 \
+    --silent --show-error --output "${archive}" \
+    "https://github.com/mozilla/sccache/releases/download/v${version}/${asset}.tar.gz"
+printf '%s  %s\n' "${archive_sha256}" "${archive}" | sha256sum --check --status
+tar --extract --gzip --file "${archive}" --directory "${scratch}" \
+    "${asset}/sccache" "${asset}/LICENSE"
+install -d -m 0700 "${directory}"
+install -m 0755 "${scratch}/${asset}/sccache" "${binary}"
+install -m 0644 "${scratch}/${asset}/LICENSE" "${directory}/LICENSE"
+if [[ $("${binary}" --version) != "sccache ${version}" ]]; then
+    printf 'The downloaded compiler cache has an unexpected version.\n' >&2
+    exit 1
+fi
+
+printf 'binary=%s\n' "${binary}" >> "${GITHUB_OUTPUT}"
