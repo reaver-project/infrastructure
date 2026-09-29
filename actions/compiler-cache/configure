@@ -1,0 +1,81 @@
+#!/usr/bin/env bash
+
+set -euo pipefail
+
+for variable in AWS_REGION GITHUB_ENV GITHUB_OUTPUT PROJECT_SLUG RUNNER_TEMP SCCACHE_BINARY STACK_NAME; do
+    if [[ -z ${!variable:-} ]]; then
+        printf '%s is required.\n' "${variable}" >&2
+        exit 2
+    fi
+done
+if [[ ! ${AWS_REGION} =~ ^[a-z]{2}(-[a-z]+)+-[0-9]+$ ||
+    ! ${PROJECT_SLUG} =~ ^[a-z0-9]+(-[a-z0-9]+)*$ ||
+    ! ${STACK_NAME} =~ ^[A-Za-z][-A-Za-z0-9]*$ ||
+    ${RUNNER_TEMP} != /* ||
+    ${SCCACHE_BINARY} != "${RUNNER_TEMP}/reaver-project-compiler-cache/sccache" ||
+    ! -x ${SCCACHE_BINARY} ]]; then
+    printf 'Invalid compiler-cache configuration.\n' >&2
+    exit 2
+fi
+
+stack_outputs=$(aws cloudformation describe-stacks \
+    --region "${AWS_REGION}" \
+    --stack-name "${STACK_NAME}" \
+    --query 'Stacks[0].Outputs' \
+    --output json)
+bucket=$(jq --exit-status --raw-output '
+    [.[] | select(.OutputKey == "CompilerCacheBucketName") | .OutputValue]
+    | if length == 1 and (.[0] | type == "string") then .[0]
+      else error("missing compiler-cache bucket output") end
+' <<< "${stack_outputs}")
+account_id=$(aws sts get-caller-identity --query Account --output text)
+if [[ ! ${account_id} =~ ^[0-9]{12}$ ||
+    ${bucket} != "reaver-project-${PROJECT_SLUG}-cache-${account_id}-${AWS_REGION}" ]]; then
+    printf 'The cache bucket does not match this project and AWS account.\n' >&2
+    exit 1
+fi
+
+metadata_token=$(curl --noproxy '*' --fail --silent --show-error \
+    --request PUT --header 'X-aws-ec2-metadata-token-ttl-seconds: 21600' \
+    http://169.254.169.254/latest/api/token)
+cache_trust=$(curl --noproxy '*' --fail --silent --show-error \
+    --header "X-aws-ec2-metadata-token: ${metadata_token}" \
+    http://169.254.169.254/latest/meta-data/tags/instance/ReaverProjectCacheTrust)
+if [[ ! ${cache_trust} =~ ^(candidate|trusted)$ ]]; then
+    printf 'The runner has no valid compiler-cache trust class.\n' >&2
+    exit 1
+fi
+
+host_directory=${RUNNER_TEMP}/reaver-project-compiler-cache
+host_socket=${host_directory}/sccache.sock
+container_directory=/run/reaver-project/compiler-cache
+unset \
+    AWS_ACCESS_KEY_ID AWS_SECRET_ACCESS_KEY AWS_SESSION_TOKEN \
+    AWS_PROFILE AWS_ROLE_ARN AWS_WEB_IDENTITY_TOKEN_FILE \
+    SCCACHE_CLIENT_SIDE SCCACHE_CONF SCCACHE_ENDPOINT SCCACHE_ERROR_LOG \
+    SCCACHE_MULTILEVEL_CHAIN SCCACHE_S3_NO_CREDENTIALS SCCACHE_S3_RW_MODE
+export SCCACHE_BUCKET=${bucket}
+export SCCACHE_REGION=${AWS_REGION}
+export SCCACHE_S3_KEY_PREFIX=${cache_trust}/
+export SCCACHE_S3_SERVER_SIDE_ENCRYPTION=true
+export SCCACHE_S3_USE_SSL=true
+export SCCACHE_IDLE_TIMEOUT=0
+export SCCACHE_SERVER_UDS=${host_socket}
+"${SCCACHE_BINARY}" --start-server
+if [[ ! -S ${host_socket} ]] ||
+    ! "${SCCACHE_BINARY}" --show-stats --stats-format=json > /dev/null; then
+    printf 'The compiler-cache server did not become ready.\n' >&2
+    exit 1
+fi
+
+{
+    printf 'REAVER_PROJECT_SCCACHE_HOST_DIR=%s\n' "${host_directory}"
+    printf 'REAVER_PROJECT_SCCACHE_HOST_SOCKET=%s\n' "${host_socket}"
+    printf 'REAVER_PROJECT_SCCACHE_CONTAINER_DIR=%s\n' "${container_directory}"
+} >> "${GITHUB_ENV}"
+{
+    printf 'host_directory=%s\n' "${host_directory}"
+    printf 'container_directory=%s\n' "${container_directory}"
+} >> "${GITHUB_OUTPUT}"
+
+printf 'Started the %s compiler cache for %s.\n' "${cache_trust}" "${PROJECT_SLUG}"

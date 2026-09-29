@@ -117,4 +117,6 @@ grep --fixed-strings --line-regexp 'instance_id=i-123abc' "${GITHUB_OUTPUT}" > /
 export INSTANCE_ID=i-123abc
 [[ $("${self_dir}/ephemeral-runner/terminate") == 'runner stopped' ]]
 
+"${self_dir}/compiler-cache/test"
+
 printf 'Shared action tests passed.\n'
