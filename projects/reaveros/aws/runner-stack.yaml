@@ -532,7 +532,7 @@ Resources:
                         Action:
                           - s3:GetObject
                           - s3:PutObject
-                        Resource: !GetAtt CompilerCache.Outputs.CandidateObjectsArn
+                        Resource: !Sub arn:${AWS::Partition}:s3:::reaver-project-reaveros-cache-${AWS::AccountId}-${AWS::Region}/candidate/*
             Tags:
               - Key: Project
                 Value: ReaverOS
@@ -559,7 +559,7 @@ Resources:
                         Action:
                           - s3:GetObject
                           - s3:PutObject
-                        Resource: !GetAtt CompilerCache.Outputs.TrustedObjectsArn
+                        Resource: !Sub arn:${AWS::Partition}:s3:::reaver-project-reaveros-cache-${AWS::AccountId}-${AWS::Region}/trusted/*
             Tags:
               - Key: Project
                 Value: ReaverOS
