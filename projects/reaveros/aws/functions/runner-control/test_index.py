@@ -97,6 +97,7 @@ class RunnerControlIndexTests(unittest.TestCase):
                 "LARGE_INSTANCE_TYPE": "c8i.8xlarge",
                 "LAUNCH_TEMPLATE_ID": "lt-123",
                 "MAXIMUM_CONCURRENT_RUNNERS": "4",
+                "MAXIMUM_PARALLEL_CONTROLLER_LAUNCHES": "2",
                 "MAXIMUM_AGE_MINUTES": "180",
                 "MEDIUM_INSTANCE_TYPE": "c8i.4xlarge",
                 "RUNNER_INSTANCE_NAME": "reaveros-runner",
@@ -638,8 +639,15 @@ class RunnerControlIndexTests(unittest.TestCase):
             mock.patch.object(
                 runner_control,
                 "runner_instances",
-                return_value=[live_runner] * 4,
+                return_value=[live_runner] * 3,
             ),
+            self.assertRaisesRegex(RuntimeError, "runner limit reached"),
+        ):
+            runner_control.launch(base_event)
+
+        with (
+            mock.patch.dict(os.environ, {"MAXIMUM_CONCURRENT_RUNNERS": "1"}),
+            mock.patch.object(runner_control, "runner_instances", return_value=[]),
             self.assertRaisesRegex(RuntimeError, "runner limit reached"),
         ):
             runner_control.launch(base_event)

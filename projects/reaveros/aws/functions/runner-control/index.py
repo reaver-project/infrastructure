@@ -219,7 +219,14 @@ def launch(event):
     live_runners = [
         instance for instance in runner_instances() if instance["State"]["Name"] in live_states
     ]
-    if len(live_runners) >= int(os.environ["MAXIMUM_CONCURRENT_RUNNERS"]):
+    # The candidate and trusted functions can each admit one runner at once.
+    # Reserve the other in-flight launch before checking the global limit.
+    admission_limit = (
+        int(os.environ["MAXIMUM_CONCURRENT_RUNNERS"])
+        - int(os.environ["MAXIMUM_PARALLEL_CONTROLLER_LAUNCHES"])
+        + 1
+    )
+    if admission_limit < 1 or len(live_runners) >= admission_limit:
         raise RuntimeError("ephemeral ReaverOS runner limit reached")
 
     token = github_token()
