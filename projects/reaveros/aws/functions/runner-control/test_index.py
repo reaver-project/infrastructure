@@ -330,6 +330,9 @@ class RunnerControlIndexTests(unittest.TestCase):
         copied = (
             "reaver-project/reaveros/.github/workflows/aws-runner.yml@refs/heads/pull-request/17"
         )
+        stale = (
+            "reaver-project/reaveros/.github/workflows/aws-runner.yml@refs/heads/pull-request/16"
+        )
         group = {
             "name": "reaveros",
             "visibility": "selected",
@@ -340,7 +343,11 @@ class RunnerControlIndexTests(unittest.TestCase):
         with mock.patch.object(
             runner_control,
             "github_request",
-            side_effect=[group, {**group, "selected_workflows": [main, copied]}],
+            side_effect=[
+                group,
+                [{"ref": "refs/heads/pull-request/17"}],
+                {**group, "selected_workflows": [main, copied]},
+            ],
         ) as request:
             runner_control.ensure_workflow_access(
                 "token", "reaver-project/reaveros", "refs/heads/pull-request/17"
@@ -350,11 +357,55 @@ class RunnerControlIndexTests(unittest.TestCase):
         self.assertEqual(
             request.call_args_list[1],
             mock.call(
+                "/repos/reaver-project/reaveros/git/matching-refs/heads/pull-request/",
+                None,
+            ),
+        )
+        self.assertEqual(
+            request.call_args_list[2],
+            mock.call(
                 path,
                 "token",
                 "PATCH",
                 {"selected_workflows": [main, copied]},
             ),
+        )
+
+        with mock.patch.object(
+            runner_control,
+            "github_request",
+            side_effect=[
+                {**group, "selected_workflows": [main, stale]},
+                [{"ref": "refs/heads/pull-request/17"}],
+                {**group, "selected_workflows": [main, copied]},
+            ],
+        ) as request:
+            runner_control.ensure_workflow_access(
+                "token", "reaver-project/reaveros", "refs/heads/pull-request/17"
+            )
+        self.assertEqual(
+            request.call_args_list[2].args[3],
+            {"selected_workflows": [main, copied]},
+        )
+
+        with mock.patch.object(
+            runner_control,
+            "github_request",
+            side_effect=[
+                {**group, "selected_workflows": [main, stale]},
+                [{"ref": "refs/heads/pull-request/17"}],
+                {**group, "selected_workflows": [main, copied, stale]},
+            ],
+        ) as request:
+            runner_control.ensure_workflow_access(
+                "token",
+                "reaver-project/reaveros",
+                "refs/heads/pull-request/17",
+                ["refs/heads/pull-request/16"],
+            )
+        self.assertEqual(
+            request.call_args_list[2].args[3],
+            {"selected_workflows": [main, stale, copied]},
         )
 
         with mock.patch.object(runner_control, "github_request", return_value=group) as request:
@@ -386,12 +437,42 @@ class RunnerControlIndexTests(unittest.TestCase):
                 "token", "reaver-project/reaveros", "refs/heads/pull-request/17"
             )
         with (
-            mock.patch.object(runner_control, "github_request", side_effect=[group, group]),
+            mock.patch.object(
+                runner_control,
+                "github_request",
+                side_effect=[group, [{"ref": "refs/heads/pull-request/17"}], group],
+            ),
             self.assertRaisesRegex(RuntimeError, "restricted workflow access"),
         ):
             runner_control.ensure_workflow_access(
                 "token", "reaver-project/reaveros", "refs/heads/pull-request/17"
             )
+
+    def test_live_workflow_refs_keep_only_valid_runners_for_the_repository(self):
+        instances = [
+            {
+                "Tags": [
+                    {"Key": "GitHubRepository", "Value": "reaver-project/reaveros"},
+                    {"Key": "GitHubSourceRef", "Value": "refs/heads/pull-request/16"},
+                ]
+            },
+            {
+                "Tags": [
+                    {"Key": "GitHubRepository", "Value": "another/repository"},
+                    {"Key": "GitHubSourceRef", "Value": "refs/heads/pull-request/17"},
+                ]
+            },
+            {
+                "Tags": [
+                    {"Key": "GitHubRepository", "Value": "reaver-project/reaveros"},
+                    {"Key": "GitHubSourceRef", "Value": "refs/heads/not-a-copied-ref"},
+                ]
+            },
+        ]
+        self.assertEqual(
+            runner_control.live_workflow_refs(instances, "reaver-project/reaveros"),
+            ["refs/heads/pull-request/16"],
+        )
 
     def test_reaper_prunes_only_refs_without_a_copied_branch_or_live_runner(self):
         prefix = "reaver-project/reaveros/.github/workflows/aws-runner.yml@"
@@ -558,7 +639,7 @@ class RunnerControlIndexTests(unittest.TestCase):
         )
         github_request.assert_called_once()
         access.assert_called_once_with(
-            "token", "reaver-project/reaveros", "refs/heads/pull-request/17"
+            "token", "reaver-project/reaveros", "refs/heads/pull-request/17", []
         )
         put_parameter = clients["ssm"].put_parameter.call_args.kwargs
         self.assertEqual(put_parameter["Tier"], "Advanced")
