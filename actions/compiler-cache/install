@@ -25,9 +25,10 @@ curl --proto '=https' --tlsv1.2 --fail --location --retry 5 \
     "https://github.com/mozilla/sccache/releases/download/v${version}/${asset}.tar.gz"
 printf '%s  %s\n' "${archive_sha256}" "${archive}" | sha256sum --check --status
 tar --extract --gzip --file "${archive}" --directory "${scratch}" \
-    "${asset}/sccache"
+    "${asset}/sccache" "${asset}/LICENSE"
 install -d -m 0700 "${directory}"
 install -m 0755 "${scratch}/${asset}/sccache" "${binary}"
+install -m 0644 "${scratch}/${asset}/LICENSE" "${directory}/LICENSE"
 if [[ $("${binary}" --version) != "sccache ${version}" ]]; then
     printf 'The downloaded compiler cache has an unexpected version.\n' >&2
     exit 1
