@@ -315,8 +315,11 @@ if (
 publisher_contents = (root / ".github/workflows/reaveros-ghcr-publisher.yml").read_text(
     encoding="utf-8"
 )
+contract_version = (
+    (root / "projects/reaveros/infrastructure-contract-version").read_text(encoding="utf-8").strip()
+)
 if (
-    "expected-contract-version: '4'" not in publisher_contents
+    f"expected-contract-version: '{contract_version}'" not in publisher_contents
     or "projects/reaveros/ghcr/publish" not in publisher_contents
     or "projects/reaveros/ghcr/reserve" not in publisher_contents
 ):

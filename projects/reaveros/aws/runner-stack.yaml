@@ -1460,7 +1460,7 @@ Outputs:
     InfrastructureRevision:
         Value: !Ref InfrastructureRevision
     InfrastructureContractVersion:
-        Value: '4'
+        Value: '5'
     GitHubActionsRoleArn:
         Value: !GetAtt GitHubActionsRole.Arn
     TrustedGitHubActionsRoleArn:
