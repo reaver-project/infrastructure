@@ -45,6 +45,7 @@ read_stack_output()
 contract_version=$(read_stack_output InfrastructureContractVersion)
 infrastructure_revision=$(read_stack_output InfrastructureRevision)
 runner_role_arn=$(read_stack_output GitHubActionsRoleArn)
+trusted_runner_role_arn=$(read_stack_output TrustedGitHubActionsRoleArn)
 production_promotion_role_arn=$(read_stack_output ProductionPromotionRoleArn)
 ghcr_publisher_role_arn=$(read_stack_output GhcrPublisherRoleArn)
 if [[ ! ${contract_version} =~ ^[1-9][0-9]*$ ||
@@ -65,6 +66,11 @@ if [[ ! ${runner_role_arn} =~ ^arn:(aws|aws-us-gov|aws-cn):iam::[0-9]{12}:role/[
         "${runner_role_arn}" >&2
     exit 1
 fi
+if [[ ! ${trusted_runner_role_arn} =~ ^arn:(aws|aws-us-gov|aws-cn):iam::[0-9]{12}:role/[A-Za-z0-9+=,.@_/-]+$ ]]; then
+    printf 'Invalid TrustedGitHubActionsRoleArn stack output: %s\n' \
+        "${trusted_runner_role_arn}" >&2
+    exit 1
+fi
 if [[ ! ${production_promotion_role_arn} =~ ^arn:(aws|aws-us-gov|aws-cn):iam::[0-9]{12}:role/[A-Za-z0-9+=,.@_/-]+$ ]]; then
     printf 'Invalid ProductionPromotionRoleArn stack output: %s\n' \
         "${production_promotion_role_arn}" >&2
@@ -80,6 +86,7 @@ fi
     printf 'contract_version=%s\n' "${contract_version}"
     printf 'infrastructure_revision=%s\n' "${infrastructure_revision}"
     printf 'runner_role_arn=%s\n' "${runner_role_arn}"
+    printf 'trusted_runner_role_arn=%s\n' "${trusted_runner_role_arn}"
     printf 'production_promotion_role_arn=%s\n' "${production_promotion_role_arn}"
     printf 'ghcr_publisher_role_arn=%s\n' "${ghcr_publisher_role_arn}"
 } >> "${GITHUB_OUTPUT}"
