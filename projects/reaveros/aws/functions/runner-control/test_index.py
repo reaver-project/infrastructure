@@ -825,6 +825,24 @@ class RunnerControlIndexTests(unittest.TestCase):
         ):
             runner_control.terminate({"instance_id": "i-123abc"})
 
+    def test_candidate_controller_cannot_terminate_a_trusted_runner(self):
+        with (
+            mock.patch.object(
+                runner_control,
+                "runner_instances",
+                return_value=[
+                    {
+                        "InstanceId": "i-123abc",
+                        "Tags": [{"Key": "ReaverProjectCacheTrust", "Value": "trusted"}],
+                    }
+                ],
+            ),
+            self.assertRaisesRegex(ValueError, "another cache trust class"),
+        ):
+            runner_control.terminate({"instance_id": "i-123abc"})
+
+        clients["ec2"].terminate_instances.assert_not_called()
+
     def test_terminate_stops_the_instance_after_cleanup_failure(self):
         instance = {"InstanceId": "i-123abc", "Tags": []}
         failure = RuntimeError("cleanup failed")

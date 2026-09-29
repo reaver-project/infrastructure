@@ -366,6 +366,9 @@ def terminate(event):
     instances = runner_instances([instance_id])
     if len(instances) != 1:
         raise ValueError("instance is not a ReaverOS runner")
+    tags = {tag["Key"]: tag["Value"] for tag in instances[0].get("Tags", [])}
+    if tags.get("ReaverProjectCacheTrust", "candidate") != os.environ["CACHE_TRUST_CLASS"]:
+        raise ValueError("runner belongs to another cache trust class")
 
     cleanup = runner_cleanup(
         instances[0],
