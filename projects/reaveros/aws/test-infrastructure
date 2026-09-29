@@ -214,7 +214,7 @@ fi
 
 if [[ $(grep --fixed-strings --count \
     'AlarmActions:' \
-    "${self_dir}/runner-stack.yaml") -ne 6 ]]; then
+    "${self_dir}/runner-stack.yaml") -ne 8 ]]; then
     printf 'Runner and CI gate operational failures are not fully alarmed.\n' >&2
     exit 1
 fi
@@ -224,7 +224,10 @@ for ci_gate_invariant in \
     'Action: lambda:InvokeFunctionUrl' \
     'InvokedViaFunctionUrl: true' \
     'Code: ../../../build/reaveros-lambda/ci-gate.zip' \
-    'ReservedConcurrentExecutions: 1'; do
+    'ReservedConcurrentExecutions: 1' \
+    'ReservedConcurrentExecutions: 8' \
+    'BatchSize: 1' \
+    'FifoQueue: true'; do
     if ! grep --fixed-strings --quiet \
         "${ci_gate_invariant}" \
         "${self_dir}/runner-stack.yaml"; then
@@ -321,6 +324,13 @@ if [[ $(grep --fixed-strings --count \
     'DeletionPolicy: RetainExceptOnCreate' \
     "${self_dir}/runner-stack.yaml") -ne 8 ]]; then
     printf 'Persistent resources must be discarded after a failed initial create.\n' >&2
+    exit 1
+fi
+
+if [[ $(grep --extended-regexp --count \
+    '^[[:space:]]+DeletionPolicy: Retain$' \
+    "${self_dir}/runner-stack.yaml") -ne 2 ]]; then
+    printf 'Accepted CI gate webhooks must survive a failed stack update.\n' >&2
     exit 1
 fi
 

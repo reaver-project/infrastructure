@@ -380,6 +380,38 @@ Resources:
               - Key: Project
                 Value: ReaverOS
 
+    CiGateDeadLetterQueue:
+        Type: AWS::SQS::Queue
+        # A failed update must not delete events already acknowledged by ingress.
+        DeletionPolicy: Retain
+        UpdateReplacePolicy: Retain
+        Properties:
+            QueueName: !Sub ${AWS::StackName}-ci-gate-dead-letter.fifo
+            FifoQueue: true
+            SqsManagedSseEnabled: true
+            MessageRetentionPeriod: 1209600
+            Tags:
+              - Key: Project
+                Value: ReaverOS
+
+    CiGateWebhookQueue:
+        Type: AWS::SQS::Queue
+        DeletionPolicy: Retain
+        UpdateReplacePolicy: Retain
+        Properties:
+            QueueName: !Sub ${AWS::StackName}-ci-gate-events.fifo
+            FifoQueue: true
+            SqsManagedSseEnabled: true
+            VisibilityTimeout: 180
+            MessageRetentionPeriod: 345600
+            ReceiveMessageWaitTimeSeconds: 20
+            RedrivePolicy:
+                deadLetterTargetArn: !GetAtt CiGateDeadLetterQueue.Arn
+                maxReceiveCount: 5
+            Tags:
+              - Key: Project
+                Value: ReaverOS
+
     RunnerRole:
         Type: AWS::IAM::Role
         Properties:
@@ -694,6 +726,48 @@ Resources:
                       - Effect: Allow
                         Action: secretsmanager:GetSecretValue
                         Resource: !Ref CiGateAppSecret
+              - PolicyName: QueueVerifiedWebhooks
+                PolicyDocument:
+                    Version: '2012-10-17'
+                    Statement:
+                      - Effect: Allow
+                        Action: sqs:SendMessage
+                        Resource: !GetAtt CiGateWebhookQueue.Arn
+            Tags:
+              - Key: Project
+                Value: ReaverOS
+
+    CiGateWorkerRole:
+        Type: AWS::IAM::Role
+        Properties:
+            PermissionsBoundary: !Ref RunnerRolePermissionsBoundaryArn
+            AssumeRolePolicyDocument:
+                Version: '2012-10-17'
+                Statement:
+                  - Effect: Allow
+                    Principal:
+                        Service: lambda.amazonaws.com
+                    Action: sts:AssumeRole
+            ManagedPolicyArns:
+              - !Sub arn:${AWS::Partition}:iam::aws:policy/service-role/AWSLambdaBasicExecutionRole
+            Policies:
+              - PolicyName: ReadCiGateCredentials
+                PolicyDocument:
+                    Version: '2012-10-17'
+                    Statement:
+                      - Effect: Allow
+                        Action: secretsmanager:GetSecretValue
+                        Resource: !Ref CiGateAppSecret
+              - PolicyName: ConsumeVerifiedWebhooks
+                PolicyDocument:
+                    Version: '2012-10-17'
+                    Statement:
+                      - Effect: Allow
+                        Action:
+                          - sqs:DeleteMessage
+                          - sqs:GetQueueAttributes
+                          - sqs:ReceiveMessage
+                        Resource: !GetAtt CiGateWebhookQueue.Arn
             Tags:
               - Key: Project
                 Value: ReaverOS
@@ -705,6 +779,26 @@ Resources:
             Handler: index.handler
             Role: !GetAtt CiGateRole.Arn
             Timeout: 15
+            ReservedConcurrentExecutions: 8
+            Environment:
+                Variables:
+                    ALLOWED_REPOSITORIES: !Join [',', !Ref GitHubAllowedRepositories]
+                    AUTOMATIC_ACTORS: !Join [',', !Ref CiGateAutomaticActors]
+                    CI_GATE_QUEUE_URL: !Ref CiGateWebhookQueue
+                    GITHUB_APP_SECRET_ID: !Ref CiGateAppSecret
+            Code: ../../../build/reaveros-lambda/ci-gate.zip
+            Tags:
+              - Key: Project
+                Value: ReaverOS
+
+    CiGateWorkerFunction:
+        Type: AWS::Lambda::Function
+        Properties:
+            FunctionName: !Sub ${AWS::StackName}-ci-gate-worker
+            Runtime: python3.13
+            Handler: index.worker_handler
+            Role: !GetAtt CiGateWorkerRole.Arn
+            Timeout: 30
             ReservedConcurrentExecutions: 1
             Environment:
                 Variables:
@@ -712,6 +806,17 @@ Resources:
                     AUTOMATIC_ACTORS: !Join [',', !Ref CiGateAutomaticActors]
                     GITHUB_APP_SECRET_ID: !Ref CiGateAppSecret
             Code: ../../../build/reaveros-lambda/ci-gate.zip
+            Tags:
+              - Key: Project
+                Value: ReaverOS
+
+    CiGateWorkerEventSource:
+        Type: AWS::Lambda::EventSourceMapping
+        Properties:
+            EventSourceArn: !GetAtt CiGateWebhookQueue.Arn
+            FunctionName: !GetAtt CiGateWorkerFunction.Arn
+            BatchSize: 1
+            Enabled: true
             Tags:
               - Key: Project
                 Value: ReaverOS
@@ -743,6 +848,15 @@ Resources:
         Type: AWS::Logs::LogGroup
         Properties:
             LogGroupName: !Sub /aws/lambda/${CiGateFunction}
+            RetentionInDays: 30
+            Tags:
+              - Key: Project
+                Value: ReaverOS
+
+    CiGateWorkerLogGroup:
+        Type: AWS::Logs::LogGroup
+        Properties:
+            LogGroupName: !Sub /aws/lambda/${CiGateWorkerFunction}
             RetentionInDays: 30
             Tags:
               - Key: Project
@@ -839,6 +953,52 @@ Resources:
                 Value: !Ref CiGateFunction
             Statistic: Sum
             Period: 300
+            EvaluationPeriods: 1
+            DatapointsToAlarm: 1
+            Threshold: 1
+            ComparisonOperator: GreaterThanOrEqualToThreshold
+            TreatMissingData: notBreaching
+            AlarmActions:
+              - !Ref RunnerOperationsTopic
+            Tags:
+              - Key: Project
+                Value: ReaverOS
+
+    CiGateQueueAgeAlarm:
+        Type: AWS::CloudWatch::Alarm
+        Properties:
+            AlarmName: !Sub ${AWS::StackName}-ci-gate-queue-age
+            AlarmDescription: Verified CI gate webhooks have waited over five minutes
+            Namespace: AWS/SQS
+            MetricName: ApproximateAgeOfOldestMessage
+            Dimensions:
+              - Name: QueueName
+                Value: !GetAtt CiGateWebhookQueue.QueueName
+            Statistic: Maximum
+            Period: 60
+            EvaluationPeriods: 2
+            DatapointsToAlarm: 2
+            Threshold: 300
+            ComparisonOperator: GreaterThanOrEqualToThreshold
+            TreatMissingData: notBreaching
+            AlarmActions:
+              - !Ref RunnerOperationsTopic
+            Tags:
+              - Key: Project
+                Value: ReaverOS
+
+    CiGateDeadLetterAlarm:
+        Type: AWS::CloudWatch::Alarm
+        Properties:
+            AlarmName: !Sub ${AWS::StackName}-ci-gate-dead-letter
+            AlarmDescription: CI gate webhook processing exhausted its retries
+            Namespace: AWS/SQS
+            MetricName: ApproximateNumberOfMessagesVisible
+            Dimensions:
+              - Name: QueueName
+                Value: !GetAtt CiGateDeadLetterQueue.QueueName
+            Statistic: Maximum
+            Period: 60
             EvaluationPeriods: 1
             DatapointsToAlarm: 1
             Threshold: 1
