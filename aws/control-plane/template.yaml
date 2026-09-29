@@ -586,6 +586,22 @@ Resources:
               - Key: Project
                 Value: ReaverProjectInfrastructure
 
+    NestedStackPassRolePolicy:
+        Type: AWS::IAM::Policy
+        Properties:
+            PolicyName: PassOwnRoleToNestedStacks
+            Roles:
+              - !Ref CloudFormationExecutionRole
+            PolicyDocument:
+                Version: '2012-10-17'
+                Statement:
+                  - Effect: Allow
+                    Action: iam:PassRole
+                    Resource: !GetAtt CloudFormationExecutionRole.Arn
+                    Condition:
+                        StringEquals:
+                            iam:PassedToService: cloudformation.amazonaws.com
+
     ControlPlaneCloudFormationExecutionRole:
         Type: AWS::IAM::Role
         Properties:

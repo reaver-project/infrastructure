@@ -409,6 +409,19 @@ if [[ $(grep --fixed-strings --count \
     exit 1
 fi
 
+if ! awk '
+    /^    NestedStackPassRolePolicy:$/ { in_policy = 1; next }
+    in_policy && /^    [A-Za-z][A-Za-z0-9]*:$/ { exit }
+    in_policy && /- !Ref CloudFormationExecutionRole$/ { attached = 1 }
+    in_policy && /Action: iam:PassRole$/ { pass_role = 1 }
+    in_policy && /Resource: !GetAtt CloudFormationExecutionRole.Arn$/ { scoped = 1 }
+    in_policy && /iam:PassedToService: cloudformation.amazonaws.com$/ { service = 1 }
+    END { exit !(attached && pass_role && scoped && service) }
+' "${self_dir}/template.yaml"; then
+    printf 'The runner execution role cannot pass itself to nested stacks.\n' >&2
+    exit 1
+fi
+
 if [[ $(grep --before-context 3 --fixed-strings \
     'Resource: !Sub ${DeploymentArtifactBucket.Arn}/plans/control-plane/*' \
     "${self_dir}/template.yaml" |
