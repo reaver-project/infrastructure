@@ -207,10 +207,13 @@ def launch(event):
     }
     runner_size = event.get("runner_size")
     runner_profile = event.get("runner_profile")
+    cache_trust = os.environ["CACHE_TRUST_CLASS"]
     if runner_size not in instance_types:
         raise ValueError("invalid runner size")
     if runner_profile not in profiles:
         raise ValueError("invalid runner profile")
+    if cache_trust not in {"candidate", "trusted"}:
+        raise ValueError("invalid cache trust class")
 
     live_states = {"pending", "running", "stopping", "stopped"}
     live_runners = [
@@ -265,6 +268,7 @@ def launch(event):
                 source_ref,
                 runner_size,
                 runner_profile,
+                cache_trust,
                 os.environ["RUNNER_INSTANCE_NAME"],
             ),
         )

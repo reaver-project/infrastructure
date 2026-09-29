@@ -89,6 +89,7 @@ class RunnerControlIndexTests(unittest.TestCase):
             {
                 "ALLOWED_REPOSITORIES": "reaver-project/reaveros",
                 "BUILDER_PROFILE_ARN": "arn:builder",
+                "CACHE_TRUST_CLASS": "candidate",
                 "GITHUB_ORGANIZATION": "reaver-project",
                 "GITHUB_RUNNER_GROUP_ID": "7",
                 "GITHUB_APP_SECRET_ID": "runner-app-secret",
@@ -565,6 +566,48 @@ class RunnerControlIndexTests(unittest.TestCase):
             "Expiration",
         )
         clients["ec2"].run_instances.assert_called_once()
+        tags = clients["ec2"].run_instances.call_args.kwargs["TagSpecifications"][0]["Tags"]
+        self.assertIn(
+            {"Key": "ReaverProjectCacheTrust", "Value": "candidate"},
+            tags,
+        )
+
+    def test_trusted_controller_uses_only_the_trusted_builder_profile(self):
+        clients["ec2"].run_instances.return_value = {
+            "Instances": [{"InstanceId": "i-trusted"}],
+        }
+        with (
+            mock.patch.dict(
+                os.environ,
+                {"BUILDER_PROFILE_ARN": "arn:trusted-builder", "CACHE_TRUST_CLASS": "trusted"},
+            ),
+            mock.patch.object(runner_control, "runner_instances", return_value=[]),
+            mock.patch.object(runner_control, "github_token", return_value="token"),
+            mock.patch.object(runner_control, "ensure_workflow_access"),
+            mock.patch.object(
+                runner_control,
+                "github_request",
+                return_value={"encoded_jit_config": "encoded", "runner": {"id": 43}},
+            ),
+        ):
+            runner_control.launch(
+                {
+                    "github_run_attempt": 1,
+                    "github_run_id": 124,
+                    "repository": "reaver-project/reaveros",
+                    "source_ref": "refs/heads/main",
+                    "runner_key": "prepare",
+                    "runner_profile": "builder",
+                    "runner_size": "large",
+                }
+            )
+
+        launch = clients["ec2"].run_instances.call_args.kwargs
+        self.assertEqual(launch["IamInstanceProfile"], {"Arn": "arn:trusted-builder"})
+        self.assertIn(
+            {"Key": "ReaverProjectCacheTrust", "Value": "trusted"},
+            launch["TagSpecifications"][0]["Tags"],
+        )
 
     def test_launch_rejects_invalid_profiles_sizes_and_capacity(self):
         base_event = {
@@ -583,6 +626,12 @@ class RunnerControlIndexTests(unittest.TestCase):
             event = {**base_event, field: invalid}
             with self.subTest(field=field), self.assertRaisesRegex(ValueError, message):
                 runner_control.launch(event)
+
+        with (
+            mock.patch.dict(os.environ, {"CACHE_TRUST_CLASS": "other"}),
+            self.assertRaisesRegex(ValueError, "invalid cache trust class"),
+        ):
+            runner_control.launch(base_event)
 
         live_runner = {"State": {"Name": "running"}}
         with (

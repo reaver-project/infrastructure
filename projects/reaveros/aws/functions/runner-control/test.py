@@ -62,6 +62,7 @@ class RunnerControlTests(unittest.TestCase):
                 "refs/heads/pull-request/17",
                 "medium",
                 "validation",
+                "candidate",
                 "reaveros-github-runners-runner",
             ),
             [
@@ -97,6 +98,7 @@ class RunnerControlTests(unittest.TestCase):
                         },
                         {"Key": "ReaverOSRunnerProfile", "Value": "validation"},
                         {"Key": "ReaverOSRunnerSize", "Value": "medium"},
+                        {"Key": "ReaverProjectCacheTrust", "Value": "candidate"},
                     ],
                 },
                 {

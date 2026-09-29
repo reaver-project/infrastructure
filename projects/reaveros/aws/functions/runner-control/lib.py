@@ -51,6 +51,7 @@ def runner_tag_specifications(
     source_ref,
     runner_size,
     runner_profile,
+    cache_trust,
     instance_name,
 ):
     common_tags = [
@@ -74,6 +75,7 @@ def runner_tag_specifications(
                 },
                 {"Key": "ReaverOSRunnerProfile", "Value": runner_profile},
                 {"Key": "ReaverOSRunnerSize", "Value": runner_size},
+                {"Key": "ReaverProjectCacheTrust", "Value": cache_trust},
             ],
         },
         {

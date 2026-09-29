@@ -355,6 +355,17 @@ Resources:
                         }]
                     }
 
+    CompilerCache:
+        Type: AWS::CloudFormation::Stack
+        Properties:
+            TemplateURL: ../../../aws/compiler-cache/template.yaml
+            Parameters:
+                BucketName: !Sub reaver-project-reaveros-cache-${AWS::AccountId}-${AWS::Region}
+                ProjectTag: ReaverOS
+            Tags:
+              - Key: Project
+                Value: ReaverOS
+
     RunnerAppSecret:
         Type: AWS::SecretsManager::Secret
         DeletionPolicy: RetainExceptOnCreate
@@ -458,6 +469,47 @@ Resources:
               - Key: Project
                 Value: ReaverOS
 
+    BuilderRuntimePolicy:
+        Type: AWS::IAM::ManagedPolicy
+        Properties:
+            PolicyDocument:
+                Version: '2012-10-17'
+                Statement:
+                  - Effect: Allow
+                    Action:
+                      - ssm:GetParameter
+                      - ssm:DeleteParameter
+                    Resource: !Sub arn:${AWS::Partition}:ssm:${AWS::Region}:${AWS::AccountId}:parameter/reaveros/github-runners/jit/*
+                  - Effect: Allow
+                    Action: cloudformation:DescribeStacks
+                    Resource: !Sub arn:${AWS::Partition}:cloudformation:${AWS::Region}:${AWS::AccountId}:stack/${AWS::StackName}/*
+                  - Effect: Allow
+                    Action: ecr:GetAuthorizationToken
+                    Resource: '*'
+                  - Effect: Allow
+                    Action:
+                      - ecr:BatchCheckLayerAvailability
+                      - ecr:BatchGetImage
+                      - ecr:DescribeImages
+                      - ecr:GetDownloadUrlForLayer
+                    Resource:
+                      - !GetAtt BuildEnvironmentRepository.Arn
+                      - !GetAtt UnprunedBuildEnvironmentRepository.Arn
+                      - !GetAtt CandidateBuildEnvironmentRepository.Arn
+                      - !GetAtt CandidateUnprunedBuildEnvironmentRepository.Arn
+                      - !GetAtt StagingBuildEnvironmentRepository.Arn
+                      - !GetAtt StagingUnprunedBuildEnvironmentRepository.Arn
+                  - Effect: Allow
+                    Action:
+                      - ecr:BatchCheckLayerAvailability
+                      - ecr:CompleteLayerUpload
+                      - ecr:InitiateLayerUpload
+                      - ecr:PutImage
+                      - ecr:UploadLayerPart
+                    Resource:
+                      - !GetAtt StagingBuildEnvironmentRepository.Arn
+                      - !GetAtt StagingUnprunedBuildEnvironmentRepository.Arn
+
     BuilderRunnerRole:
         Type: AWS::IAM::Role
         Properties:
@@ -469,46 +521,45 @@ Resources:
                     Principal:
                         Service: ec2.amazonaws.com
                     Action: sts:AssumeRole
+            ManagedPolicyArns:
+              - !Ref BuilderRuntimePolicy
             Policies:
-              - PolicyName: ConsumeJitConfiguration
+              - PolicyName: CandidateCompilerCache
                 PolicyDocument:
                     Version: '2012-10-17'
                     Statement:
                       - Effect: Allow
                         Action:
-                          - ssm:GetParameter
-                          - ssm:DeleteParameter
-                        Resource: !Sub arn:${AWS::Partition}:ssm:${AWS::Region}:${AWS::AccountId}:parameter/reaveros/github-runners/jit/*
-              - PolicyName: PrepareBuildEnvironmentCache
+                          - s3:GetObject
+                          - s3:PutObject
+                        Resource: !GetAtt CompilerCache.Outputs.CandidateObjectsArn
+            Tags:
+              - Key: Project
+                Value: ReaverOS
+
+    TrustedBuilderRunnerRole:
+        Type: AWS::IAM::Role
+        Properties:
+            PermissionsBoundary: !Ref RunnerRolePermissionsBoundaryArn
+            AssumeRolePolicyDocument:
+                Version: '2012-10-17'
+                Statement:
+                  - Effect: Allow
+                    Principal:
+                        Service: ec2.amazonaws.com
+                    Action: sts:AssumeRole
+            ManagedPolicyArns:
+              - !Ref BuilderRuntimePolicy
+            Policies:
+              - PolicyName: TrustedCompilerCache
                 PolicyDocument:
                     Version: '2012-10-17'
                     Statement:
                       - Effect: Allow
-                        Action: ecr:GetAuthorizationToken
-                        Resource: '*'
-                      - Effect: Allow
                         Action:
-                          - ecr:BatchCheckLayerAvailability
-                          - ecr:BatchGetImage
-                          - ecr:DescribeImages
-                          - ecr:GetDownloadUrlForLayer
-                        Resource:
-                          - !GetAtt BuildEnvironmentRepository.Arn
-                          - !GetAtt UnprunedBuildEnvironmentRepository.Arn
-                          - !GetAtt CandidateBuildEnvironmentRepository.Arn
-                          - !GetAtt CandidateUnprunedBuildEnvironmentRepository.Arn
-                          - !GetAtt StagingBuildEnvironmentRepository.Arn
-                          - !GetAtt StagingUnprunedBuildEnvironmentRepository.Arn
-                      - Effect: Allow
-                        Action:
-                          - ecr:BatchCheckLayerAvailability
-                          - ecr:CompleteLayerUpload
-                          - ecr:InitiateLayerUpload
-                          - ecr:PutImage
-                          - ecr:UploadLayerPart
-                        Resource:
-                          - !GetAtt StagingBuildEnvironmentRepository.Arn
-                          - !GetAtt StagingUnprunedBuildEnvironmentRepository.Arn
+                          - s3:GetObject
+                          - s3:PutObject
+                        Resource: !GetAtt CompilerCache.Outputs.TrustedObjectsArn
             Tags:
               - Key: Project
                 Value: ReaverOS
@@ -524,6 +575,12 @@ Resources:
         Properties:
             Roles:
               - !Ref BuilderRunnerRole
+
+    TrustedBuilderRunnerInstanceProfile:
+        Type: AWS::IAM::InstanceProfile
+        Properties:
+            Roles:
+              - !Ref TrustedBuilderRunnerRole
 
     RunnerLaunchTemplate:
         Type: AWS::EC2::LaunchTemplate
@@ -680,6 +737,37 @@ Resources:
                 Variables:
                     ALLOWED_REPOSITORIES: !Join [',', !Ref GitHubAllowedRepositories]
                     BUILDER_PROFILE_ARN: !GetAtt BuilderRunnerInstanceProfile.Arn
+                    CACHE_TRUST_CLASS: candidate
+                    GITHUB_APP_SECRET_ID: !Ref RunnerAppSecret
+                    GITHUB_ORGANIZATION: !Ref GitHubOrganization
+                    GITHUB_RUNNER_GROUP_ID: !Ref GitHubRunnerGroupId
+                    JIT_PARAMETER_PREFIX: /reaveros/github-runners/jit/
+                    LARGE_INSTANCE_TYPE: !Ref LargeRunnerInstanceType
+                    LAUNCH_TEMPLATE_ID: !Ref RunnerLaunchTemplate
+                    MAXIMUM_CONCURRENT_RUNNERS: !Ref MaximumConcurrentRunners
+                    MAXIMUM_AGE_MINUTES: !Ref RunnerMaximumAgeMinutes
+                    MEDIUM_INSTANCE_TYPE: !Ref MediumRunnerInstanceType
+                    RUNNER_INSTANCE_NAME: !Sub ${AWS::StackName}-runner
+                    VALIDATION_PROFILE_ARN: !GetAtt RunnerInstanceProfile.Arn
+            Code: ../../../build/reaveros-lambda/runner-control.zip
+            Tags:
+              - Key: Project
+                Value: ReaverOS
+
+    TrustedRunnerControlFunction:
+        Type: AWS::Lambda::Function
+        Properties:
+            FunctionName: !Sub ${AWS::StackName}-trusted-runner-control
+            Runtime: python3.13
+            Handler: index.handler
+            Role: !GetAtt RunnerControlRole.Arn
+            Timeout: 300
+            ReservedConcurrentExecutions: 1
+            Environment:
+                Variables:
+                    ALLOWED_REPOSITORIES: !Join [',', !Ref GitHubAllowedRepositories]
+                    BUILDER_PROFILE_ARN: !GetAtt TrustedBuilderRunnerInstanceProfile.Arn
+                    CACHE_TRUST_CLASS: trusted
                     GITHUB_APP_SECRET_ID: !Ref RunnerAppSecret
                     GITHUB_ORGANIZATION: !Ref GitHubOrganization
                     GITHUB_RUNNER_GROUP_ID: !Ref GitHubRunnerGroupId
@@ -700,6 +788,15 @@ Resources:
         Type: AWS::Logs::LogGroup
         Properties:
             LogGroupName: !Sub /aws/lambda/${RunnerControlFunction}
+            RetentionInDays: 30
+            Tags:
+              - Key: Project
+                Value: ReaverOS
+
+    TrustedRunnerControlLogGroup:
+        Type: AWS::Logs::LogGroup
+        Properties:
+            LogGroupName: !Sub /aws/lambda/${TrustedRunnerControlFunction}
             RetentionInDays: 30
             Tags:
               - Key: Project
@@ -905,6 +1002,52 @@ Resources:
             Dimensions:
               - Name: FunctionName
                 Value: !Ref RunnerControlFunction
+            Statistic: Sum
+            Period: 300
+            EvaluationPeriods: 1
+            DatapointsToAlarm: 1
+            Threshold: 1
+            ComparisonOperator: GreaterThanOrEqualToThreshold
+            TreatMissingData: notBreaching
+            AlarmActions:
+              - !Ref RunnerOperationsTopic
+            Tags:
+              - Key: Project
+                Value: ReaverOS
+
+    TrustedRunnerControlErrorsAlarm:
+        Type: AWS::CloudWatch::Alarm
+        Properties:
+            AlarmName: !Sub ${AWS::StackName}-trusted-controller-errors
+            AlarmDescription: Trusted runner controller invocation failures
+            Namespace: AWS/Lambda
+            MetricName: Errors
+            Dimensions:
+              - Name: FunctionName
+                Value: !Ref TrustedRunnerControlFunction
+            Statistic: Sum
+            Period: 300
+            EvaluationPeriods: 1
+            DatapointsToAlarm: 1
+            Threshold: 1
+            ComparisonOperator: GreaterThanOrEqualToThreshold
+            TreatMissingData: notBreaching
+            AlarmActions:
+              - !Ref RunnerOperationsTopic
+            Tags:
+              - Key: Project
+                Value: ReaverOS
+
+    TrustedRunnerControlThrottlesAlarm:
+        Type: AWS::CloudWatch::Alarm
+        Properties:
+            AlarmName: !Sub ${AWS::StackName}-trusted-controller-throttles
+            AlarmDescription: Trusted runner controller throttled invocations
+            Namespace: AWS/Lambda
+            MetricName: Throttles
+            Dimensions:
+              - Name: FunctionName
+                Value: !Ref TrustedRunnerControlFunction
             Statistic: Sum
             Period: 300
             EvaluationPeriods: 1
@@ -1139,6 +1282,37 @@ Resources:
               - Key: Project
                 Value: ReaverOS
 
+    TrustedGitHubActionsRole:
+        Type: AWS::IAM::Role
+        Properties:
+            PermissionsBoundary: !Ref RunnerRolePermissionsBoundaryArn
+            AssumeRolePolicyDocument:
+                Version: '2012-10-17'
+                Statement:
+                  - Effect: Allow
+                    Principal:
+                        Federated: !Ref GitHubOidcProviderArn
+                    Action: sts:AssumeRoleWithWebIdentity
+                    Condition:
+                        StringEquals:
+                            token.actions.githubusercontent.com:aud: sts.amazonaws.com
+                        StringLike:
+                            token.actions.githubusercontent.com:sub: !Sub repo:${GitHubOidcImmutableRepositoryPattern}:workflow_ref:${GitHubOidcCallerWorkflowReferencePattern}:ref:refs/heads/main:job_workflow_ref:${GitHubOidcWorkflowReference}
+            Policies:
+              - PolicyName: ProvisionTrustedRunner
+                PolicyDocument:
+                    Version: '2012-10-17'
+                    Statement:
+                      - Effect: Allow
+                        Action: lambda:InvokeFunction
+                        Resource: !GetAtt TrustedRunnerControlFunction.Arn
+                      - Effect: Allow
+                        Action: cloudformation:DescribeStacks
+                        Resource: !Sub arn:${AWS::Partition}:cloudformation:${AWS::Region}:${AWS::AccountId}:stack/${AWS::StackName}/*
+            Tags:
+              - Key: Project
+                Value: ReaverOS
+
     ProductionPromotionRole:
         Type: AWS::IAM::Role
         Properties:
@@ -1289,6 +1463,8 @@ Outputs:
         Value: '4'
     GitHubActionsRoleArn:
         Value: !GetAtt GitHubActionsRole.Arn
+    TrustedGitHubActionsRoleArn:
+        Value: !GetAtt TrustedGitHubActionsRole.Arn
     ProductionPromotionRoleArn:
         Value: !GetAtt ProductionPromotionRole.Arn
     GhcrPublisherRoleArn:
@@ -1301,8 +1477,12 @@ Outputs:
         Value: !GetAtt CiGateFunctionUrl.FunctionUrl
     RunnerControlFunctionName:
         Value: !Ref RunnerControlFunction
+    TrustedRunnerControlFunctionName:
+        Value: !Ref TrustedRunnerControlFunction
     RunnerOperationsTopicArn:
         Value: !Ref RunnerOperationsTopic
+    CompilerCacheBucketName:
+        Value: !GetAtt CompilerCache.Outputs.BucketName
     BuildEnvironmentRepositoryUri:
         Value: !GetAtt BuildEnvironmentRepository.RepositoryUri
     UnprunedBuildEnvironmentRepositoryUri:

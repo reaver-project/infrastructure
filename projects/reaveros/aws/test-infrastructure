@@ -214,10 +214,27 @@ fi
 
 if [[ $(grep --fixed-strings --count \
     'AlarmActions:' \
-    "${self_dir}/runner-stack.yaml") -ne 8 ]]; then
+    "${self_dir}/runner-stack.yaml") -ne 10 ]]; then
     printf 'Runner and CI gate operational failures are not fully alarmed.\n' >&2
     exit 1
 fi
+
+for compiler_cache_invariant in \
+    'TemplateURL: ../../../aws/compiler-cache/template.yaml' \
+    'Resource: !GetAtt CompilerCache.Outputs.CandidateObjectsArn' \
+    'Resource: !GetAtt CompilerCache.Outputs.TrustedObjectsArn' \
+    'CACHE_TRUST_CLASS: candidate' \
+    'CACHE_TRUST_CLASS: trusted' \
+    'Resource: !GetAtt TrustedRunnerControlFunction.Arn' \
+    'TrustedGitHubActionsRoleArn:'; do
+    if ! grep --fixed-strings --quiet \
+        "${compiler_cache_invariant}" \
+        "${self_dir}/runner-stack.yaml"; then
+        printf 'Compiler-cache trust invariant is missing: %s\n' \
+            "${compiler_cache_invariant}" >&2
+        exit 1
+    fi
+done
 
 for ci_gate_invariant in \
     'Name: !Sub ${AWS::StackName}/github-ci-gate-app' \
