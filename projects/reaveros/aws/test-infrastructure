@@ -13,23 +13,39 @@ mock_aws()
     if [[ $1 == s3api ]]; then
         case $2 in
             put-object)
-                if [[ ${AWS_TEST_CASE} == plan-storage-conflict ]]; then
-                    exit 254
-                fi
                 body=
+                key=
                 previous=
                 for argument in "$@"; do
                     if [[ ${previous} == --body ]]; then
                         body=${argument}
-                        break
+                    elif [[ ${previous} == --key ]]; then
+                        key=${argument}
                     fi
                     previous=${argument}
                 done
-                if [[ -z ${body} ]]; then
-                    printf 'Mock put-object call omitted --body.\n' >&2
+                if [[ -z ${body} || -z ${key} ]]; then
+                    printf 'Mock put-object call omitted --body or --key.\n' >&2
                     exit 2
                 fi
-                cp "${body}" "${AWS_TEST_PLAN_RECORD}"
+                case ${key} in
+                    reaveros-github-runners/templates/*)
+                        if [[ ${AWS_TEST_CASE} == plan-template-upload-failure ]]; then
+                            exit 254
+                        fi
+                        cp "${body}" "${AWS_TEST_PACKAGED_TEMPLATE}"
+                        ;;
+                    plans/*)
+                        if [[ ${AWS_TEST_CASE} == plan-storage-conflict ]]; then
+                            exit 254
+                        fi
+                        cp "${body}" "${AWS_TEST_PLAN_RECORD}"
+                        ;;
+                    *)
+                        printf 'Unexpected AWS S3 object key: %s\n' "${key}" >&2
+                        exit 2
+                        ;;
+                esac
                 ;;
             get-object)
                 if [[ ${AWS_TEST_CASE} == read-plan-missing ]]; then
@@ -448,6 +464,7 @@ reset_case()
     export GITHUB_OUTPUT="${test_directory}/$1.output"
     export GITHUB_STEP_SUMMARY="${test_directory}/$1.summary"
     export AWS_TEST_PLAN_RECORD="${test_directory}/$1.plan.json"
+    export AWS_TEST_PACKAGED_TEMPLATE="${test_directory}/$1.template.yaml"
     : > "${AWS_TEST_LOG}"
     : > "${GITHUB_OUTPUT}"
     : > "${GITHUB_STEP_SUMMARY}"
@@ -508,6 +525,12 @@ fi
 assert_log_contains $'\tParameterKey=RunnerMediumInstanceType,UsePreviousValue=true'
 assert_log_contains $'\t--role-arn\tarn:aws:iam::123456789012:role/reaveros-cloudformation'
 assert_log_contains $'\t--description\tGitHub infrastructure revision 0123456789abcdef0123456789abcdef01234567; run 101; attempt 1'
+assert_log_contains $'\t--template-url\thttps://reaver-project-deployment-artifacts.s3.us-west-2.amazonaws.com/reaveros-github-runners/templates/0123456789abcdef0123456789abcdef01234567-101-1.yaml'
+assert_log_contains $'s3api\tput-object\t--region\tus-west-2\t--bucket\treaver-project-deployment-artifacts\t--key\treaveros-github-runners/templates/0123456789abcdef0123456789abcdef01234567-101-1.yaml'
+if [[ $(< "${AWS_TEST_PACKAGED_TEMPLATE}") != 'Resources: {}' ]]; then
+    printf 'The packaged template was not uploaded.\n' >&2
+    exit 1
+fi
 assert_log_contains $'s3api\tput-object\t--region\tus-west-2\t--bucket\treaver-project-deployment-artifacts'
 assert_log_contains $'\t--key\tplans/3de70c5a97f405e494ad4c294a439fb5eff5ba2a024c853ad2613dbf3a96d7b5.json'
 assert_log_contains $'\t--if-none-match\t*'
@@ -544,7 +567,7 @@ reset_case plan-no-changes
     reaveros-github-runners-101-1
 assert_output has_changes=false
 assert_log_contains $'\tdelete-change-set\t'
-if grep --fixed-strings --quiet $'s3api\tput-object\t' "${AWS_TEST_LOG}"; then
+if grep --fixed-strings --quiet $'\t--key\tplans/' "${AWS_TEST_LOG}"; then
     printf 'A no-op change set was incorrectly preserved.\n' >&2
     exit 1
 fi
@@ -559,6 +582,18 @@ fi
 assert_log_contains $'s3api\tput-object\t'
 assert_log_contains $'\t--if-none-match\t*'
 assert_log_contains $'\tdelete-change-set\t'
+
+reset_case plan-template-upload-failure
+if "${self_dir}/plan-infrastructure" \
+    "${template}" \
+    reaveros-github-runners-101-1 > /dev/null 2>&1; then
+    printf 'A change set was created without its packaged template.\n' >&2
+    exit 1
+fi
+if grep --fixed-strings --quiet $'\tcreate-change-set\t' "${AWS_TEST_LOG}"; then
+    printf 'A change set was created after its template upload failed.\n' >&2
+    exit 1
+fi
 
 reset_case plan-denied
 if "${self_dir}/plan-infrastructure" \

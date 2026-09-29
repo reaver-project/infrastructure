@@ -43,7 +43,10 @@ if [[ ! -f ${template} ]]; then
 fi
 
 if [[ ! ${change_set_name} =~ ^[a-zA-Z][-a-zA-Z0-9]*-[0-9]+-[0-9]+$ ||
-    ${change_set_name} != "${AWS_RUNNER_STACK_NAME}-"* ]]; then
+    ${change_set_name} != "${AWS_RUNNER_STACK_NAME}-"* ||
+    ! ${GITHUB_SHA} =~ ^[0-9a-f]{40}$ ||
+    ! ${GITHUB_RUN_ID} =~ ^[1-9][0-9]*$ ||
+    ! ${GITHUB_RUN_ATTEMPT} =~ ^[1-9][0-9]*$ ]]; then
     printf 'Invalid change-set name: %s\n' "${change_set_name}" >&2
     exit 2
 fi
@@ -119,13 +122,26 @@ if [[ ${change_set_type} == UPDATE ]]; then
     done < <(jq --raw-output '.Stacks[0].Parameters[].ParameterKey' <<< "${stack}")
 fi
 
+template_key=${AWS_RUNNER_STACK_NAME}/templates/${GITHUB_SHA}-${GITHUB_RUN_ID}-${GITHUB_RUN_ATTEMPT}.yaml
+if ! aws s3api put-object \
+    --region "${AWS_REGION}" \
+    --bucket "${AWS_DEPLOYMENT_ARTIFACT_BUCKET}" \
+    --key "${template_key}" \
+    --body "${packaged_template}" \
+    --content-type application/yaml \
+    --if-none-match '*' \
+    > /dev/null; then
+    printf 'Could not preserve the packaged CloudFormation template.\n' >&2
+    exit 1
+fi
+
 create_arguments=(
     --region "${AWS_REGION}"
     --stack-name "${AWS_RUNNER_STACK_NAME}"
     --change-set-name "${change_set_name}"
     --change-set-type "${change_set_type}"
     --description "GitHub infrastructure revision ${GITHUB_SHA:-unknown}; run ${GITHUB_RUN_ID:-unknown}; attempt ${GITHUB_RUN_ATTEMPT:-unknown}"
-    --template-body "file://${packaged_template}"
+    --template-url "https://${AWS_DEPLOYMENT_ARTIFACT_BUCKET}.s3.${AWS_REGION}.amazonaws.com/${template_key}"
     --role-arn "${AWS_CLOUDFORMATION_EXECUTION_ROLE_ARN}"
     --capabilities CAPABILITY_IAM
     --parameters "${parameters[@]}"
