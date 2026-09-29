@@ -33,6 +33,24 @@ mock_aws()
                 jq --exit-status \
                     '.source_ref == "refs/heads/pull-request/17"' \
                     <<< "${payload}" > /dev/null
+                if [[ -n ${ACTION_TEST_ERROR_ONCE:-} &&
+                    ! -e ${ACTION_TEST_ERROR_STATE:-} ]]; then
+                    : > "${ACTION_TEST_ERROR_STATE}"
+                    case ${ACTION_TEST_ERROR_ONCE} in
+                        capacity)
+                            printf '%s\n' '{"errorType":"RuntimeError","errorMessage":"ephemeral ReaverOS runner limit reached"}' > "${output_file}"
+                            ;;
+                        permanent)
+                            printf '%s\n' '{"errorType":"ValueError","errorMessage":"invalid runner request"}' > "${output_file}"
+                            ;;
+                        *)
+                            printf 'Unexpected test error: %s\n' "${ACTION_TEST_ERROR_ONCE}" >&2
+                            exit 2
+                            ;;
+                    esac
+                    printf '{"FunctionError":"Unhandled"}\n'
+                    return
+                fi
                 jq --null-input '{
                     instance_id: "i-123abc",
                     labels: ["self-hosted", "reaveros-aws", "reaveros-101-2-unit-tests-amd64"],
@@ -61,6 +79,10 @@ if [[ $(basename -- "$0") == aws ]]; then
     mock_aws "$@"
     exit
 fi
+if [[ $(basename -- "$0") == sleep ]]; then
+    [[ $# -eq 1 && $1 == 10 ]]
+    exit
+fi
 
 self_dir=$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)
 if ! grep --fixed-strings --quiet 'mask-aws-account-id: false' \
@@ -77,6 +99,7 @@ fi
 test_directory=$(mktemp -d)
 mkdir "${test_directory}/bin"
 ln -s "${self_dir}/test" "${test_directory}/bin/aws"
+ln -s "${self_dir}/test" "${test_directory}/bin/sleep"
 export PATH="${test_directory}/bin:${PATH}"
 
 cleanup()
@@ -113,6 +136,22 @@ export RUNNER_SIZE=medium
 : > "${GITHUB_OUTPUT}"
 "${self_dir}/ephemeral-runner/launch"
 grep --fixed-strings --line-regexp 'instance_id=i-123abc' "${GITHUB_OUTPUT}" > /dev/null
+
+export ACTION_TEST_ERROR_ONCE=capacity
+export ACTION_TEST_ERROR_STATE="${test_directory}/capacity-once"
+: > "${GITHUB_OUTPUT}"
+"${self_dir}/ephemeral-runner/launch"
+[[ -f ${ACTION_TEST_ERROR_STATE} ]]
+grep --fixed-strings --line-regexp 'instance_id=i-123abc' "${GITHUB_OUTPUT}" > /dev/null
+
+export ACTION_TEST_ERROR_ONCE=permanent
+export ACTION_TEST_ERROR_STATE="${test_directory}/permanent-once"
+if "${self_dir}/ephemeral-runner/launch" > /dev/null 2>&1; then
+    printf 'A permanent controller error was retried.\n' >&2
+    exit 1
+fi
+[[ -f ${ACTION_TEST_ERROR_STATE} ]]
+unset ACTION_TEST_ERROR_ONCE ACTION_TEST_ERROR_STATE
 
 export INSTANCE_ID=i-123abc
 [[ $("${self_dir}/ephemeral-runner/terminate") == 'runner stopped' ]]
