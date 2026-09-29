@@ -475,7 +475,7 @@ fi
 
 if [[ $(grep --fixed-strings --count \
     -- '- cloudformation:DescribeChangeSet' \
-    "${self_dir}/template.yaml") -ne 4 ]]; then
+    "${self_dir}/template.yaml") -ne 5 ]]; then
     printf 'Plan and deploy roles do not all have scoped change-set inspection.\n' >&2
     exit 1
 fi
