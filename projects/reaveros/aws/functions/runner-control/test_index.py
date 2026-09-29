@@ -920,6 +920,37 @@ class RunnerControlIndexTests(unittest.TestCase):
         )
         self.assertEqual(result, {"terminated": ["i-123abc"]})
 
+    def test_reapers_only_terminate_their_own_trust_class(self):
+        expired = datetime.datetime(2000, 1, 1, tzinfo=datetime.UTC)
+        instances = [
+            {
+                "InstanceId": f"i-{trust}",
+                "LaunchTime": expired,
+                "State": {"Name": "running"},
+                "Tags": [
+                    {"Key": "ReaverProjectCacheTrust", "Value": trust},
+                    {"Key": "GitHubRepository", "Value": "reaver-project/reaveros"},
+                    {"Key": "GitHubSourceRef", "Value": f"refs/heads/{trust}"},
+                ],
+            }
+            for trust in ("candidate", "trusted")
+        ]
+        with (
+            mock.patch.object(runner_control, "runner_instances", return_value=instances),
+            mock.patch.object(runner_control, "cleanup_registration"),
+            mock.patch.object(runner_control, "prune_workflow_access") as prune,
+        ):
+            self.assertEqual(runner_control.reap({}), {"terminated": ["i-candidate"]})
+            prune.assert_called_once_with("reaver-project/reaveros", ["refs/heads/trusted"])
+            clients["ec2"].terminate_instances.assert_called_once_with(InstanceIds=["i-candidate"])
+
+            clients["ec2"].terminate_instances.reset_mock()
+            prune.reset_mock()
+            with mock.patch.dict(os.environ, {"CACHE_TRUST_CLASS": "trusted"}):
+                self.assertEqual(runner_control.reap({}), {"terminated": ["i-trusted"]})
+            prune.assert_not_called()
+            clients["ec2"].terminate_instances.assert_called_once_with(InstanceIds=["i-trusted"])
+
     def test_reap_preserves_a_live_runner_workflow_and_survives_prune_failure(self):
         instance = {
             "InstanceId": "i-live",

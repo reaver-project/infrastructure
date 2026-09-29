@@ -236,6 +236,32 @@ for compiler_cache_invariant in \
     fi
 done
 
+if ! awk '
+    /^    RunnerControlRole:$/ { role = "candidate"; next }
+    /^    TrustedRunnerControlRole:$/ { role = "trusted"; next }
+    /^    [A-Za-z][A-Za-z0-9]*:$/ { role = "" }
+    role == "candidate" && /ec2:ResourceTag\/ReaverProjectCacheTrust: candidate$/ { candidate_termination = 1 }
+    role == "candidate" && /!GetAtt BuilderRunnerRole.Arn$/ { candidate_pass_role = 1 }
+    role == "candidate" && /!GetAtt TrustedBuilderRunnerRole.Arn$/ { forbidden = 1 }
+    role == "trusted" && /ec2:ResourceTag\/ReaverProjectCacheTrust: trusted$/ { trusted_termination = 1 }
+    role == "trusted" && /!GetAtt TrustedBuilderRunnerRole.Arn$/ { trusted_pass_role = 1 }
+    role == "trusted" && /!GetAtt BuilderRunnerRole.Arn$/ { forbidden = 1 }
+    END { exit !(candidate_termination && candidate_pass_role && trusted_termination && trusted_pass_role && !forbidden) }
+' "${self_dir}/runner-stack.yaml"; then
+    printf 'Runner controllers do not have separate trust-class IAM permissions.\n' >&2
+    exit 1
+fi
+
+if ! grep --fixed-strings --quiet \
+    'Role: !GetAtt TrustedRunnerControlRole.Arn' \
+    "${self_dir}/runner-stack.yaml" ||
+    ! grep --fixed-strings --quiet \
+        'Id: TrustedRunnerReaper' \
+        "${self_dir}/runner-stack.yaml"; then
+    printf 'The trusted controller and reaper must use their own role.\n' >&2
+    exit 1
+fi
+
 for ci_gate_invariant in \
     'Name: !Sub ${AWS::StackName}/github-ci-gate-app' \
     'Action: lambda:InvokeFunctionUrl' \
