@@ -1,0 +1,94 @@
+AWSTemplateFormatVersion: '2010-09-09'
+Description: Disposable compiler-object cache for a Reaver Project repository
+
+Parameters:
+    BucketName:
+        Type: String
+        AllowedPattern: '[a-z0-9][a-z0-9.-]{1,61}[a-z0-9]'
+    ProjectTag:
+        Type: String
+        AllowedPattern: '[A-Za-z][A-Za-z0-9-]+'
+    CandidateRetentionDays:
+        Type: Number
+        Default: 45
+        MinValue: 1
+        MaxValue: 365
+    TrustedRetentionDays:
+        Type: Number
+        Default: 90
+        MinValue: 1
+        MaxValue: 365
+
+Resources:
+    CacheBucket:
+        Type: AWS::S3::Bucket
+        DeletionPolicy: Retain
+        UpdateReplacePolicy: Retain
+        Properties:
+            BucketName: !Ref BucketName
+            BucketEncryption:
+                ServerSideEncryptionConfiguration:
+                  - ServerSideEncryptionByDefault:
+                        SSEAlgorithm: AES256
+            LifecycleConfiguration:
+                Rules:
+                  - Id: ExpireCandidateObjects
+                    Prefix: candidate/
+                    Status: Enabled
+                    ExpirationInDays: !Ref CandidateRetentionDays
+                  - Id: ExpireTrustedObjects
+                    Prefix: trusted/
+                    Status: Enabled
+                    ExpirationInDays: !Ref TrustedRetentionDays
+                  - Id: AbortIncompleteMultipartUploads
+                    Status: Enabled
+                    AbortIncompleteMultipartUpload:
+                        DaysAfterInitiation: 7
+                  - Id: ExpireNoncurrentObjects
+                    Status: Enabled
+                    ExpiredObjectDeleteMarker: true
+                    NoncurrentVersionExpiration:
+                        NoncurrentDays: 1
+            OwnershipControls:
+                Rules:
+                  - ObjectOwnership: BucketOwnerEnforced
+            PublicAccessBlockConfiguration:
+                BlockPublicAcls: true
+                BlockPublicPolicy: true
+                IgnorePublicAcls: true
+                RestrictPublicBuckets: true
+            VersioningConfiguration:
+                Status: Enabled
+            Tags:
+              - Key: Project
+                Value: !Ref ProjectTag
+              - Key: Purpose
+                Value: CompilerCache
+
+    CacheBucketPolicy:
+        Type: AWS::S3::BucketPolicy
+        Properties:
+            Bucket: !Ref CacheBucket
+            PolicyDocument:
+                Version: '2012-10-17'
+                Statement:
+                  - Sid: RequireTransportEncryption
+                    Effect: Deny
+                    Principal: '*'
+                    Action: s3:*
+                    Resource:
+                      - !GetAtt CacheBucket.Arn
+                      - !Sub ${CacheBucket.Arn}/*
+                    Condition:
+                        Bool:
+                            aws:SecureTransport: false
+
+Outputs:
+    BucketName:
+        Value: !Ref CacheBucket
+    BucketArn:
+        Value: !GetAtt CacheBucket.Arn
+    CandidateObjectsArn:
+        Value: !Sub ${CacheBucket.Arn}/candidate/*
+    TrustedObjectsArn:
+        Value: !Sub ${CacheBucket.Arn}/trusted/*
