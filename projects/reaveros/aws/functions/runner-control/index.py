@@ -155,18 +155,7 @@ def set_restricted_workflows(path, token, requested):
         raise RuntimeError("runner group did not retain restricted workflow access")
 
 
-def ensure_workflow_access(token, repository, source_ref):
-    path, selected = restricted_workflows(token, repository)
-    requested = {
-        *selected,
-        workflow_reference(repository, "refs/heads/main"),
-        workflow_reference(repository, source_ref),
-    }
-    if requested != selected:
-        set_restricted_workflows(path, token, requested)
-
-
-def prune_workflow_access(repository, protected_refs=()):
+def copied_workflow_references(repository, protected_refs=()):
     # ReaverOS is public, so this read does not expand the Runner App installation.
     references = github_request(
         f"/repos/{repository}/git/matching-refs/heads/pull-request/",
@@ -185,6 +174,40 @@ def prune_workflow_access(repository, protected_refs=()):
             active.add(workflow_reference(repository, source_ref))
         except ValueError:
             continue
+    return active
+
+
+def live_workflow_refs(instances, repository):
+    protected_refs = []
+    for instance in instances:
+        tags = {tag["Key"]: tag["Value"] for tag in instance.get("Tags", [])}
+        source_ref = tags.get("GitHubSourceRef")
+        if tags.get("GitHubRepository") != repository or not isinstance(source_ref, str):
+            continue
+        try:
+            workflow_reference(repository, source_ref)
+        except ValueError:
+            continue
+        protected_refs.append(source_ref)
+    return protected_refs
+
+
+def ensure_workflow_access(token, repository, source_ref, protected_refs=()):
+    path, selected = restricted_workflows(token, repository)
+    required = {
+        workflow_reference(repository, "refs/heads/main"),
+        workflow_reference(repository, source_ref),
+    }
+    if required <= selected:
+        return
+    active = copied_workflow_references(repository, protected_refs)
+    requested = (selected & active) | required
+    if requested != selected:
+        set_restricted_workflows(path, token, requested)
+
+
+def prune_workflow_access(repository, protected_refs=()):
+    active = copied_workflow_references(repository, protected_refs)
 
     token = github_token()
     path, selected = restricted_workflows(token, repository)
@@ -236,7 +259,12 @@ def launch(event):
         raise RuntimeError("ephemeral ReaverOS runner limit reached")
 
     token = github_token()
-    ensure_workflow_access(token, repository, source_ref)
+    ensure_workflow_access(
+        token,
+        repository,
+        source_ref,
+        live_workflow_refs(live_runners, repository),
+    )
     jit = github_request(
         f"/orgs/{os.environ['GITHUB_ORGANIZATION']}/actions/runners/generate-jitconfig",
         token,
