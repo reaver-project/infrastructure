@@ -9,7 +9,7 @@ import types
 import unittest
 from unittest import mock
 
-clients = {"secretsmanager": mock.Mock()}
+clients = {"secretsmanager": mock.Mock(), "sqs": mock.Mock()}
 boto3 = types.ModuleType("boto3")
 boto3.client = lambda name: clients[name]
 primitives = types.ModuleType("cryptography.hazmat.primitives")
@@ -45,6 +45,8 @@ ci_gate = load_module("ci_gate_index", module_directory / "index.py")
 repository = "reaver-project/reaveros"
 full_sha = "0123456789abcdef0123456789abcdef01234567"
 new_sha = "fedcba9876543210fedcba9876543210fedcba98"
+delivery_id = "01234567-89ab-cdef-0123-456789abcdef"
+webhook_test_key = "secret"
 
 
 def pull_request(*, sha=full_sha, actor="external", head_repository=repository):
@@ -82,15 +84,33 @@ def event_payload(*, action="opened", pr=None):
     }
 
 
+def signed_webhook(
+    payload, event_name="pull_request", *, webhook_key=webhook_test_key, guid=delivery_id
+):
+    body = json.dumps(payload, separators=(",", ":")).encode()
+    signature = "sha256=" + hmac.new(webhook_key.encode(), body, hashlib.sha256).hexdigest()
+    return {
+        "body": body.decode(),
+        "headers": {
+            "x-github-event": event_name,
+            "x-github-delivery": guid,
+            "x-hub-signature-256": signature,
+        },
+    }
+
+
 class CiGateIndexTests(unittest.TestCase):
     def setUp(self):
         clients["secretsmanager"].reset_mock(return_value=True, side_effect=True)
+        clients["sqs"].reset_mock(return_value=True, side_effect=True)
+        clients["sqs"].send_message.return_value = {"MessageId": "queued"}
         ci_gate.cached_credentials = None
         self.environment = mock.patch.dict(
             os.environ,
             {
                 "ALLOWED_REPOSITORIES": repository,
                 "AUTOMATIC_ACTORS": "griwes,reaver-project-maintenance[bot]",
+                "CI_GATE_QUEUE_URL": "https://sqs.example/ci-gate-events.fifo",
                 "GITHUB_APP_SECRET_ID": "ci-gate-secret",
             },
         )
@@ -118,8 +138,15 @@ class CiGateIndexTests(unittest.TestCase):
 
     def test_rejects_incomplete_credentials(self):
         clients["secretsmanager"].get_secret_value.return_value = {"SecretString": '{"app_id":"1"}'}
-        with self.assertRaisesRegex(ValueError, "incomplete"):
+        with self.assertRaisesRegex(RuntimeError, "incomplete"):
             ci_gate.credentials()
+
+        with self.assertRaisesRegex(RuntimeError, "incomplete"):
+            ci_gate.handler(signed_webhook(event_payload()), None)
+
+        clients["secretsmanager"].get_secret_value.return_value = {"SecretString": "invalid json"}
+        with self.assertRaisesRegex(RuntimeError, "invalid JSON"):
+            ci_gate.handler(signed_webhook(event_payload()), None)
 
     def test_uses_the_shared_github_request_client(self):
         with mock.patch.object(ci_gate, "request", return_value={"ok": True}) as request:
@@ -522,7 +549,11 @@ class CiGateIndexTests(unittest.TestCase):
         self.assertIn(full_sha[:12], comment.call_args.args[3])
 
     def test_closing_a_pull_request_removes_its_copy(self):
-        with mock.patch.object(ci_gate, "delete_copied_revision") as delete:
+        closed = {**pull_request(), "state": "closed"}
+        with (
+            mock.patch.object(ci_gate, "pull_request", return_value=closed),
+            mock.patch.object(ci_gate, "delete_copied_revision") as delete,
+        ):
             result = ci_gate.handle_pull_request(
                 event_payload(action="closed"),
                 "token",
@@ -530,6 +561,23 @@ class CiGateIndexTests(unittest.TestCase):
             )
         self.assertEqual(result, "removed copied revision")
         delete.assert_called_once_with("token", repository, 12)
+
+    def test_stale_close_and_draft_events_do_not_remove_a_current_copy(self):
+        with (
+            mock.patch.object(ci_gate, "pull_request", return_value=pull_request()),
+            mock.patch.object(ci_gate, "delete_copied_revision") as delete,
+        ):
+            self.assertEqual(
+                ci_gate.handle_pull_request(event_payload(action="closed"), "token", repository),
+                "ignored stale closed event",
+            )
+            self.assertEqual(
+                ci_gate.handle_pull_request(
+                    event_payload(action="converted_to_draft"), "token", repository
+                ),
+                "ignored stale draft event",
+            )
+        delete.assert_not_called()
 
     def test_ignores_unrelated_and_ineligible_pull_request_events(self):
         with mock.patch.object(ci_gate, "delete_copied_revision") as delete:
@@ -651,63 +699,44 @@ class CiGateIndexTests(unittest.TestCase):
             "ignored comment action",
         )
 
-    def test_handler_rejects_bad_signatures_before_requesting_a_token(self):
-        body = json.dumps(event_payload()).encode()
+    def test_handler_rejects_bad_signatures_before_queueing(self):
         ci_gate.cached_credentials = {
             "app_id": "1",
             "app_slug": "reaver-project-ci-gate",
             "private_key": "key",
             "webhook_secret": "secret",
         }
-        event = {
-            "body": body.decode(),
-            "headers": {
-                "x-github-event": "pull_request",
-                "x-hub-signature-256": "sha256=wrong",
-            },
-        }
+        event = signed_webhook(event_payload())
+        event["headers"]["x-hub-signature-256"] = "sha256=wrong"
         with mock.patch.object(ci_gate, "installation_token") as token:
             result = ci_gate.handler(event, None)
         self.assertEqual(result["statusCode"], 401)
         token.assert_not_called()
+        clients["sqs"].send_message.assert_not_called()
 
-    def test_handler_processes_a_signed_webhook_for_an_allowed_repository(self):
-        body = json.dumps(event_payload(action="closed"), separators=(",", ":")).encode()
-        secret = "secret"
-        signature = (
-            "sha256="
-            + hmac.new(
-                secret.encode(),
-                body,
-                hashlib.sha256,
-            ).hexdigest()
-        )
+    def test_handler_queues_a_minimal_signed_webhook_without_a_github_token(self):
         ci_gate.cached_credentials = {
             "app_id": "1",
             "app_slug": "reaver-project-ci-gate",
             "private_key": "key",
-            "webhook_secret": secret,
+            "webhook_secret": "secret",
         }
-        event = {
-            "body": body.decode(),
-            "headers": {
-                "x-github-event": "pull_request",
-                "x-hub-signature-256": signature,
-            },
-        }
-        with (
-            mock.patch.object(ci_gate, "installation_token", return_value="token"),
-            mock.patch.object(
-                ci_gate,
-                "handle_pull_request",
-                return_value="removed copied revision",
-            ) as handle,
-        ):
-            result = ci_gate.handler(event, None)
+        payload = event_payload()
+        payload["pull_request"]["body"] = "large-unneeded-body" * 10000
+        with mock.patch.object(ci_gate, "installation_token") as token:
+            result = ci_gate.handler(signed_webhook(payload), None)
 
-        self.assertEqual(result["statusCode"], 200)
-        handle.assert_called_once()
-        self.assertEqual(json.loads(result["body"])["message"], "removed copied revision")
+        self.assertEqual(result["statusCode"], 202)
+        token.assert_not_called()
+        queued = clients["sqs"].send_message.call_args.kwargs
+        self.assertEqual(queued["QueueUrl"], "https://sqs.example/ci-gate-events.fifo")
+        self.assertEqual(queued["MessageGroupId"], "reaveros-ci-gate")
+        self.assertEqual(queued["MessageDeduplicationId"], delivery_id)
+        self.assertLess(len(queued["MessageBody"]), 500)
+        task = json.loads(queued["MessageBody"])
+        self.assertEqual(task["delivery_id"], delivery_id)
+        self.assertEqual(task["payload"]["pull_request"]["head"]["sha"], full_sha)
+        self.assertNotIn("large-unneeded-body", queued["MessageBody"])
 
     def test_handler_accepts_ping_and_ignores_unsubscribed_events(self):
         secret = "secret"
@@ -733,45 +762,198 @@ class CiGateIndexTests(unittest.TestCase):
         result = ci_gate.handler(signed_event("push"), None)
         self.assertEqual(json.loads(result["body"])["message"], "ignored webhook event")
 
-    def test_handler_routes_issue_comments_and_reports_bad_payloads(self):
+    def test_handler_queues_only_approval_comment_metadata(self):
         payload = {
             "action": "created",
-            "comment": {"body": "hello", "user": {"login": "external"}},
+            "comment": {"body": "/ok to test 0123456", "user": {"login": "griwes"}},
             "installation": {"id": 17},
             "issue": {"number": 12, "pull_request": {"url": "example"}},
             "repository": {"full_name": repository, "id": 42},
         }
-        body = json.dumps(payload, separators=(",", ":")).encode()
-        secret = "secret"
-        signature = "sha256=" + hmac.new(secret.encode(), body, hashlib.sha256).hexdigest()
         ci_gate.cached_credentials = {
             "app_id": "1",
             "app_slug": "reaver-project-ci-gate",
             "private_key": "key",
-            "webhook_secret": secret,
+            "webhook_secret": "secret",
         }
-        event = {
-            "body": body.decode(),
-            "headers": {
-                "x-github-event": "issue_comment",
-                "x-hub-signature-256": signature,
-            },
-        }
-        with (
-            mock.patch.object(ci_gate, "installation_token", return_value="token"),
-            mock.patch.object(
-                ci_gate,
-                "handle_issue_comment",
-                return_value="ignored non-approval comment",
-            ) as handle,
-        ):
-            result = ci_gate.handler(event, None)
-        self.assertEqual(result["statusCode"], 200)
-        handle.assert_called_once()
+        result = ci_gate.handler(signed_webhook(payload, "issue_comment"), None)
+        self.assertEqual(result["statusCode"], 202)
+        task = json.loads(clients["sqs"].send_message.call_args.kwargs["MessageBody"])
+        self.assertEqual(task["payload"]["comment"]["body"], "/ok to test 0123456")
+        self.assertEqual(task["payload"]["comment"]["user"]["login"], "griwes")
+
+        clients["sqs"].send_message.reset_mock()
+        payload["comment"]["body"] = "/ok to test " + "x" * 100000
+        result = ci_gate.handler(signed_webhook(payload, "issue_comment"), None)
+        self.assertEqual(result["statusCode"], 202)
+        task = json.loads(clients["sqs"].send_message.call_args.kwargs["MessageBody"])
+        self.assertEqual(task["payload"]["comment"]["body"], "/ok to test")
 
         bad = {"body": "missing repository", "headers": {}}
         result = ci_gate.handler(bad, None)
         self.assertIn(result["statusCode"], {400, 401})
+
+    def test_handler_ignores_non_actionable_events_before_queueing(self):
+        ci_gate.cached_credentials = {"webhook_secret": "secret"}
+        self.assertEqual(
+            ci_gate.handler(signed_webhook(event_payload(action="auto_merge_enabled")), None)[
+                "statusCode"
+            ],
+            200,
+        )
+        payload = {
+            "action": "created",
+            "comment": {"body": "looks good", "user": {"login": "griwes"}},
+            "issue": {"number": 12, "pull_request": {}},
+            "repository": {"full_name": repository, "id": 42},
+        }
+        self.assertEqual(
+            ci_gate.handler(signed_webhook(payload, "issue_comment"), None)["statusCode"], 200
+        )
+        payload["issue"].pop("pull_request")
+        payload["comment"]["body"] = "/ok to test 0123456"
+        self.assertEqual(
+            ci_gate.handler(signed_webhook(payload, "issue_comment"), None)["statusCode"], 200
+        )
+        clients["sqs"].send_message.assert_not_called()
+
+    def test_handler_requires_a_delivery_id_and_queue_acknowledgement(self):
+        ci_gate.cached_credentials = {"webhook_secret": "secret"}
+        event = signed_webhook(event_payload())
+        event["headers"].pop("x-github-delivery")
+        self.assertEqual(ci_gate.handler(event, None)["statusCode"], 400)
+        clients["sqs"].send_message.assert_not_called()
+
+        for invalid_acknowledgement in ({}, {"MessageId": ""}):
+            clients["sqs"].send_message.return_value = invalid_acknowledgement
+            with self.assertRaisesRegex(RuntimeError, "SQS did not acknowledge"):
+                ci_gate.handler(signed_webhook(event_payload()), None)
+
+    def test_worker_processes_only_a_valid_single_record(self):
+        app_credentials = {"app_id": "1", "app_slug": "reaver-project-ci-gate"}
+        ci_gate.cached_credentials = app_credentials
+        payload = ci_gate.queued_payload("pull_request", event_payload(action="closed"))
+        payload["installation"] = {"id": 17}
+        payload["repository"] = {"full_name": repository, "id": 42}
+        task = {
+            "schema_version": 1,
+            "delivery_id": delivery_id,
+            "event": "pull_request",
+            "payload": payload,
+        }
+        event = {"Records": [{"body": json.dumps(task)}]}
+        with (
+            mock.patch.object(ci_gate, "installation_token", return_value="token") as token,
+            mock.patch.object(
+                ci_gate, "handle_pull_request", return_value="removed copied revision"
+            ) as handle,
+        ):
+            result = ci_gate.worker_handler(event, None)
+        self.assertEqual(result, {"number": 12, "message": "removed copied revision"})
+        token.assert_called_once_with(app_credentials, 17, 42)
+        handle.assert_called_once_with(payload, "token", repository, delivery_id)
+
+        for invalid in (
+            {"Records": []},
+            {"Records": [{"body": "not json"}]},
+            {"Records": [{"body": "{}"}]},
+        ):
+            with self.assertRaises(ValueError):
+                ci_gate.worker_handler(invalid, None)
+
+    def test_signed_webhook_round_trips_through_the_serial_worker(self):
+        ci_gate.cached_credentials = {
+            "app_id": "1",
+            "app_slug": "reaver-project-ci-gate",
+            "private_key": "key",
+            "webhook_secret": "secret",
+        }
+        ingress_result = ci_gate.handler(signed_webhook(event_payload(action="closed")), None)
+        self.assertEqual(ingress_result["statusCode"], 202)
+        message_body = clients["sqs"].send_message.call_args.kwargs["MessageBody"]
+
+        closed = {**pull_request(), "state": "closed"}
+        with (
+            mock.patch.object(ci_gate, "installation_token", return_value="token"),
+            mock.patch.object(ci_gate, "pull_request", return_value=closed),
+            mock.patch.object(ci_gate, "delete_copied_revision") as delete,
+        ):
+            worker_result = ci_gate.worker_handler({"Records": [{"body": message_body}]}, None)
+        self.assertEqual(worker_result, {"number": 12, "message": "removed copied revision"})
+        delete.assert_called_once_with("token", repository, 12)
+
+    def test_worker_retries_when_processing_fails(self):
+        ci_gate.cached_credentials = {"app_id": "1"}
+        payload = ci_gate.queued_payload(
+            "issue_comment",
+            {
+                "action": "created",
+                "comment": {"body": "/ok to test 0123456", "user": {"login": "griwes"}},
+                "issue": {"number": 12, "pull_request": {}},
+            },
+        )
+        payload["installation"] = {"id": 17}
+        payload["repository"] = {"full_name": repository, "id": 42}
+        task = {
+            "schema_version": 1,
+            "delivery_id": delivery_id,
+            "event": "issue_comment",
+            "payload": payload,
+        }
+        failure = github_app.GitHubRequestError("POST", "/comments", 503, "unavailable")
+        with (
+            mock.patch.object(ci_gate, "installation_token", return_value="token"),
+            mock.patch.object(ci_gate, "handle_issue_comment", side_effect=failure),
+            self.assertRaises(github_app.GitHubRequestError),
+        ):
+            ci_gate.worker_handler({"Records": [{"body": json.dumps(task)}]}, None)
+
+    def test_feedback_retries_only_skip_a_comment_from_this_app(self):
+        ci_gate.cached_credentials = {"app_slug": "reaver-project-ci-gate"}
+        marker = f"<!-- reaver-project-ci-gate-delivery:{delivery_id} -->"
+        external = {"body": marker, "user": {"login": "external"}}
+        with mock.patch.object(
+            ci_gate, "github_request", side_effect=[[external], None]
+        ) as request:
+            ci_gate.comment("token", repository, 12, "message", delivery_id)
+        self.assertEqual(request.call_count, 2)
+        self.assertTrue(request.call_args.args[3]["body"].endswith(marker))
+
+        bot = {"body": f"message\n\n{marker}", "user": {"login": "reaver-project-ci-gate[bot]"}}
+        with mock.patch.object(ci_gate, "github_request", return_value=[bot]) as request:
+            ci_gate.comment("token", repository, 12, "message", delivery_id)
+        request.assert_called_once_with(
+            f"/repos/{repository}/issues/12/comments?per_page=100&page=1", "token"
+        )
+
+    def test_feedback_refuses_unverifiable_comment_history(self):
+        ci_gate.cached_credentials = {"app_slug": "reaver-project-ci-gate"}
+        with (
+            mock.patch.object(ci_gate, "github_request", return_value=[{}] * 100) as request,
+            self.assertRaisesRegex(ValueError, "Too many comments"),
+        ):
+            ci_gate.comment("token", repository, 12, "message", delivery_id)
+        self.assertEqual(request.call_count, 10)
+
+    def test_closed_pull_request_cannot_be_approved_from_a_delayed_comment(self):
+        payload = {
+            "action": "created",
+            "comment": {"body": "/ok to test 0123456", "user": {"login": "griwes"}},
+            "issue": {"number": 12, "pull_request": {}},
+        }
+        with (
+            mock.patch.object(ci_gate, "approver_can_run_ci", return_value=True),
+            mock.patch.object(ci_gate, "resolve_revision", return_value=full_sha),
+            mock.patch.object(
+                ci_gate, "pull_request", return_value={**pull_request(), "state": "closed"}
+            ),
+            mock.patch.object(ci_gate, "set_copied_revision") as copy,
+            mock.patch.object(ci_gate, "comment") as feedback,
+        ):
+            result = ci_gate.handle_issue_comment(payload, "token", repository, delivery_id)
+        self.assertEqual(result, "ignored approval for ineligible pull request")
+        copy.assert_not_called()
+        feedback.assert_not_called()
 
 
 if __name__ == "__main__":
