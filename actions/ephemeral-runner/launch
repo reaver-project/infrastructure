@@ -34,6 +34,7 @@ instance_id=
 invoke_controller()
 {
     local payload=$1
+    local retry_capacity=${2:-false}
     local invocation
     if ! invocation=$(aws lambda invoke \
         --region "${AWS_REGION}" \
@@ -45,6 +46,12 @@ invoke_controller()
         return 1
     fi
     if jq --exit-status '.FunctionError' <<< "${invocation}" > /dev/null; then
+        if [[ ${retry_capacity} == true ]] &&
+            jq --exit-status \
+                '.errorType == "RuntimeError" and .errorMessage == "ephemeral ReaverOS runner limit reached"' \
+                "${invocation_result}" > /dev/null; then
+            return 75
+        fi
         jq . "${invocation_result}" >&2
         return 1
     fi
@@ -84,7 +91,28 @@ launch_payload=$(jq --null-input --compact-output \
         runner_profile: $runner_profile,
         runner_size: $runner_size
     }')
-invoke_controller "${launch_payload}"
+capacity_deadline=$((SECONDS + 180))
+while true; do
+    if ((SECONDS >= capacity_deadline)); then
+        jq . "${invocation_result}" >&2
+        printf 'Runner capacity did not become available within three minutes.\n' >&2
+        exit 1
+    fi
+    if invoke_controller "${launch_payload}" true; then
+        break
+    else
+        invocation_status=$?
+    fi
+    if [[ ${invocation_status} -ne 75 ]]; then
+        exit "${invocation_status}"
+    fi
+    remaining=$((capacity_deadline - SECONDS))
+    if ((remaining > 0)); then
+        wait_seconds=$((remaining < 10 ? remaining : 10))
+        printf 'Runner capacity is full; retrying in %s seconds.\n' "${wait_seconds}"
+        sleep "${wait_seconds}"
+    fi
+done
 
 instance_id=$(jq --exit-status --raw-output '.instance_id' "${invocation_result}")
 labels=$(jq --exit-status --compact-output '.labels' "${invocation_result}")
