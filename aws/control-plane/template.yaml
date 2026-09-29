@@ -214,6 +214,13 @@ Resources:
                     Action: secretsmanager:GetSecretValue
                     Resource: !Sub arn:${AWS::Partition}:secretsmanager:${AWS::Region}:${AWS::AccountId}:secret:${RunnerStackName}/github-*-app-*
                   - Effect: Allow
+                    Action:
+                      - sqs:DeleteMessage
+                      - sqs:GetQueueAttributes
+                      - sqs:ReceiveMessage
+                      - sqs:SendMessage
+                    Resource: !Sub arn:${AWS::Partition}:sqs:${AWS::Region}:${AWS::AccountId}:${RunnerStackName}-ci-gate-events.fifo
+                  - Effect: Allow
                     Action: cloudformation:DescribeStacks
                     Resource: !Sub arn:${AWS::Partition}:cloudformation:${AWS::Region}:${AWS::AccountId}:stack/${RunnerStackName}/*
                   - Effect: Allow
@@ -396,6 +403,48 @@ Resources:
                           - lambda:UpdateFunctionConfiguration
                           - lambda:UpdateFunctionUrlConfig
                         Resource: !Sub arn:${AWS::Partition}:lambda:${AWS::Region}:${AWS::AccountId}:function:${RunnerStackName}-*
+                      - Effect: Allow
+                        Action: lambda:CreateEventSourceMapping
+                        Resource: '*'
+                        Condition:
+                            ArnEquals:
+                                lambda:FunctionArn: !Sub arn:${AWS::Partition}:lambda:${AWS::Region}:${AWS::AccountId}:function:${RunnerStackName}-ci-gate-worker
+                      - Effect: Allow
+                        Action:
+                          - lambda:DeleteEventSourceMapping
+                          - lambda:UpdateEventSourceMapping
+                        Resource: !Sub arn:${AWS::Partition}:lambda:${AWS::Region}:${AWS::AccountId}:event-source-mapping:*
+                        Condition:
+                            ArnEquals:
+                                lambda:FunctionArn: !Sub arn:${AWS::Partition}:lambda:${AWS::Region}:${AWS::AccountId}:function:${RunnerStackName}-ci-gate-worker
+                      - Effect: Allow
+                        Action: lambda:GetEventSourceMapping
+                        Resource: !Sub arn:${AWS::Partition}:lambda:${AWS::Region}:${AWS::AccountId}:event-source-mapping:*
+                      - Effect: Allow
+                        Action: lambda:TagResource
+                        Resource: !Sub arn:${AWS::Partition}:lambda:${AWS::Region}:${AWS::AccountId}:event-source-mapping:*
+                        Condition:
+                            StringEquals:
+                                aws:RequestTag/Project: ReaverOS
+                      - Effect: Allow
+                        Action: lambda:UntagResource
+                        Resource: !Sub arn:${AWS::Partition}:lambda:${AWS::Region}:${AWS::AccountId}:event-source-mapping:*
+                        Condition:
+                            StringEquals:
+                                aws:ResourceTag/Project: ReaverOS
+                      - Effect: Allow
+                        Action:
+                          - sqs:CreateQueue
+                          - sqs:DeleteQueue
+                          - sqs:GetQueueAttributes
+                          - sqs:GetQueueUrl
+                          - sqs:ListQueueTags
+                          - sqs:SetQueueAttributes
+                          - sqs:TagQueue
+                          - sqs:UntagQueue
+                        Resource:
+                          - !Sub arn:${AWS::Partition}:sqs:${AWS::Region}:${AWS::AccountId}:${RunnerStackName}-ci-gate-events.fifo
+                          - !Sub arn:${AWS::Partition}:sqs:${AWS::Region}:${AWS::AccountId}:${RunnerStackName}-ci-gate-dead-letter.fifo
                       - Effect: Allow
                         Action:
                           - logs:CreateLogGroup
