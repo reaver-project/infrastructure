@@ -43,6 +43,13 @@
         Properties:
           ReservedConcurrentExecutions: 1
           Timeout: 300
+      Queue:
+        Type: AWS::SQS::Queue
+        DeletionPolicy: Retain
+        UpdateReplacePolicy: Retain
+        Properties:
+          SqsManagedSseEnabled: true
+          MessageRetentionPeriod: 345600
       LogGroup:
         Type: AWS::Logs::LogGroup
         Properties:
@@ -61,6 +68,7 @@
       security_groups_have_no_ingress: PASS
       runner_launch_templates_harden_instances: PASS
       lambda_functions_are_bounded: PASS
+      sqs_queues_are_encrypted_and_retained: PASS
       log_groups_have_bounded_retention: PASS
       trails_are_logging_with_validation: PASS
 
@@ -111,6 +119,11 @@
         Properties:
           ReservedConcurrentExecutions: 5
           Timeout: 600
+      Queue:
+        Type: AWS::SQS::Queue
+        Properties:
+          SqsManagedSseEnabled: false
+          MessageRetentionPeriod: 1209601
       LogGroup:
         Type: AWS::Logs::LogGroup
         Properties:
@@ -129,5 +142,96 @@
       security_groups_have_no_ingress: FAIL
       runner_launch_templates_harden_instances: FAIL
       lambda_functions_are_bounded: FAIL
+      sqs_queues_are_encrypted_and_retained: FAIL
       log_groups_have_bounded_retention: FAIL
       trails_are_logging_with_validation: FAIL
+
+- name: ci gate ingress and worker limits pass
+  input:
+    Resources:
+      RunnerControlFunction:
+        Type: AWS::Lambda::Function
+        Properties:
+          ReservedConcurrentExecutions: 1
+          Timeout: 300
+      CiGateFunction:
+        Type: AWS::Lambda::Function
+        Properties:
+          ReservedConcurrentExecutions: 8
+          Timeout: 15
+      CiGateWorkerFunction:
+        Type: AWS::Lambda::Function
+        Properties:
+          ReservedConcurrentExecutions: 1
+          Timeout: 30
+      CiGateWebhookQueue:
+        Type: AWS::SQS::Queue
+        DeletionPolicy: Retain
+        UpdateReplacePolicy: Retain
+        Properties:
+          FifoQueue: true
+          SqsManagedSseEnabled: true
+          MessageRetentionPeriod: 345600
+      CiGateDeadLetterQueue:
+        Type: AWS::SQS::Queue
+        DeletionPolicy: Retain
+        UpdateReplacePolicy: Retain
+        Properties:
+          FifoQueue: true
+          SqsManagedSseEnabled: true
+          MessageRetentionPeriod: 1209600
+      CiGateWorkerEventSource:
+        Type: AWS::Lambda::EventSourceMapping
+        Properties:
+          BatchSize: 1
+  expectations:
+    rules:
+      lambda_functions_are_bounded: PASS
+      ci_gate_ingress_and_worker_have_distinct_limits: PASS
+      ci_gate_delivery_is_fifo_and_serial: PASS
+      sqs_queues_are_encrypted_and_retained: PASS
+
+- name: overconcurrent ci gate fails
+  input:
+    Resources:
+      RunnerControlFunction:
+        Type: AWS::Lambda::Function
+        Properties:
+          ReservedConcurrentExecutions: 1
+          Timeout: 300
+      CiGateFunction:
+        Type: AWS::Lambda::Function
+        Properties:
+          ReservedConcurrentExecutions: 9
+          Timeout: 15
+      CiGateWorkerFunction:
+        Type: AWS::Lambda::Function
+        Properties:
+          ReservedConcurrentExecutions: 2
+          Timeout: 30
+      CiGateWebhookQueue:
+        Type: AWS::SQS::Queue
+        DeletionPolicy: Retain
+        UpdateReplacePolicy: Retain
+        Properties:
+          FifoQueue: false
+          SqsManagedSseEnabled: true
+          MessageRetentionPeriod: 345600
+      CiGateDeadLetterQueue:
+        Type: AWS::SQS::Queue
+        DeletionPolicy: Retain
+        UpdateReplacePolicy: Retain
+        Properties:
+          FifoQueue: false
+          SqsManagedSseEnabled: true
+          MessageRetentionPeriod: 1209600
+      CiGateWorkerEventSource:
+        Type: AWS::Lambda::EventSourceMapping
+        Properties:
+          BatchSize: 2
+  expectations:
+    rules:
+      lambda_functions_are_bounded: FAIL
+      ci_gate_ingress_and_worker_have_distinct_limits: FAIL
+      ci_gate_delivery_is_fifo_and_serial: FAIL
+      sqs_queues_are_encrypted_and_retained: PASS

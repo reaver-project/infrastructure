@@ -3,6 +3,7 @@ let ecr_repositories = Resources.*[ Type == 'AWS::ECR::Repository' ]
 let security_groups = Resources.*[ Type == 'AWS::EC2::SecurityGroup' ]
 let launch_templates = Resources.*[ Type == 'AWS::EC2::LaunchTemplate' ]
 let lambda_functions = Resources.*[ Type == 'AWS::Lambda::Function' ]
+let sqs_queues = Resources.*[ Type == 'AWS::SQS::Queue' ]
 let log_groups = Resources.*[ Type == 'AWS::Logs::LogGroup' ]
 let trails = Resources.*[ Type == 'AWS::CloudTrail::Trail' ]
 
@@ -47,8 +48,32 @@ rule runner_launch_templates_harden_instances when %launch_templates !empty {
 rule lambda_functions_are_bounded when %lambda_functions !empty {
     %lambda_functions {
         Properties {
-            ReservedConcurrentExecutions == 1
+            ReservedConcurrentExecutions >= 1
+            ReservedConcurrentExecutions <= 8
             Timeout <= 300
+        }
+    }
+}
+
+rule ci_gate_ingress_and_worker_have_distinct_limits when Resources.CiGateWorkerFunction exists {
+    Resources.CiGateFunction.Properties.ReservedConcurrentExecutions == 8
+    Resources.CiGateWorkerFunction.Properties.ReservedConcurrentExecutions == 1
+    Resources.RunnerControlFunction.Properties.ReservedConcurrentExecutions == 1
+}
+
+rule ci_gate_delivery_is_fifo_and_serial when Resources.CiGateWorkerEventSource exists {
+    Resources.CiGateWebhookQueue.Properties.FifoQueue == true
+    Resources.CiGateDeadLetterQueue.Properties.FifoQueue == true
+    Resources.CiGateWorkerEventSource.Properties.BatchSize == 1
+}
+
+rule sqs_queues_are_encrypted_and_retained when %sqs_queues !empty {
+    %sqs_queues {
+        DeletionPolicy == 'Retain'
+        UpdateReplacePolicy == 'Retain'
+        Properties {
+            SqsManagedSseEnabled == true
+            MessageRetentionPeriod <= 1209600
         }
     }
 }
