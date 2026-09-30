@@ -59,6 +59,9 @@ export SCCACHE_REGION=${AWS_REGION}
 export SCCACHE_S3_KEY_PREFIX=${cache_trust}/
 export SCCACHE_S3_SERVER_SIDE_ENCRYPTION=true
 export SCCACHE_S3_USE_SSL=true
+# Object-scoped runner roles cannot list the bucket, so the initial missing
+# capability-check object would fail before the cache server could start.
+export SCCACHE_SKIP_CACHE_CHECK=true
 export SCCACHE_IDLE_TIMEOUT=0
 export SCCACHE_SERVER_UDS=${host_socket}
 "${SCCACHE_BINARY}" --start-server

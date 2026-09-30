@@ -32,9 +32,10 @@ case $(basename -- "$0") in
         exit
         ;;
     sccache)
-        printf '%s\t%s\t%s\n' \
+        printf '%s\t%s\t%s\t%s\n' \
             "${SCCACHE_BUCKET:-}" "${SCCACHE_S3_KEY_PREFIX:-}" \
-            "${SCCACHE_CLIENT_SIDE:-}" >> "${TEST_CACHE_LOG}"
+            "${SCCACHE_CLIENT_SIDE:-}" "${SCCACHE_SKIP_CACHE_CHECK:-}" \
+            >> "${TEST_CACHE_LOG}"
         case $1 in
             --start-server)
                 python3 -c '
@@ -68,6 +69,7 @@ export AWS_REGION=us-west-2
 export PROJECT_SLUG=example
 export STACK_NAME=example-runners
 export TEST_CACHE_LOG="${test_directory}/cache.log"
+export SCCACHE_SKIP_CACHE_CHECK=false
 
 for trust in candidate trusted; do
     export TEST_CACHE_TRUST=${trust}
@@ -79,7 +81,7 @@ for trust in candidate trusted; do
     cp "${self_dir}/test" "${SCCACHE_BINARY}"
     : > "${TEST_CACHE_LOG}"
     "${self_dir}/configure" > /dev/null
-    expected_log=$(printf 'reaver-project-example-cache-123456789012-us-west-2\t%s/\t' "${trust}")
+    expected_log=$(printf 'reaver-project-example-cache-123456789012-us-west-2\t%s/\t\ttrue' "${trust}")
     if ! grep --fixed-strings --line-regexp \
         "${expected_log}" "${TEST_CACHE_LOG}" > /dev/null; then
         printf 'The %s runner did not use its own S3 cache namespace.\n' \
