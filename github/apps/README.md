@@ -2,8 +2,9 @@
 
 The repository uses four private organization-owned GitHub Apps:
 
-- the runner manager has only organization self-hosted-runner permission and
-  is installed into the central AWS runner controller; and
+- the runner manager has organization self-hosted-runner write and repository
+  Actions read permissions; it sends workflow-job events to the AWS runner
+  controller; and
 - the infrastructure manager has the organization and repository permissions
   required to converge settings from this repository; and
 - the maintenance manager has only the repository permissions required to
@@ -18,8 +19,9 @@ made fully convergent through the built-in workflow token. App installation,
 permission changes, key rotation, and the resources that consume the keys are
 managed after that bootstrap.
 
-Only the CI gate subscribes to webhook events. A direct manifest helper and the
-small AWS-hosted controller are sufficient; introducing a Probot service would
+The runner manager and CI gate subscribe to their separate webhook events. A
+direct manifest helper and the small AWS-hosted controllers are sufficient;
+introducing a Probot service would
 add another persistent application without providing a useful capability for
 this design.
 
