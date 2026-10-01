@@ -103,6 +103,7 @@ python3 -m py_compile \
     github/apps/test-create.py \
     projects/reaveros/aws/create-function-archive \
     projects/reaveros/aws/functions/github_app.py \
+    projects/reaveros/aws/functions/webhook.py \
     projects/reaveros/aws/functions/ci-gate/index.py \
     projects/reaveros/aws/functions/ci-gate/lib.py \
     projects/reaveros/aws/functions/ci-gate/test.py \

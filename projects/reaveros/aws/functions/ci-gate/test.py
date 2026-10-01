@@ -5,18 +5,20 @@ import pathlib
 import sys
 import unittest
 
+sys.path.insert(0, str(pathlib.Path(__file__).parent.parent))
 sys.path.insert(0, str(pathlib.Path(__file__).parent))
 
 import lib  # noqa: E402
+import webhook  # noqa: E402
 
 sha = "0123456789abcdef0123456789abcdef01234567"
 
 
 class CiGateLibraryTests(unittest.TestCase):
     def test_reads_plain_and_base64_event_bodies(self):
-        self.assertEqual(lib.event_body({"body": "hello"}), b"hello")
+        self.assertEqual(webhook.event_body({"body": "hello"}), b"hello")
         self.assertEqual(
-            lib.event_body(
+            webhook.event_body(
                 {
                     "body": base64.b64encode(b"hello").decode(),
                     "isBase64Encoded": True,
@@ -25,11 +27,11 @@ class CiGateLibraryTests(unittest.TestCase):
             b"hello",
         )
         with self.assertRaisesRegex(ValueError, "valid base64"):
-            lib.event_body({"body": "%%%", "isBase64Encoded": True})
+            webhook.event_body({"body": "%%%", "isBase64Encoded": True})
         with self.assertRaisesRegex(ValueError, "too large"):
-            lib.event_body({"body": "hello"}, maximum_size=4)
+            webhook.event_body({"body": "hello"}, maximum_size=4)
         with self.assertRaisesRegex(ValueError, "missing"):
-            lib.event_body({})
+            webhook.event_body({})
 
     def test_reads_headers_case_insensitively_and_verifies_signatures(self):
         body = b"payload"
@@ -43,19 +45,19 @@ class CiGateLibraryTests(unittest.TestCase):
         )
         event = {"headers": {"X-Hub-Signature-256": signature}}
 
-        self.assertEqual(lib.event_header(event, "x-hub-signature-256"), signature)
-        self.assertTrue(lib.verify_signature(body, signature, "secret"))
-        self.assertFalse(lib.verify_signature(body, signature, "different"))
-        self.assertEqual(lib.event_header({}, "missing"), "")
+        self.assertEqual(webhook.event_header(event, "x-hub-signature-256"), signature)
+        self.assertTrue(webhook.verify_signature(body, signature, "secret"))
+        self.assertFalse(webhook.verify_signature(body, signature, "different"))
+        self.assertEqual(webhook.event_header({}, "missing"), "")
         with self.assertRaisesRegex(ValueError, "secret is missing"):
-            lib.verify_signature(body, signature, "")
+            webhook.verify_signature(body, signature, "")
 
     def test_parses_only_object_payloads(self):
-        self.assertEqual(lib.parse_payload(b'{"answer":42}'), {"answer": 42})
+        self.assertEqual(webhook.parse_payload(b'{"answer":42}'), {"answer": 42})
         with self.assertRaisesRegex(ValueError, "valid JSON"):
-            lib.parse_payload(b"{")
+            webhook.parse_payload(b"{")
         with self.assertRaisesRegex(ValueError, "object"):
-            lib.parse_payload(b"[]")
+            webhook.parse_payload(b"[]")
 
     def test_accepts_github_sized_commit_abbreviations(self):
         self.assertEqual(lib.approval_sha("/ok to test 0123456"), "0123456")

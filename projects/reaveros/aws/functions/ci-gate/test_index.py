@@ -39,6 +39,7 @@ def load_module(name, path):
 
 
 github_app = load_module("github_app", module_directory.parent / "github_app.py")
+webhook = load_module("webhook", module_directory.parent / "webhook.py")
 lib = load_module("lib", module_directory / "lib.py")
 ci_gate = load_module("ci_gate_index", module_directory / "index.py")
 

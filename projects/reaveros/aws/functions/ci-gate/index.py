@@ -10,16 +10,13 @@ from lib import (
     automatic_revision,
     copied_branch,
     current_revision,
-    event_body,
-    event_header,
     installation_id,
-    parse_payload,
     pull_request_number,
     repository_identity,
     signed_pr_history,
     starts_with_approval_command,
-    verify_signature,
 )
+from webhook import event_body, event_header, parse_payload, verify_signature
 
 secrets = boto3.client("secretsmanager")
 sqs = boto3.client("sqs")

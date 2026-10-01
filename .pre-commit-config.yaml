@@ -232,7 +232,7 @@ repos:
         language: python
         additional_dependencies:
           - coverage==7.15.4
-        files: ^projects/reaveros/aws/functions/(ci-gate/.*\.py|github_app\.py)$
+        files: ^projects/reaveros/aws/functions/(ci-gate/.*\.py|github_app\.py|webhook\.py)$
         pass_filenames: false
       - id: infrastructure-tests
         name: Run infrastructure tests

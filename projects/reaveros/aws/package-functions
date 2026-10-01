@@ -41,6 +41,7 @@ python3 -m pip install \
 install -d "${staging_directory}/ci-gate"
 install \
     "${self_dir}/functions/github_app.py" \
+    "${self_dir}/functions/webhook.py" \
     "${self_dir}/functions/ci-gate/index.py" \
     "${self_dir}/functions/ci-gate/lib.py" \
     "${staging_directory}/ci-gate/"
