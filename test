@@ -108,6 +108,8 @@ python3 -m py_compile \
     projects/reaveros/aws/functions/ci-gate/lib.py \
     projects/reaveros/aws/functions/ci-gate/test.py \
     projects/reaveros/aws/functions/ci-gate/test_index.py \
+    projects/reaveros/aws/functions/runner-webhook/lib.py \
+    projects/reaveros/aws/functions/runner-webhook/test.py \
     projects/reaveros/aws/functions/runner-control/index.py \
     projects/reaveros/aws/functions/runner-control/lib.py \
     projects/reaveros/aws/functions/runner-control/test.py \
@@ -145,6 +147,7 @@ python3 projects/reaveros/aws/functions/runner-control/test.py
 python3 projects/reaveros/aws/functions/runner-control/test_index.py
 python3 projects/reaveros/aws/functions/ci-gate/test.py
 python3 projects/reaveros/aws/functions/ci-gate/test_index.py
+python3 projects/reaveros/aws/functions/runner-webhook/test.py
 projects/reaveros/aws/package-functions build/reaveros-lambda
 test -f build/reaveros-lambda/ci-gate.zip
 test -f build/reaveros-lambda/runner-control.zip
