@@ -576,51 +576,59 @@ Resources:
                         Condition:
                             StringEquals:
                                 iam:AWSServiceName: budgets.amazonaws.com
-              - PolicyName: ManageCompilerCache
-                PolicyDocument:
-                    Version: '2012-10-17'
-                    Statement:
-                      - Effect: Allow
-                        Action:
-                          - cloudformation:CreateChangeSet
-                          - cloudformation:CreateStack
-                          - cloudformation:DeleteChangeSet
-                          - cloudformation:DeleteStack
-                          - cloudformation:DescribeChangeSet
-                          - cloudformation:DescribeStackEvents
-                          - cloudformation:DescribeStackResources
-                          - cloudformation:DescribeStacks
-                          - cloudformation:ExecuteChangeSet
-                          - cloudformation:GetTemplate
-                          - cloudformation:ListStackResources
-                          - cloudformation:UpdateStack
-                        Resource: !Sub arn:${AWS::Partition}:cloudformation:${AWS::Region}:${AWS::AccountId}:stack/${RunnerStackName}-CompilerCache-*/*
-                      - Effect: Allow
-                        Action:
-                          - s3:CreateBucket
-                          - s3:DeleteBucket
-                          - s3:DeleteBucketPolicy
-                          - s3:GetBucketLocation
-                          - s3:GetBucketOwnershipControls
-                          - s3:GetBucketPolicy
-                          - s3:GetBucketPolicyStatus
-                          - s3:GetBucketPublicAccessBlock
-                          - s3:GetBucketTagging
-                          - s3:GetBucketVersioning
-                          - s3:GetEncryptionConfiguration
-                          - s3:GetLifecycleConfiguration
-                          - s3:ListBucket
-                          - s3:PutBucketOwnershipControls
-                          - s3:PutBucketPolicy
-                          - s3:PutBucketPublicAccessBlock
-                          - s3:PutBucketTagging
-                          - s3:PutBucketVersioning
-                          - s3:PutEncryptionConfiguration
-                          - s3:PutLifecycleConfiguration
-                        Resource: !Sub arn:${AWS::Partition}:s3:::reaver-project-reaveros-cache-${AWS::AccountId}-${AWS::Region}
             Tags:
               - Key: Project
                 Value: ReaverProjectInfrastructure
+
+    CompilerCacheDeploymentPolicy:
+        Type: AWS::IAM::ManagedPolicy
+        DependsOn: ControlPlaneCloudFormationExecutionRole
+        Properties:
+            ManagedPolicyName: !Sub ${AWS::StackName}-compiler-cache-deployment
+            Description: Scoped permissions to manage the ReaverOS compiler cache stack
+            Roles:
+              - !Ref CloudFormationExecutionRole
+            PolicyDocument:
+                Version: '2012-10-17'
+                Statement:
+                  - Effect: Allow
+                    Action:
+                      - cloudformation:CreateChangeSet
+                      - cloudformation:CreateStack
+                      - cloudformation:DeleteChangeSet
+                      - cloudformation:DeleteStack
+                      - cloudformation:DescribeChangeSet
+                      - cloudformation:DescribeStackEvents
+                      - cloudformation:DescribeStackResources
+                      - cloudformation:DescribeStacks
+                      - cloudformation:ExecuteChangeSet
+                      - cloudformation:GetTemplate
+                      - cloudformation:ListStackResources
+                      - cloudformation:UpdateStack
+                    Resource: !Sub arn:${AWS::Partition}:cloudformation:${AWS::Region}:${AWS::AccountId}:stack/${RunnerStackName}-CompilerCache-*/*
+                  - Effect: Allow
+                    Action:
+                      - s3:CreateBucket
+                      - s3:DeleteBucket
+                      - s3:DeleteBucketPolicy
+                      - s3:GetBucketLocation
+                      - s3:GetBucketOwnershipControls
+                      - s3:GetBucketPolicy
+                      - s3:GetBucketPolicyStatus
+                      - s3:GetBucketPublicAccessBlock
+                      - s3:GetBucketTagging
+                      - s3:GetBucketVersioning
+                      - s3:GetEncryptionConfiguration
+                      - s3:GetLifecycleConfiguration
+                      - s3:ListBucket
+                      - s3:PutBucketOwnershipControls
+                      - s3:PutBucketPolicy
+                      - s3:PutBucketPublicAccessBlock
+                      - s3:PutBucketTagging
+                      - s3:PutBucketVersioning
+                      - s3:PutEncryptionConfiguration
+                      - s3:PutLifecycleConfiguration
+                    Resource: !Sub arn:${AWS::Partition}:s3:::reaver-project-reaveros-cache-${AWS::AccountId}-${AWS::Region}
 
     NestedStackPassRolePolicy:
         Type: AWS::IAM::Policy
@@ -663,8 +671,10 @@ Resources:
                                 aws:RequestTag/Project: ReaverProjectInfrastructure
                       - Effect: Allow
                         Action:
+                          - iam:AttachRolePolicy
                           - iam:DeleteRole
                           - iam:DeleteRolePolicy
+                          - iam:DetachRolePolicy
                           - iam:GetRole
                           - iam:GetRolePolicy
                           - iam:ListAttachedRolePolicies
