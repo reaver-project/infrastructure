@@ -694,3 +694,9 @@ def admission_handler(event, _context):
     if not isinstance(event, dict) or event.get("action") != "admit_workflow":
         raise ValueError("unsupported runner workflow admission action")
     return admit_workflow(event)
+
+
+def reaper_handler(event, _context):
+    if not isinstance(event, dict) or event.get("action") != "reap":
+        raise ValueError("unsupported runner reconciliation action")
+    return reap(event)

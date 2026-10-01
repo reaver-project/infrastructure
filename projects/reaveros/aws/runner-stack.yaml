@@ -1069,6 +1069,52 @@ Resources:
               - Key: Project
                 Value: ReaverOS
 
+    CandidateRunnerReaperFunction:
+        Type: AWS::Lambda::Function
+        Properties:
+            FunctionName: !Sub ${AWS::StackName}-runner-candidate-reaper
+            Runtime: python3.13
+            Handler: index.reaper_handler
+            Role: !GetAtt RunnerControlRole.Arn
+            Timeout: 90
+            ReservedConcurrentExecutions: 1
+            Environment:
+                Variables:
+                    ALLOWED_REPOSITORIES: !Join [',', !Ref GitHubAllowedRepositories]
+                    CACHE_TRUST_CLASS: candidate
+                    GITHUB_APP_SECRET_ID: !Ref RunnerAppSecret
+                    GITHUB_ORGANIZATION: !Ref GitHubOrganization
+                    GITHUB_RUNNER_GROUP_ID: !Ref GitHubRunnerGroupId
+                    JIT_PARAMETER_PREFIX: /reaveros/github-runners/jit/
+                    MAXIMUM_AGE_MINUTES: !Ref RunnerMaximumAgeMinutes
+            Code: ../../../build/reaveros-lambda/runner-control.zip
+            Tags:
+              - Key: Project
+                Value: ReaverOS
+
+    TrustedRunnerReaperFunction:
+        Type: AWS::Lambda::Function
+        Properties:
+            FunctionName: !Sub ${AWS::StackName}-runner-trusted-reaper
+            Runtime: python3.13
+            Handler: index.reaper_handler
+            Role: !GetAtt TrustedRunnerControlRole.Arn
+            Timeout: 90
+            ReservedConcurrentExecutions: 1
+            Environment:
+                Variables:
+                    ALLOWED_REPOSITORIES: !Join [',', !Ref GitHubAllowedRepositories]
+                    CACHE_TRUST_CLASS: trusted
+                    GITHUB_APP_SECRET_ID: !Ref RunnerAppSecret
+                    GITHUB_ORGANIZATION: !Ref GitHubOrganization
+                    GITHUB_RUNNER_GROUP_ID: !Ref GitHubRunnerGroupId
+                    JIT_PARAMETER_PREFIX: /reaveros/github-runners/jit/
+                    MAXIMUM_AGE_MINUTES: !Ref RunnerMaximumAgeMinutes
+            Code: ../../../build/reaveros-lambda/runner-control.zip
+            Tags:
+              - Key: Project
+                Value: ReaverOS
+
     CandidateRunnerWebhookEventSource:
         Type: AWS::Lambda::EventSourceMapping
         Properties:
@@ -1126,6 +1172,24 @@ Resources:
         Type: AWS::Logs::LogGroup
         Properties:
             LogGroupName: !Sub /aws/lambda/${TrustedRunnerWebhookWorker}
+            RetentionInDays: 30
+            Tags:
+              - Key: Project
+                Value: ReaverOS
+
+    CandidateRunnerReaperLogGroup:
+        Type: AWS::Logs::LogGroup
+        Properties:
+            LogGroupName: !Sub /aws/lambda/${CandidateRunnerReaperFunction}
+            RetentionInDays: 30
+            Tags:
+              - Key: Project
+                Value: ReaverOS
+
+    TrustedRunnerReaperLogGroup:
+        Type: AWS::Logs::LogGroup
+        Properties:
+            LogGroupName: !Sub /aws/lambda/${TrustedRunnerReaperFunction}
             RetentionInDays: 30
             Tags:
               - Key: Project
@@ -1382,16 +1446,16 @@ Resources:
         Type: AWS::Events::Rule
         Properties:
             Description: Terminate orphaned ReaverOS GitHub Actions runners
-            ScheduleExpression: rate(1 minute)
+            ScheduleExpression: rate(2 minutes)
             State: ENABLED
             Tags:
               - Key: Project
                 Value: ReaverOS
             Targets:
-              - Arn: !GetAtt RunnerControlFunction.Arn
+              - Arn: !GetAtt CandidateRunnerReaperFunction.Arn
                 Id: CandidateRunnerReaper
                 Input: '{"action":"reap"}'
-              - Arn: !GetAtt TrustedRunnerControlFunction.Arn
+              - Arn: !GetAtt TrustedRunnerReaperFunction.Arn
                 Id: TrustedRunnerReaper
                 Input: '{"action":"reap"}'
 
@@ -1399,7 +1463,7 @@ Resources:
         Type: AWS::Lambda::Permission
         Properties:
             Action: lambda:InvokeFunction
-            FunctionName: !Ref RunnerControlFunction
+            FunctionName: !Ref CandidateRunnerReaperFunction
             Principal: events.amazonaws.com
             SourceArn: !GetAtt RunnerReaperSchedule.Arn
 
@@ -1407,7 +1471,7 @@ Resources:
         Type: AWS::Lambda::Permission
         Properties:
             Action: lambda:InvokeFunction
-            FunctionName: !Ref TrustedRunnerControlFunction
+            FunctionName: !Ref TrustedRunnerReaperFunction
             Principal: events.amazonaws.com
             SourceArn: !GetAtt RunnerReaperSchedule.Arn
 
@@ -1455,6 +1519,52 @@ Resources:
             Dimensions:
               - Name: FunctionName
                 Value: !Ref TrustedRunnerControlFunction
+            Statistic: Sum
+            Period: 300
+            EvaluationPeriods: 1
+            DatapointsToAlarm: 1
+            Threshold: 1
+            ComparisonOperator: GreaterThanOrEqualToThreshold
+            TreatMissingData: notBreaching
+            AlarmActions:
+              - !Ref RunnerOperationsTopic
+            Tags:
+              - Key: Project
+                Value: ReaverOS
+
+    CandidateRunnerReaperErrorsAlarm:
+        Type: AWS::CloudWatch::Alarm
+        Properties:
+            AlarmName: !Sub ${AWS::StackName}-runner-candidate-reaper-errors
+            AlarmDescription: Candidate runner reconciliation failed
+            Namespace: AWS/Lambda
+            MetricName: Errors
+            Dimensions:
+              - Name: FunctionName
+                Value: !Ref CandidateRunnerReaperFunction
+            Statistic: Sum
+            Period: 300
+            EvaluationPeriods: 1
+            DatapointsToAlarm: 1
+            Threshold: 1
+            ComparisonOperator: GreaterThanOrEqualToThreshold
+            TreatMissingData: notBreaching
+            AlarmActions:
+              - !Ref RunnerOperationsTopic
+            Tags:
+              - Key: Project
+                Value: ReaverOS
+
+    TrustedRunnerReaperErrorsAlarm:
+        Type: AWS::CloudWatch::Alarm
+        Properties:
+            AlarmName: !Sub ${AWS::StackName}-runner-trusted-reaper-errors
+            AlarmDescription: Trusted runner reconciliation failed
+            Namespace: AWS/Lambda
+            MetricName: Errors
+            Dimensions:
+              - Name: FunctionName
+                Value: !Ref TrustedRunnerReaperFunction
             Statistic: Sum
             Period: 300
             EvaluationPeriods: 1

@@ -1485,6 +1485,16 @@ class RunnerControlIndexTests(unittest.TestCase):
             self.assertEqual(runner_control.reap({}), {"terminated": []})
         self.assertIn("transient metadata error", print_message.call_args.args[0])
 
+    def test_reaper_handler_accepts_only_reconciliation(self):
+        with mock.patch.object(runner_control, "reap", return_value={"terminated": []}) as reap:
+            self.assertEqual(
+                runner_control.reaper_handler({"action": "reap"}, None),
+                {"terminated": []},
+            )
+            reap.assert_called_once_with({"action": "reap"})
+        with self.assertRaisesRegex(ValueError, "unsupported runner reconciliation"):
+            runner_control.reaper_handler({"action": "launch"}, None)
+
     def test_reap_reports_cleanup_failure_after_terminating_runner(self):
         old_runner = {
             "InstanceId": "i-old",
