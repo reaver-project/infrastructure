@@ -654,6 +654,64 @@ class RunnerControlIndexTests(unittest.TestCase):
             tags,
         )
 
+    def test_webhook_runner_launch_is_idempotent_for_the_job(self):
+        event = {
+            "github_run_attempt": 2,
+            "github_run_id": 123,
+            "github_job_id": 456,
+            "repository": "reaver-project/reaveros",
+            "source_ref": "refs/heads/pull-request/17",
+            "runner_key": "unit-tests-amd64",
+            "runner_profile": "validation",
+            "runner_size": "medium",
+        }
+        instance = {
+            "InstanceId": "i-existing",
+            "State": {"Name": "running"},
+            "Tags": [
+                {"Key": "GitHubJobId", "Value": "456"},
+                {"Key": "GitHubRepository", "Value": "reaver-project/reaveros"},
+                {"Key": "GitHubSourceRef", "Value": "refs/heads/pull-request/17"},
+                {"Key": "GitHubRunId", "Value": "123"},
+                {"Key": "GitHubRunnerName", "Value": "reaveros-123-2-unit-tests-amd64"},
+                {"Key": "ReaverOSRunnerProfile", "Value": "validation"},
+                {"Key": "ReaverOSRunnerSize", "Value": "medium"},
+                {"Key": "ReaverProjectCacheTrust", "Value": "candidate"},
+            ],
+        }
+        with mock.patch.object(runner_control, "runner_instances", return_value=[instance]):
+            result = runner_control.launch(event)
+        self.assertEqual(result["instance_id"], "i-existing")
+        self.assertEqual(result["runner_name"], "reaveros-123-2-unit-tests-amd64")
+        clients["ec2"].run_instances.assert_not_called()
+        clients["ssm"].put_parameter.assert_not_called()
+
+        invalid = {
+            **instance,
+            "Tags": [*instance["Tags"], {"Key": "ReaverProjectCacheTrust", "Value": "trusted"}],
+        }
+        with (
+            mock.patch.object(runner_control, "runner_instances", return_value=[invalid]),
+            self.assertRaisesRegex(ValueError, "differs from the request"),
+        ):
+            runner_control.launch(event)
+        with (
+            mock.patch.object(
+                runner_control, "runner_instances", return_value=[instance, instance]
+            ),
+            self.assertRaisesRegex(RuntimeError, "multiple runners"),
+        ):
+            runner_control.launch(event)
+        with (
+            mock.patch.object(
+                runner_control,
+                "runner_instances",
+                return_value=[{**instance, "State": {"Name": "stopping"}}],
+            ),
+            self.assertRaisesRegex(RuntimeError, "shutting down"),
+        ):
+            runner_control.launch(event)
+
     def test_trusted_controller_uses_only_the_trusted_builder_profile(self):
         clients["ec2"].run_instances.return_value = {
             "Instances": [{"InstanceId": "i-trusted"}],

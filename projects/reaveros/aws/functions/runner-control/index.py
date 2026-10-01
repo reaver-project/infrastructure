@@ -248,6 +248,34 @@ def launch(event):
     live_runners = [
         instance for instance in runner_instances() if instance["State"]["Name"] in live_states
     ]
+    if "job_id" in identity:
+        matching = []
+        for instance in live_runners:
+            tags = {tag["Key"]: tag["Value"] for tag in instance.get("Tags", [])}
+            if tags.get("GitHubJobId") == identity["job_id"]:
+                matching.append((instance, tags))
+        if len(matching) > 1:
+            raise RuntimeError("multiple runners exist for one workflow job")
+        if matching:
+            instance, tags = matching[0]
+            expected = {
+                "GitHubRepository": repository,
+                "GitHubSourceRef": source_ref,
+                "GitHubRunId": identity["run_id"],
+                "GitHubRunnerName": identity["runner_name"],
+                "ReaverOSRunnerProfile": runner_profile,
+                "ReaverOSRunnerSize": runner_size,
+                "ReaverProjectCacheTrust": cache_trust,
+            }
+            if any(tags.get(key) != value for key, value in expected.items()):
+                raise ValueError("existing workflow job runner differs from the request")
+            if instance["State"]["Name"] not in {"pending", "running"}:
+                raise RuntimeError("existing workflow job runner is shutting down")
+            return {
+                "instance_id": instance["InstanceId"],
+                "labels": ["self-hosted", "reaveros-aws", identity["runner_name"]],
+                "runner_name": identity["runner_name"],
+            }
     # The candidate and trusted functions can each admit one runner at once.
     # Reserve the other in-flight launch before checking the global limit.
     admission_limit = (
