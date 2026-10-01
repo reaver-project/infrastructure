@@ -303,6 +303,7 @@ assert_log_contains 'ParameterKey=InfrastructureAccessAnalyzerArn,ParameterValue
 
 "${self_dir}/apply" "${common_account_arguments[@]}" > /dev/null
 assert_log_contains $'aws\t--profile\treaver-project-ci-admin\tcloudformation\texecute-change-set\t--region\tus-west-2\t--change-set-name\tarn:aws:cloudformation:us-west-2:560512681071:changeSet/reaver-project-ci-deployment-trust-aaaaaaaaaaaa/01234567-89ab-cdef-0123-456789abcdef'
+assert_log_contains $'--client-request-token\tcontrol-plane-01234567-89ab-cdef-0123-456789abcdef'
 assert_log_contains $'aws\t--profile\treaver-project-ci-admin\tcloudformation\tupdate-termination-protection'
 if "${self_dir}/apply" \
     "${common_account_arguments[@]}" \
