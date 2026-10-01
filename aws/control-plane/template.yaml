@@ -584,7 +584,6 @@ Resources:
         Type: AWS::IAM::ManagedPolicy
         DependsOn: ControlPlaneCloudFormationExecutionRole
         Properties:
-            ManagedPolicyName: !Sub ${AWS::StackName}-compiler-cache-deployment
             Description: Scoped permissions to manage the ReaverOS compiler cache stack
             Roles:
               - !Ref CloudFormationExecutionRole

@@ -429,9 +429,12 @@ if grep --fixed-strings --quiet 'PolicyName: ManageCompilerCache' \
     "${self_dir}/template.yaml" ||
     ! grep --fixed-strings --quiet 'CompilerCacheDeploymentPolicy:' \
         "${self_dir}/template.yaml" ||
-    ! grep --fixed-strings --quiet \
-        'ManagedPolicyName: !Sub ${AWS::StackName}-compiler-cache-deployment' \
-        "${self_dir}/template.yaml"; then
+    ! awk '
+        /^    CompilerCacheDeploymentPolicy:$/ { in_policy = 1; next }
+        in_policy && /^    [A-Za-z][A-Za-z0-9]*:$/ { exit }
+        in_policy && /- !Ref CloudFormationExecutionRole$/ { attached = 1 }
+        END { exit !attached }
+    ' "${self_dir}/template.yaml"; then
     printf 'Compiler-cache deployment permissions must be a managed policy.\n' >&2
     exit 1
 fi
