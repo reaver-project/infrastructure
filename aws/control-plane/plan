@@ -12,6 +12,7 @@ local_profile=
 control_plane_stack_name=reaver-project-ci-deployment-trust
 default_branch=main
 deployment_plan_audit_bucket=
+deployment_artifact_bucket=${AWS_DEPLOYMENT_ARTIFACT_BUCKET:-}
 expected_account_id=
 execution_role_arn=
 access_analyzer_arn=
@@ -27,6 +28,7 @@ usage()
     printf '%s\n' \
         "usage: $0 [--profile <profile>]" \
         '    --deployment-plan-audit-bucket <bucket>' \
+        '    --deployment-artifact-bucket <bucket>' \
         '    [--region <region>] [--control-plane-stack-name <name>]' \
         '    [--execution-role-arn <arn>]' \
         '    [--runner-stack-name <name>] [--repository <owner/repository>]' \
@@ -51,6 +53,10 @@ while [[ $# -gt 0 ]]; do
             ;;
         --deployment-plan-audit-bucket)
             deployment_plan_audit_bucket=$2
+            shift 2
+            ;;
+        --deployment-artifact-bucket)
+            deployment_artifact_bucket=$2
             shift 2
             ;;
         --execution-role-arn)
@@ -92,7 +98,8 @@ while [[ $# -gt 0 ]]; do
     esac
 done
 
-if [[ -z ${deployment_plan_audit_bucket} ]]; then
+if [[ -z ${deployment_plan_audit_bucket} ||
+    ! ${deployment_artifact_bucket} =~ ^[a-z0-9][a-z0-9.-]{1,61}[a-z0-9]$ ]]; then
     usage >&2
     exit 2
 fi
@@ -169,13 +176,26 @@ else
     exit 1
 fi
 
+template_key="plans/control-plane/templates/${revision}-${template_sha256}-${GITHUB_RUN_ID:-local-$$}-${GITHUB_RUN_ATTEMPT:-1}.yaml"
+if ! local_aws s3api put-object \
+    --region "${region}" \
+    --bucket "${deployment_artifact_bucket}" \
+    --key "${template_key}" \
+    --body "${self_dir}/template.yaml" \
+    --content-type application/yaml \
+    --if-none-match '*' \
+    > /dev/null; then
+    printf 'Could not preserve the control-plane CloudFormation template.\n' >&2
+    exit 1
+fi
+
 create_arguments=(
     --region "${region}"
     --stack-name "${control_plane_stack_name}"
     --change-set-name "${change_set_name}"
     --change-set-type "${change_set_type}"
     --description "AWS control plane revision ${revision}; template ${template_sha256}"
-    --template-body "file://${self_dir}/template.yaml"
+    --template-url "https://${deployment_artifact_bucket}.s3.${region}.amazonaws.com/${template_key}"
     --capabilities CAPABILITY_IAM
     --parameters
     "ParameterKey=ControlPlaneRevision,ParameterValue=${revision}"
