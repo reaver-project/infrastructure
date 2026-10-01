@@ -210,7 +210,6 @@ def admit_copied_workflow(repository, branch):
 
 def set_copied_revision(token, repository, number, sha):
     branch = copied_branch(number)
-    admit_copied_workflow(repository, branch)
     get_path = f"/repos/{repository}/git/ref/heads/{branch}"
     update_path = f"/repos/{repository}/git/refs/heads/{branch}"
     try:
@@ -224,7 +223,11 @@ def set_copied_revision(token, repository, number, sha):
             "POST",
             {"ref": f"refs/heads/{branch}", "sha": sha},
         )
-        admit_copied_workflow(repository, branch)
+        try:
+            admit_copied_workflow(repository, branch)
+        except Exception:
+            delete_copied_revision(token, repository, number)
+            raise
         return
 
     current_object = current.get("object") if isinstance(current, dict) else None
