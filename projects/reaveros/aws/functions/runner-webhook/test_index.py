@@ -125,8 +125,8 @@ class RunnerWebhookIngressTests(unittest.TestCase):
         self.assertEqual(invalid_delivery["statusCode"], 400)
         invalid_job = job_event()
         invalid_job["workflow_job"]["head_branch"] = "feature/unreviewed"
-        rejected = runner_webhook.handler(signed_event(invalid_job), None)
-        self.assertEqual(rejected["statusCode"], 400)
+        ignored = runner_webhook.handler(signed_event(invalid_job), None)
+        self.assertEqual(ignored["statusCode"], 200)
         clients["sqs"].send_message.assert_not_called()
 
     def test_does_not_acknowledge_an_unstored_event(self):

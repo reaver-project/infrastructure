@@ -43,7 +43,7 @@ def normalize_job_event(payload, allowed_repositories):
     elif isinstance(branch, str) and re.fullmatch(r"pull-request/[1-9][0-9]*", branch):
         trust = "candidate"
     else:
-        raise ValueError("workflow job branch is not admitted")
+        return None
 
     head_sha = job.get("head_sha")
     if not isinstance(head_sha, str) or re.fullmatch(r"[0-9a-f]{40}", head_sha) is None:

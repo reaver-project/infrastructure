@@ -61,9 +61,8 @@ class RunnerWebhookValidationTests(unittest.TestCase):
         other_runner["workflow_job"]["labels"] = ["ubuntu-latest"]
         self.assertIsNone(lib.normalize_job_event(other_runner, allowed))
 
-    def test_rejects_unadmitted_branches_and_mismatched_status(self):
-        with self.assertRaisesRegex(ValueError, "not admitted"):
-            lib.normalize_job_event(job_event(branch="feature/unreviewed"), allowed)
+    def test_ignores_unadmitted_branches_and_rejects_mismatched_status(self):
+        self.assertIsNone(lib.normalize_job_event(job_event(branch="feature/unreviewed"), allowed))
         event = job_event()
         event["workflow_job"]["status"] = "completed"
         with self.assertRaisesRegex(ValueError, "does not match"):
