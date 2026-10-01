@@ -228,6 +228,11 @@ Resources:
                       - !Sub arn:${AWS::Partition}:sqs:${AWS::Region}:${AWS::AccountId}:${RunnerStackName}-runner-candidate-events.fifo
                       - !Sub arn:${AWS::Partition}:sqs:${AWS::Region}:${AWS::AccountId}:${RunnerStackName}-runner-trusted-events.fifo
                   - Effect: Allow
+                    Action: sqs:SendMessage
+                    Resource:
+                      - !Sub arn:${AWS::Partition}:sqs:${AWS::Region}:${AWS::AccountId}:${RunnerStackName}-runner-candidate-dead-letter.fifo
+                      - !Sub arn:${AWS::Partition}:sqs:${AWS::Region}:${AWS::AccountId}:${RunnerStackName}-runner-trusted-dead-letter.fifo
+                  - Effect: Allow
                     Action: cloudformation:DescribeStacks
                     Resource: !Sub arn:${AWS::Partition}:cloudformation:${AWS::Region}:${AWS::AccountId}:stack/${RunnerStackName}/*
                   - Effect: Allow

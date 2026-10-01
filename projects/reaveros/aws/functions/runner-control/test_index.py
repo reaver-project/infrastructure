@@ -111,6 +111,7 @@ class RunnerControlIndexTests(unittest.TestCase):
                 "MEDIUM_INSTANCE_TYPE": "c8i.4xlarge",
                 "RUNNER_INSTANCE_NAME": "reaveros-runner",
                 "RUNNER_QUEUE_URL": "runner-queue",
+                "RUNNER_DEAD_LETTER_QUEUE_URL": "runner-dead-letter",
                 "RUNNER_WEBHOOK_SECRET_ID": "runner-webhook-secret",
                 "RUNNER_WEBHOOK_URL": "https://example.lambda-url.us-west-2.on.aws/",
                 "VALIDATION_PROFILE_ARN": "arn:validation",
@@ -914,6 +915,7 @@ class RunnerControlIndexTests(unittest.TestCase):
         clients["sqs"].change_message_visibility.assert_called_once_with(
             QueueUrl="runner-queue", ReceiptHandle="receipt-1", VisibilityTimeout=30
         )
+        clients["sqs"].send_message.assert_not_called()
         with mock.patch.object(runner_control, "handler", return_value={}):
             self.assertEqual(runner_control.sqs_handler(event, None), {"batchItemFailures": []})
         clients["sqs"].change_message_visibility.reset_mock()
@@ -924,17 +926,31 @@ class RunnerControlIndexTests(unittest.TestCase):
                 {"batchItemFailures": [{"itemIdentifier": "message-1"}]},
             )
         clients["sqs"].change_message_visibility.assert_called_once()
+        clients["sqs"].send_message.return_value = {"MessageId": "dead-1"}
+        with mock.patch.object(runner_control, "handler", side_effect=ValueError("invalid job")):
+            self.assertEqual(runner_control.sqs_handler(event, None), {"batchItemFailures": []})
+        dead_letter = clients["sqs"].send_message.call_args.kwargs
+        self.assertEqual(dead_letter["QueueUrl"], "runner-dead-letter")
+        self.assertEqual(dead_letter["MessageDeduplicationId"], "message-1")
+        self.assertEqual(json.loads(dead_letter["MessageBody"])["error"], "invalid job")
+
+        clients["sqs"].send_message.return_value = {}
         with (
-            mock.patch.object(runner_control, "handler", side_effect=RuntimeError("unrelated")),
-            self.assertRaisesRegex(RuntimeError, "unrelated"),
+            mock.patch.object(runner_control, "handler", side_effect=ValueError("invalid job")),
+            self.assertRaisesRegex(RuntimeError, "did not acknowledge"),
         ):
             runner_control.sqs_handler(event, None)
+
+        clients["sqs"].send_message.return_value = {"MessageId": "dead-1"}
         denied = github_app.GitHubRequestError("GET", "/jobs/1", 403, "forbidden")
-        with (
-            mock.patch.object(runner_control, "handler", side_effect=denied),
-            self.assertRaises(github_app.GitHubRequestError),
-        ):
-            runner_control.sqs_handler(event, None)
+        with mock.patch.object(runner_control, "handler", side_effect=denied):
+            self.assertEqual(runner_control.sqs_handler(event, None), {"batchItemFailures": []})
+
+        old_event = {
+            "Records": [{**event["Records"][0], "attributes": {"ApproximateReceiveCount": "20"}}]
+        }
+        with mock.patch.object(runner_control, "handler", side_effect=transient):
+            self.assertEqual(runner_control.sqs_handler(old_event, None), {"batchItemFailures": []})
         with self.assertRaisesRegex(ValueError, "one record"):
             runner_control.sqs_handler({"Records": []}, None)
 

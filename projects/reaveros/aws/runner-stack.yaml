@@ -805,6 +805,9 @@ Resources:
                           - sqs:ReceiveMessage
                         Resource: !GetAtt CandidateRunnerWebhookQueue.Arn
                       - Effect: Allow
+                        Action: sqs:SendMessage
+                        Resource: !GetAtt CandidateRunnerDeadLetterQueue.Arn
+                      - Effect: Allow
                         Action:
                           - ssm:DeleteParameter
                           - ssm:PutParameter
@@ -875,6 +878,9 @@ Resources:
                           - sqs:GetQueueAttributes
                           - sqs:ReceiveMessage
                         Resource: !GetAtt TrustedRunnerWebhookQueue.Arn
+                      - Effect: Allow
+                        Action: sqs:SendMessage
+                        Resource: !GetAtt TrustedRunnerDeadLetterQueue.Arn
                       - Effect: Allow
                         Action: secretsmanager:GetSecretValue
                         Resource: !Ref RunnerWebhookSecret
@@ -1030,6 +1036,7 @@ Resources:
                     MAXIMUM_AGE_MINUTES: !Ref RunnerMaximumAgeMinutes
                     MEDIUM_INSTANCE_TYPE: !Ref MediumRunnerInstanceType
                     RUNNER_INSTANCE_NAME: !Sub ${AWS::StackName}-runner
+                    RUNNER_DEAD_LETTER_QUEUE_URL: !Ref CandidateRunnerDeadLetterQueue
                     RUNNER_QUEUE_URL: !Ref CandidateRunnerWebhookQueue
                     VALIDATION_PROFILE_ARN: !GetAtt RunnerInstanceProfile.Arn
             Code: ../../../build/reaveros-lambda/runner-control.zip
@@ -1062,6 +1069,7 @@ Resources:
                     MAXIMUM_AGE_MINUTES: !Ref RunnerMaximumAgeMinutes
                     MEDIUM_INSTANCE_TYPE: !Ref MediumRunnerInstanceType
                     RUNNER_INSTANCE_NAME: !Sub ${AWS::StackName}-runner
+                    RUNNER_DEAD_LETTER_QUEUE_URL: !Ref TrustedRunnerDeadLetterQueue
                     RUNNER_QUEUE_URL: !Ref TrustedRunnerWebhookQueue
                     VALIDATION_PROFILE_ARN: !GetAtt RunnerInstanceProfile.Arn
             Code: ../../../build/reaveros-lambda/runner-control.zip

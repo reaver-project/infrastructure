@@ -675,22 +675,34 @@ def sqs_handler(event, context):
     records = event.get("Records")
     if not isinstance(records, list) or len(records) != 1:
         raise ValueError("runner webhook batch must contain one record")
+    record = records[0]
     try:
         handler(event, context)
-    except RuntimeError as error:
+    except Exception as error:
         retryable_github_statuses = {404, 429, 500, 502, 503, 504, "network error"}
-        retryable = str(error) == "ephemeral ReaverOS runner limit reached" or (
+        capacity_wait = str(error) == "ephemeral ReaverOS runner limit reached"
+        transient = isinstance(error, (BotoCoreError, ClientError)) or (
             isinstance(error, GitHubRequestError) and error.status in retryable_github_statuses
         )
-        if not retryable:
-            raise
-        record = records[0]
-        sqs.change_message_visibility(
-            QueueUrl=os.environ["RUNNER_QUEUE_URL"],
-            ReceiptHandle=record["receiptHandle"],
-            VisibilityTimeout=30,
+        receive_count = int(record.get("attributes", {}).get("ApproximateReceiveCount", "1"))
+        if capacity_wait or (transient and receive_count < 20):
+            sqs.change_message_visibility(
+                QueueUrl=os.environ["RUNNER_QUEUE_URL"],
+                ReceiptHandle=record["receiptHandle"],
+                VisibilityTimeout=30,
+            )
+            return {"batchItemFailures": [{"itemIdentifier": record["messageId"]}]}
+        response = sqs.send_message(
+            QueueUrl=os.environ["RUNNER_DEAD_LETTER_QUEUE_URL"],
+            MessageBody=json.dumps(
+                {"error": str(error), "original": record["body"]},
+                separators=(",", ":"),
+            ),
+            MessageGroupId="terminal-runner-job",
+            MessageDeduplicationId=record["messageId"],
         )
-        return {"batchItemFailures": [{"itemIdentifier": record["messageId"]}]}
+        if not isinstance(response.get("MessageId"), str) or not response["MessageId"]:
+            raise RuntimeError("SQS did not acknowledge terminal runner job") from error
     return {"batchItemFailures": []}
 
 
