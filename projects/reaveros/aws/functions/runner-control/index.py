@@ -678,7 +678,11 @@ def sqs_handler(event, context):
     try:
         handler(event, context)
     except RuntimeError as error:
-        if str(error) != "ephemeral ReaverOS runner limit reached":
+        retryable_github_statuses = {404, 429, 500, 502, 503, 504, "network error"}
+        retryable = str(error) == "ephemeral ReaverOS runner limit reached" or (
+            isinstance(error, GitHubRequestError) and error.status in retryable_github_statuses
+        )
+        if not retryable:
             raise
         record = records[0]
         sqs.change_message_visibility(

@@ -916,9 +916,23 @@ class RunnerControlIndexTests(unittest.TestCase):
         )
         with mock.patch.object(runner_control, "handler", return_value={}):
             self.assertEqual(runner_control.sqs_handler(event, None), {"batchItemFailures": []})
+        clients["sqs"].change_message_visibility.reset_mock()
+        transient = github_app.GitHubRequestError("GET", "/jobs/1", 404, "not found")
+        with mock.patch.object(runner_control, "handler", side_effect=transient):
+            self.assertEqual(
+                runner_control.sqs_handler(event, None),
+                {"batchItemFailures": [{"itemIdentifier": "message-1"}]},
+            )
+        clients["sqs"].change_message_visibility.assert_called_once()
         with (
             mock.patch.object(runner_control, "handler", side_effect=RuntimeError("unrelated")),
             self.assertRaisesRegex(RuntimeError, "unrelated"),
+        ):
+            runner_control.sqs_handler(event, None)
+        denied = github_app.GitHubRequestError("GET", "/jobs/1", 403, "forbidden")
+        with (
+            mock.patch.object(runner_control, "handler", side_effect=denied),
+            self.assertRaises(github_app.GitHubRequestError),
         ):
             runner_control.sqs_handler(event, None)
         with self.assertRaisesRegex(ValueError, "one record"):
