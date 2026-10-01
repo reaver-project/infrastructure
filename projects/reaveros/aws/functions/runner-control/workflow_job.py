@@ -1,37 +1,28 @@
 import re
 
+from runner_class import expected_runner_labels, runner_classes
 
-def expected_job(job):
-    runner_key = job["runner_key"]
-    if runner_key in {"prepare-medium", "prepare-large"}:
-        names = {
-            "Prepare build environment (medium) / Run AWS prepare": "medium",
-            "Rebuild build environment (large) / Run AWS prepare": "large",
-        }
-        size = names.get(job["job_name"])
-        if size == runner_key.removeprefix("prepare-"):
-            return {"runner_size": size, "runner_profile": "builder"}
-        raise ValueError("unexpected preparation job")
 
-    tasks = {
-        "build-dependencies": ("Check build-system dependencies", "amd64"),
-        "unit-tests": ("Unit tests", "amd64"),
-        "image": ("Build image", "uefi-efipart-amd64"),
-        "boot": ("Boot smoke test", "uefi-efipart-amd64"),
-    }
-    for task, (name, target) in tasks.items():
-        if runner_key == f"{task}-{target}":
-            expected_name = f"{name} ({target}) / Run AWS {task} {target}"
-            if job["job_name"] != expected_name:
-                raise ValueError("unexpected validation job")
-            return {"runner_size": "medium", "runner_profile": "validation"}
-    raise ValueError("unexpected runner job")
+def runner_specification(job):
+    runner_class = job.get("runner_class")
+    if runner_class is not None:
+        if runner_class not in runner_classes:
+            raise ValueError("unsupported runner class")
+        profile, size = runner_classes[runner_class]
+        return {"runner_size": size, "runner_profile": profile}
+
+    # Jobs admitted before resource-class labels were added retain their former profiles.
+    legacy_preparation = {"prepare-medium": "medium", "prepare-large": "large"}
+    size = legacy_preparation.get(job["runner_key"])
+    if size is not None:
+        return {"runner_size": size, "runner_profile": "builder"}
+    return {"runner_size": "medium", "runner_profile": "validation"}
 
 
 def validate_fetched_job(job, fetched_job, run, trust):
     if not isinstance(fetched_job, dict) or not isinstance(run, dict):
         raise ValueError("GitHub returned invalid workflow job metadata")
-    expected = expected_job(job)
+    expected = runner_specification(job)
     branch = job["head_branch"]
     if trust == "trusted" and branch != "main":
         raise ValueError("trusted runner job has an untrusted branch")
@@ -48,13 +39,13 @@ def validate_fetched_job(job, fetched_job, run, trust):
     ):
         if fetched_job.get(name) != value:
             raise ValueError(f"GitHub workflow job {name} differs from the webhook")
-    if fetched_job.get("workflow_name") not in {None, "CI"}:
-        raise ValueError("GitHub workflow job name differs from the webhook")
+    runner_class = job.get("runner_class")
+    expected_labels = expected_runner_labels(job["runner_name"], runner_class)
     labels = fetched_job.get("labels")
     if (
         not isinstance(labels, list)
-        or len(labels) != 3
-        or set(labels) != {"self-hosted", "reaveros-aws", job["runner_name"]}
+        or len(labels) != len(expected_labels)
+        or set(labels) != expected_labels
     ):
         raise ValueError("GitHub workflow job requests unexpected labels")
     if fetched_job.get("runner_group_id") not in {None, int(job["runner_group_id"])}:
@@ -64,7 +55,6 @@ def validate_fetched_job(job, fetched_job, run, trust):
         ("run_attempt", job["run_attempt"]),
         ("head_sha", job["head_sha"]),
         ("head_branch", branch),
-        ("name", "CI"),
         ("path", ".github/workflows/ci.yml"),
     ):
         if run.get(name) != value:

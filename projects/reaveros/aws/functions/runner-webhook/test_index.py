@@ -14,6 +14,7 @@ boto3.client = lambda name: clients[name]
 sys.modules["boto3"] = boto3
 
 module_directory = pathlib.Path(__file__).parent
+sys.path.insert(0, str(module_directory.parent))
 
 
 def load_module(name, path):
@@ -124,6 +125,14 @@ class RunnerWebhookIngressTests(unittest.TestCase):
             runner_webhook.handler(signed_event(old_workflow), None)["statusCode"], 200
         )
         clients["sqs"].send_message.assert_not_called()
+
+    def test_routes_jobs_without_a_display_name_marker(self):
+        renamed = job_event()
+        renamed["workflow_job"]["name"] = "Unit tests / Unit tests (amd64)"
+        renamed["workflow_job"]["labels"].append("reaveros-class-validation-medium")
+        self.assertEqual(runner_webhook.handler(signed_event(renamed), None)["statusCode"], 202)
+        task = json.loads(clients["sqs"].send_message.call_args.kwargs["MessageBody"])
+        self.assertEqual(task["job"]["job_name"], renamed["workflow_job"]["name"])
 
     def test_rejects_malformed_delivery_and_job(self):
         invalid_delivery = runner_webhook.handler(signed_event(job_event(), guid="bad"), None)

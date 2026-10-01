@@ -54,6 +54,7 @@ sys.modules.update(
 )
 
 module_directory = pathlib.Path(__file__).parent
+sys.path.insert(0, str(module_directory.parent))
 github_app_specification = importlib.util.spec_from_file_location(
     "github_app",
     module_directory.parent / "github_app.py",
@@ -737,6 +738,33 @@ class RunnerControlIndexTests(unittest.TestCase):
             tags,
         )
 
+    def test_registers_the_requested_resource_class(self):
+        clients["ec2"].run_instances.return_value = {
+            "Instances": [{"InstanceId": "i-classified"}],
+        }
+        jit = {"encoded_jit_config": "encoded", "runner": {"id": 42}}
+        with (
+            mock.patch.object(runner_control, "runner_instances", return_value=[]),
+            mock.patch.object(runner_control, "github_token", return_value="token"),
+            mock.patch.object(runner_control, "ensure_workflow_access"),
+            mock.patch.object(runner_control, "github_request", return_value=jit) as request,
+        ):
+            event = {
+                "github_run_attempt": 2,
+                "github_run_id": 123,
+                "repository": "reaver-project/reaveros",
+                "source_ref": "refs/heads/pull-request/17",
+                "runner_key": "new-test-riscv",
+                "runner_class": "builder-large",
+                "runner_profile": "builder",
+                "runner_size": "large",
+            }
+            result = runner_control.launch(event)
+            self.assertIn("reaveros-class-builder-large", result["labels"])
+            self.assertIn("reaveros-class-builder-large", request.call_args.args[3]["labels"])
+            with self.assertRaisesRegex(ValueError, "runner class differs"):
+                runner_control.launch({**event, "runner_size": "medium"})
+
     def test_webhook_runner_launch_is_idempotent_for_the_job(self):
         event = {
             "github_run_attempt": 2,
@@ -851,6 +879,22 @@ class RunnerControlIndexTests(unittest.TestCase):
         self.assertEqual(launch.call_args.args[0]["runner_size"], "medium")
         self.assertEqual(launch.call_args.args[0]["github_job_id"], 456)
         self.assertEqual(github_request.call_count, 2)
+
+        classified_job = {**job, "runner_class": "validation-large"}
+        classified_fetched = {
+            **fetched_job,
+            "labels": [*fetched_job["labels"], "reaveros-class-validation-large"],
+        }
+        with (
+            mock.patch.object(runner_control, "github_token", return_value="token"),
+            mock.patch.object(
+                runner_control, "github_request", side_effect=[classified_fetched, run]
+            ),
+            mock.patch.object(runner_control, "launch") as classified_launch,
+        ):
+            runner_control.workflow_job({"schema_version": 1, "job": classified_job})
+        self.assertEqual(classified_launch.call_args.args[0]["runner_class"], "validation-large")
+        self.assertEqual(classified_launch.call_args.args[0]["runner_size"], "large")
 
         with (
             mock.patch.object(runner_control, "github_token", return_value="token"),

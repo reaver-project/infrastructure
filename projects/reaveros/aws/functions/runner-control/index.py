@@ -20,6 +20,7 @@ from lib import (
     validate_repository,
     workflow_reference,
 )
+from runner_class import runner_class_prefix, runner_classes
 from workflow_job import validate_fetched_job
 
 ec2 = boto3.client("ec2")
@@ -287,13 +288,22 @@ def launch(event):
     }
     runner_size = event.get("runner_size")
     runner_profile = event.get("runner_profile")
+    runner_class = event.get("runner_class")
     cache_trust = os.environ["CACHE_TRUST_CLASS"]
     if runner_size not in instance_types:
         raise ValueError("invalid runner size")
     if runner_profile not in profiles:
         raise ValueError("invalid runner profile")
+    if runner_class is not None and (
+        not isinstance(runner_class, str)
+        or runner_classes.get(runner_class) != (runner_profile, runner_size)
+    ):
+        raise ValueError("runner class differs from the requested profile or size")
     if cache_trust not in {"candidate", "trusted"}:
         raise ValueError("invalid cache trust class")
+    runner_labels = ["self-hosted", "reaveros-aws", identity["runner_name"]]
+    if runner_class is not None:
+        runner_labels.append(f"{runner_class_prefix}{runner_class}")
 
     live_states = {"pending", "running", "stopping", "stopped"}
     live_runners = [
@@ -324,7 +334,7 @@ def launch(event):
                 raise RuntimeError("existing workflow job runner is shutting down")
             return {
                 "instance_id": instance["InstanceId"],
-                "labels": ["self-hosted", "reaveros-aws", identity["runner_name"]],
+                "labels": runner_labels,
                 "runner_name": identity["runner_name"],
             }
     # The candidate and trusted functions can each admit one runner at once.
@@ -349,13 +359,7 @@ def launch(event):
         token,
         "POST",
         {
-            "labels": [
-                "self-hosted",
-                "Linux",
-                "X64",
-                "reaveros-aws",
-                identity["runner_name"],
-            ],
+            "labels": ["self-hosted", "Linux", "X64", *runner_labels[1:]],
             "name": identity["runner_name"],
             "runner_group_id": int(os.environ["GITHUB_RUNNER_GROUP_ID"]),
             "work_folder": "_work",
@@ -404,7 +408,7 @@ def launch(event):
         raise
     return {
         "instance_id": instance_id,
-        "labels": ["self-hosted", "reaveros-aws", identity["runner_name"]],
+        "labels": runner_labels,
         "runner_name": identity["runner_name"],
     }
 
@@ -617,6 +621,7 @@ def workflow_job(event):
                 "github_run_attempt": job["run_attempt"],
                 "github_job_id": job["job_id"],
                 "runner_key": job["runner_key"],
+                "runner_class": job.get("runner_class"),
                 "runner_size": specification["runner_size"],
                 "runner_profile": specification["runner_profile"],
             }

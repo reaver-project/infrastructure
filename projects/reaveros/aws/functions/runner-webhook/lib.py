@@ -1,5 +1,7 @@
 import re
 
+from runner_class import expected_runner_labels, select_runner_class
+
 
 def positive_integer(value, description):
     if type(value) is not int or value < 1:
@@ -51,8 +53,6 @@ def normalize_job_event(payload, allowed_repositories):
     job_name = job.get("name")
     if not isinstance(job_name, str) or not 1 <= len(job_name) <= 256:
         raise ValueError("workflow job name is invalid")
-    if " / Run AWS " not in job_name:
-        return None
     accepted_statuses = {"queued", "waiting"} if action == "queued" else {"completed"}
     if job.get("status") not in accepted_statuses:
         raise ValueError("workflow job status does not match webhook action")
@@ -63,11 +63,17 @@ def normalize_job_event(payload, allowed_repositories):
         raise ValueError("workflow job needs exactly one runner identity")
     runner_name = runner_names[0]
     runner_key = runner_name.removeprefix(runner_prefix)
+    runner_class = select_runner_class(labels)
+    # A historical three-label workflow also provisions runners directly.
+    # Only typed jobs can change their display names without risking two launches.
+    if runner_class is None and " / Run AWS " not in job_name:
+        return None
+    expected_labels = expected_runner_labels(runner_name, runner_class)
     if (
         len(runner_name) > 64
         or re.fullmatch(r"[a-z0-9-]{1,48}", runner_key) is None
-        or len(labels) != 3
-        or set(labels) != {"self-hosted", "reaveros-aws", runner_name}
+        or len(labels) != len(expected_labels)
+        or set(labels) != expected_labels
     ):
         raise ValueError("workflow job requests unexpected runner labels")
 
@@ -88,6 +94,7 @@ def normalize_job_event(payload, allowed_repositories):
         "head_branch": branch,
         "head_sha": head_sha,
         "job_name": job_name,
+        "runner_class": runner_class,
         "runner_key": runner_key,
         "runner_name": runner_name,
     }
