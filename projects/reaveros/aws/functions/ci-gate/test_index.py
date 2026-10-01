@@ -292,8 +292,16 @@ class CiGateIndexTests(unittest.TestCase):
                 {"ref": "updated"},
             ],
         ) as github_request:
+            call_order = mock.Mock()
+            call_order.attach_mock(github_request, "github")
+            call_order.attach_mock(clients["lambda"].invoke, "admission")
             ci_gate.set_copied_revision("token", repository, 12, full_sha)
             ci_gate.set_copied_revision("token", repository, 12, new_sha)
+
+        self.assertEqual(
+            [call[0] for call in call_order.mock_calls],
+            ["github", "github", "admission", "github", "github", "admission"],
+        )
 
         self.assertEqual(
             github_request.call_args_list,
@@ -320,7 +328,7 @@ class CiGateIndexTests(unittest.TestCase):
                 ),
             ],
         )
-        self.assertEqual(clients["lambda"].invoke.call_count, 4)
+        self.assertEqual(clients["lambda"].invoke.call_count, 2)
         admission = clients["lambda"].invoke.call_args_list[0].kwargs
         self.assertEqual(admission["FunctionName"], "workflow-admission")
         self.assertEqual(
@@ -332,18 +340,27 @@ class CiGateIndexTests(unittest.TestCase):
             },
         )
 
-    def test_copied_ref_is_not_published_if_runner_group_admission_fails(self):
+    def test_new_copied_ref_is_removed_if_runner_group_admission_fails(self):
         clients["lambda"].invoke.side_effect = lambda **_arguments: {
             "StatusCode": 200,
             "FunctionError": "Unhandled",
             "Payload": io.BytesIO(b'{"admitted":false}'),
         }
+        not_found = github_app.GitHubRequestError("GET", "/ref", 404, "missing")
         with (
-            mock.patch.object(ci_gate, "github_request") as github_request,
+            mock.patch.object(
+                ci_gate, "github_request", side_effect=[not_found, {"ref": "created"}, None]
+            ) as github_request,
             self.assertRaisesRegex(RuntimeError, "did not admit"),
         ):
             ci_gate.set_copied_revision("token", repository, 12, full_sha)
-        github_request.assert_not_called()
+        self.assertEqual(
+            [
+                call.args[2] if len(call.args) > 2 else "GET"
+                for call in github_request.call_args_list
+            ],
+            ["GET", "POST", "DELETE"],
+        )
 
     def test_does_not_republish_an_identical_copy_ref(self):
         with mock.patch.object(
