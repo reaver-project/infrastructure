@@ -38,6 +38,7 @@ trap cleanup EXIT
 
 "${self_dir}/plan" \
     --control-plane-stack-name "${AWS_CONTROL_PLANE_STACK_NAME}" \
+    --deployment-artifact-bucket "${AWS_DEPLOYMENT_ARTIFACT_BUCKET}" \
     --deployment-plan-audit-bucket "${AWS_DEPLOYMENT_PLAN_AUDIT_BUCKET}" \
     --execution-role-arn "${AWS_CONTROL_PLANE_EXECUTION_ROLE_ARN}" \
     --region "${AWS_REGION}" \

@@ -714,6 +714,9 @@ Resources:
                           - s3:PutLifecycleConfiguration
                         Resource: !GetAtt DeploymentArtifactBucket.Arn
                       - Effect: Allow
+                        Action: s3:GetObject
+                        Resource: !Sub ${DeploymentArtifactBucket.Arn}/plans/control-plane/templates/*
+                      - Effect: Allow
                         Action:
                           - cloudtrail:AddTags
                           - cloudtrail:GetEventSelectors
@@ -831,6 +834,9 @@ Resources:
                       - Effect: Allow
                         Action: s3:PutObject
                         Resource: !Sub ${DeploymentArtifactBucket.Arn}/plans/control-plane/*
+                      - Effect: Allow
+                        Action: s3:GetObject
+                        Resource: !Sub ${DeploymentArtifactBucket.Arn}/plans/control-plane/templates/*
                       - Effect: Allow
                         Action: iam:PassRole
                         Resource: !GetAtt ControlPlaneCloudFormationExecutionRole.Arn

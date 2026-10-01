@@ -150,14 +150,22 @@ if [[ $(basename -- "$0") == aws || $(basename -- "$0") == gh ]]; then
             fi
             ;;
         s3api:put-object)
+            key=
+            body=
             previous=
             for argument in "${arguments[@]}"; do
-                if [[ ${previous} == --body ]]; then
-                    cp "${argument}" "${CONTROL_PLANE_TEST_PLAN_RECORD}"
-                    break
-                fi
+                [[ ${previous} == --key ]] && key=${argument}
+                [[ ${previous} == --body ]] && body=${argument}
                 previous=${argument}
             done
+            if [[ ${key} == plans/control-plane/templates/* ]]; then
+                cp "${body}" "${CONTROL_PLANE_TEST_TEMPLATE_COPY}"
+            elif [[ ${key} == plans/control-plane/*.json ]]; then
+                cp "${body}" "${CONTROL_PLANE_TEST_PLAN_RECORD}"
+            else
+                printf 'Unexpected control-plane artifact key: %s\n' "${key}" >&2
+                exit 2
+            fi
             ;;
         s3api:get-object)
             cp "${CONTROL_PLANE_TEST_PLAN_RECORD}" "${arguments[-1]}"
@@ -180,6 +188,8 @@ export CONTROL_PLANE_TEST_TEMPLATE_SHA256
 CONTROL_PLANE_TEST_TEMPLATE_SHA256=$(sha256sum "${self_dir}/template.yaml" | cut --delimiter=' ' --fields=1)
 export CONTROL_PLANE_TEST_STACK_STATUS=CREATE_COMPLETE
 export CONTROL_PLANE_TEST_PLAN_RECORD="${test_directory}/private-plan.json"
+export CONTROL_PLANE_TEST_TEMPLATE_COPY="${test_directory}/template-copy.yaml"
+export AWS_DEPLOYMENT_ARTIFACT_BUCKET=artifacts
 : > "${CONTROL_PLANE_TEST_LOG}"
 
 cleanup()
@@ -190,7 +200,7 @@ trap cleanup EXIT
 
 assert_log_contains()
 {
-    if ! grep --fixed-strings --quiet "$1" "${CONTROL_PLANE_TEST_LOG}"; then
+    if ! grep --fixed-strings --quiet -- "$1" "${CONTROL_PLANE_TEST_LOG}"; then
         printf 'Expected control-plane call log to contain: %s\n' "$1" >&2
         cat "${CONTROL_PLANE_TEST_LOG}" >&2
         exit 1
@@ -207,6 +217,12 @@ common_account_arguments=(
     > /dev/null
 assert_log_contains $'aws\t--profile\treaver-project-ci-admin\tsts\tget-caller-identity'
 assert_log_contains $'aws\t--profile\treaver-project-ci-admin\tcloudformation\tcreate-change-set'
+assert_log_contains $'aws\t--profile\treaver-project-ci-admin\ts3api\tput-object'
+assert_log_contains '--template-url'
+if ! cmp --silent "${self_dir}/template.yaml" "${CONTROL_PLANE_TEST_TEMPLATE_COPY}"; then
+    printf 'The control-plane plan did not upload the exact reviewed template.\n' >&2
+    exit 1
+fi
 assert_log_contains "reaver-project-ci-deployment-trust-${CONTROL_PLANE_TEST_REVISION:0:12}"
 assert_log_contains "AWS control plane revision ${CONTROL_PLANE_TEST_REVISION}"
 assert_log_contains "template ${CONTROL_PLANE_TEST_TEMPLATE_SHA256}"
