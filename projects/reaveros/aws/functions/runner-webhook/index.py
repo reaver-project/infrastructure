@@ -69,7 +69,10 @@ def handler(event, _context):
                 {"schema_version": 1, "delivery_id": delivery_id, "job": job},
                 separators=(",", ":"),
             ),
-            MessageGroupId=f"job-{job['job_id']}",
+            # One group serializes launches within each trust class. The
+            # independently scheduled reaper frees capacity behind a blocked
+            # queued event when completion is waiting later in this queue.
+            MessageGroupId="runner-controller",
             MessageDeduplicationId=delivery_id,
         )
         if (

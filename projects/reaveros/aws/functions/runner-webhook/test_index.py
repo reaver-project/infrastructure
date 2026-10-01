@@ -89,7 +89,7 @@ class RunnerWebhookIngressTests(unittest.TestCase):
         self.assertEqual(response["statusCode"], 202)
         arguments = clients["sqs"].send_message.call_args.kwargs
         self.assertEqual(arguments["QueueUrl"], "trusted-queue")
-        self.assertEqual(arguments["MessageGroupId"], "job-123")
+        self.assertEqual(arguments["MessageGroupId"], "runner-controller")
         self.assertEqual(arguments["MessageDeduplicationId"], delivery_id)
         task = json.loads(arguments["MessageBody"])
         self.assertEqual(task["delivery_id"], delivery_id)
