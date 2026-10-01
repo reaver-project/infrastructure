@@ -3,6 +3,7 @@ import sys
 import unittest
 
 sys.path.insert(0, str(pathlib.Path(__file__).parent))
+sys.path.insert(0, str(pathlib.Path(__file__).parent.parent))
 
 import lib  # noqa: E402
 
@@ -37,6 +38,7 @@ class RunnerWebhookValidationTests(unittest.TestCase):
         self.assertEqual(task["run_id"], 456)
         self.assertEqual(task["run_attempt"], 2)
         self.assertEqual(task["runner_key"], "unit-tests-amd64")
+        self.assertIsNone(task["runner_class"])
         self.assertEqual(task["runner_name"], "reaveros-456-2-unit-tests-amd64")
         waiting = job_event()
         waiting["workflow_job"]["status"] = "waiting"
@@ -60,9 +62,31 @@ class RunnerWebhookValidationTests(unittest.TestCase):
         other_runner = job_event()
         other_runner["workflow_job"]["labels"] = ["ubuntu-latest"]
         self.assertIsNone(lib.normalize_job_event(other_runner, allowed))
-        old_workflow = job_event()
-        old_workflow["workflow_job"]["name"] = "Unit tests (amd64) / Run unit-tests amd64"
-        self.assertIsNone(lib.normalize_job_event(old_workflow, allowed))
+        historical = job_event()
+        historical["workflow_job"]["name"] = "Unit tests (amd64) / Run unit-tests amd64"
+        self.assertIsNone(lib.normalize_job_event(historical, allowed))
+        renamed = job_event()
+        renamed["workflow_job"]["name"] = "Unit tests / Unit tests (amd64)"
+        renamed["workflow_job"]["labels"].append("reaveros-class-validation-medium")
+        self.assertEqual(
+            lib.normalize_job_event(renamed, allowed)[1]["job_name"],
+            renamed["workflow_job"]["name"],
+        )
+
+    def test_accepts_typed_runner_classes(self):
+        for runner_class in (
+            "builder-medium",
+            "builder-large",
+            "validation-medium",
+            "validation-large",
+        ):
+            event = job_event(key="new-job-riscv")
+            event["workflow_job"]["labels"].append(f"reaveros-class-{runner_class}")
+            with self.subTest(runner_class=runner_class):
+                self.assertEqual(
+                    lib.normalize_job_event(event, allowed)[1]["runner_class"],
+                    runner_class,
+                )
 
     def test_ignores_unadmitted_branches_and_rejects_mismatched_status(self):
         self.assertIsNone(lib.normalize_job_event(job_event(branch="feature/unreviewed"), allowed))
@@ -75,6 +99,16 @@ class RunnerWebhookValidationTests(unittest.TestCase):
         event = job_event()
         event["workflow_job"]["labels"].append("trusted")
         with self.assertRaisesRegex(ValueError, "unexpected runner labels"):
+            lib.normalize_job_event(event, allowed)
+        event = job_event()
+        event["workflow_job"]["labels"].append("reaveros-class-administrator-huge")
+        with self.assertRaisesRegex(ValueError, "unsupported runner class"):
+            lib.normalize_job_event(event, allowed)
+        event = job_event()
+        event["workflow_job"]["labels"].extend(
+            ["reaveros-class-builder-medium", "reaveros-class-validation-medium"]
+        )
+        with self.assertRaisesRegex(ValueError, "multiple runner classes"):
             lib.normalize_job_event(event, allowed)
         event = job_event()
         event["workflow_job"]["labels"][2] = "reaveros-456-3-unit-tests-amd64"

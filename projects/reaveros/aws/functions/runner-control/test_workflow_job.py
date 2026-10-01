@@ -1,6 +1,10 @@
+import pathlib
+import sys
 import unittest
 
-from workflow_job import expected_job, validate_fetched_job
+sys.path.insert(0, str(pathlib.Path(__file__).parent.parent))
+
+from workflow_job import runner_specification, validate_fetched_job
 
 
 class WorkflowJobTests(unittest.TestCase):
@@ -8,6 +12,7 @@ class WorkflowJobTests(unittest.TestCase):
         self.job = {
             "runner_key": "prepare-medium",
             "job_name": "Prepare build environment (medium) / Run AWS prepare",
+            "runner_class": None,
             "job_id": 3,
             "run_id": 2,
             "run_attempt": 1,
@@ -40,7 +45,7 @@ class WorkflowJobTests(unittest.TestCase):
             "event": "push",
         }
 
-    def test_accepts_only_known_jobs(self):
+    def test_accepts_existing_jobs_and_generic_resource_classes(self):
         self.assertEqual(
             validate_fetched_job(self.job, self.fetched, self.run, "trusted"),
             {"runner_size": "medium", "runner_profile": "builder", "source_ref": "refs/heads/main"},
@@ -56,30 +61,50 @@ class WorkflowJobTests(unittest.TestCase):
             "runner_key": "prepare-large",
             "job_name": "Rebuild build environment (large) / Run AWS prepare",
         }
-        self.assertEqual(expected_job(large)["runner_size"], "large")
-        for task, name, target in (
-            ("build-dependencies", "Check build-system dependencies", "amd64"),
-            ("unit-tests", "Unit tests", "amd64"),
-            ("image", "Build image", "uefi-efipart-amd64"),
-            ("boot", "Boot smoke test", "uefi-efipart-amd64"),
-        ):
-            job = {
-                **self.job,
-                "runner_key": f"{task}-{target}",
-                "job_name": f"{name} ({target}) / Run AWS {task} {target}",
-            }
-            self.assertEqual(expected_job(job)["runner_profile"], "validation")
-        with self.assertRaisesRegex(ValueError, "unexpected runner job"):
-            expected_job({**self.job, "runner_key": "arbitrary"})
-        with self.assertRaisesRegex(ValueError, "unexpected preparation job"):
-            expected_job(
-                {**self.job, "job_name": "Prepare build environment (medium) / Run prepare"}
-            )
-        with self.assertRaisesRegex(ValueError, "unexpected preparation job"):
-            expected_job({**large, "runner_key": "prepare-medium"})
-        with self.assertRaisesRegex(ValueError, "unexpected validation job"):
-            expected_job(
-                {**self.job, "runner_key": "unit-tests-amd64", "job_name": "Unrecognized job"}
+        self.assertEqual(runner_specification(large)["runner_size"], "large")
+        self.assertEqual(
+            runner_specification({**self.job, "runner_key": "new-test-riscv"}),
+            {"runner_size": "medium", "runner_profile": "validation"},
+        )
+        for profile in ("builder", "validation"):
+            for size in ("medium", "large"):
+                with self.subTest(profile=profile, size=size):
+                    self.assertEqual(
+                        runner_specification({**self.job, "runner_class": f"{profile}-{size}"}),
+                        {"runner_size": size, "runner_profile": profile},
+                    )
+        with self.assertRaisesRegex(ValueError, "unsupported runner class"):
+            runner_specification({**self.job, "runner_class": "administrator-huge"})
+
+    def test_display_names_are_not_runner_policy(self):
+        job = {**self.job, "job_name": "Prepare / Build environment (medium)"}
+        fetched = {
+            **self.fetched,
+            "name": job["job_name"],
+            "workflow_name": "renamed CI workflow",
+        }
+        run = {**self.run, "name": "renamed CI workflow"}
+        self.assertEqual(
+            validate_fetched_job(job, fetched, run, "trusted")["runner_profile"],
+            "builder",
+        )
+
+    def test_class_label_selects_resource_profile(self):
+        job = {**self.job, "runner_class": "validation-large"}
+        fetched = {
+            **self.fetched,
+            "labels": [*self.fetched["labels"], "reaveros-class-validation-large"],
+        }
+        self.assertEqual(
+            validate_fetched_job(job, fetched, self.run, "trusted")["runner_size"],
+            "large",
+        )
+        with self.assertRaisesRegex(ValueError, "unexpected labels"):
+            validate_fetched_job(
+                job,
+                {**fetched, "labels": self.fetched["labels"]},
+                self.run,
+                "trusted",
             )
 
     def test_rejects_metadata_changes(self):
@@ -90,7 +115,6 @@ class WorkflowJobTests(unittest.TestCase):
             ("head_sha", "b" * 40),
             ("head_branch", "other"),
             ("name", "other"),
-            ("workflow_name", "other"),
             ("labels", ["self-hosted"]),
             ("runner_group_id", 99),
         ):
@@ -101,7 +125,6 @@ class WorkflowJobTests(unittest.TestCase):
             ("run_attempt", 2),
             ("head_sha", "b" * 40),
             ("head_branch", "other"),
-            ("name", "other"),
             ("path", "other"),
             ("event", "pull_request"),
             ("repository", {"full_name": "other/repo", "id": 5}),
