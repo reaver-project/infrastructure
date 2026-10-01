@@ -25,6 +25,7 @@ class ClientError(Exception):
 clients = {
     "ec2": mock.Mock(),
     "secretsmanager": mock.Mock(),
+    "sqs": mock.Mock(),
     "ssm": mock.Mock(),
 }
 boto3 = types.ModuleType("boto3")
@@ -67,6 +68,13 @@ lib_specification = importlib.util.spec_from_file_location(
 lib = importlib.util.module_from_spec(lib_specification)
 lib_specification.loader.exec_module(lib)
 sys.modules["lib"] = lib
+workflow_job_specification = importlib.util.spec_from_file_location(
+    "workflow_job",
+    module_directory / "workflow_job.py",
+)
+workflow_job_module = importlib.util.module_from_spec(workflow_job_specification)
+workflow_job_specification.loader.exec_module(workflow_job_module)
+sys.modules["workflow_job"] = workflow_job_module
 index_specification = importlib.util.spec_from_file_location(
     "runner_control_index",
     module_directory / "index.py",
@@ -88,6 +96,7 @@ class RunnerControlIndexTests(unittest.TestCase):
             os.environ,
             {
                 "ALLOWED_REPOSITORIES": "reaver-project/reaveros",
+                "AWS_REGION": "us-west-2",
                 "BUILDER_PROFILE_ARN": "arn:builder",
                 "CACHE_TRUST_CLASS": "candidate",
                 "GITHUB_ORGANIZATION": "reaver-project",
@@ -101,6 +110,10 @@ class RunnerControlIndexTests(unittest.TestCase):
                 "MAXIMUM_AGE_MINUTES": "180",
                 "MEDIUM_INSTANCE_TYPE": "c8i.4xlarge",
                 "RUNNER_INSTANCE_NAME": "reaveros-runner",
+                "RUNNER_QUEUE_URL": "runner-queue",
+                "RUNNER_DEAD_LETTER_QUEUE_URL": "runner-dead-letter",
+                "RUNNER_WEBHOOK_SECRET_ID": "runner-webhook-secret",
+                "RUNNER_WEBHOOK_URL": "https://example.lambda-url.us-west-2.on.aws/",
                 "VALIDATION_PROFILE_ARN": "arn:validation",
             },
         )
@@ -138,6 +151,76 @@ class RunnerControlIndexTests(unittest.TestCase):
             password=None,
         )
         private_key.sign.assert_called_once()
+
+    def test_trusted_controller_configures_the_app_webhook_without_exposing_secrets(self):
+        url = "https://example.lambda-url.us-west-2.on.aws/"
+        clients["secretsmanager"].get_secret_value.side_effect = [
+            {"SecretString": json.dumps({"app_id": 1234, "private_key": "key"})},
+            {"SecretString": "a" * 64},
+        ]
+        with (
+            mock.patch.dict(os.environ, {"CACHE_TRUST_CLASS": "trusted"}),
+            mock.patch.object(runner_control, "create_app_jwt", return_value="app-jwt"),
+            mock.patch.object(
+                runner_control, "github_request", return_value={"url": url}
+            ) as github_request,
+        ):
+            self.assertEqual(runner_control.configure_webhook({}), {"configured": True})
+        self.assertEqual(
+            github_request.call_args.args,
+            (
+                "/app/hook/config",
+                "app-jwt",
+                "PATCH",
+                {"url": url, "content_type": "json", "secret": "a" * 64},
+            ),
+        )
+        with self.assertRaisesRegex(ValueError, "only the trusted controller"):
+            runner_control.configure_webhook({})
+
+        clients["secretsmanager"].get_secret_value.side_effect = [
+            {"SecretString": json.dumps({"app_id": 1234, "private_key": "key"})},
+            {"SecretString": "too short"},
+        ]
+        with (
+            mock.patch.dict(os.environ, {"CACHE_TRUST_CLASS": "trusted"}),
+            self.assertRaisesRegex(ValueError, "secret is invalid"),
+        ):
+            runner_control.configure_webhook({})
+
+    def test_candidate_controller_admits_only_a_copied_workflow_ref(self):
+        event = {
+            "repository": "reaver-project/reaveros",
+            "source_ref": "refs/heads/pull-request/17",
+        }
+        required = (
+            "reaver-project/reaveros/.github/workflows/aws-runner.yml@refs/heads/pull-request/17"
+        )
+        with (
+            mock.patch.object(runner_control, "github_token", return_value="token"),
+            mock.patch.object(
+                runner_control,
+                "restricted_workflows",
+                side_effect=[("path", set()), ("path", {required})],
+            ) as group,
+            mock.patch.object(runner_control, "set_restricted_workflows") as admit,
+        ):
+            self.assertEqual(runner_control.admit_workflow(event), {"admitted": True})
+            self.assertEqual(
+                runner_control.admission_handler({"action": "admit_workflow", **event}, None),
+                {"admitted": True},
+            )
+            admit.assert_called_once_with("path", "token", {required})
+            with self.assertRaisesRegex(ValueError, "only copied"):
+                runner_control.admit_workflow({**event, "source_ref": "refs/heads/main"})
+            self.assertEqual(group.call_count, 2)
+        with (
+            mock.patch.dict(os.environ, {"CACHE_TRUST_CLASS": "trusted"}),
+            self.assertRaisesRegex(ValueError, "only the candidate controller"),
+        ):
+            runner_control.admit_workflow(event)
+        with self.assertRaisesRegex(ValueError, "unsupported runner workflow admission"):
+            runner_control.admission_handler({"action": "launch"}, None)
 
     def test_github_request_handles_json_empty_and_error_responses(self):
         json_response = mock.MagicMock()
@@ -654,6 +737,335 @@ class RunnerControlIndexTests(unittest.TestCase):
             tags,
         )
 
+    def test_webhook_runner_launch_is_idempotent_for_the_job(self):
+        event = {
+            "github_run_attempt": 2,
+            "github_run_id": 123,
+            "github_job_id": 456,
+            "repository": "reaver-project/reaveros",
+            "source_ref": "refs/heads/pull-request/17",
+            "runner_key": "unit-tests-amd64",
+            "runner_profile": "validation",
+            "runner_size": "medium",
+        }
+        instance = {
+            "InstanceId": "i-existing",
+            "State": {"Name": "running"},
+            "Tags": [
+                {"Key": "GitHubJobId", "Value": "456"},
+                {"Key": "GitHubRepository", "Value": "reaver-project/reaveros"},
+                {"Key": "GitHubSourceRef", "Value": "refs/heads/pull-request/17"},
+                {"Key": "GitHubRunId", "Value": "123"},
+                {"Key": "GitHubRunnerName", "Value": "reaveros-123-2-unit-tests-amd64"},
+                {"Key": "ReaverOSRunnerProfile", "Value": "validation"},
+                {"Key": "ReaverOSRunnerSize", "Value": "medium"},
+                {"Key": "ReaverProjectCacheTrust", "Value": "candidate"},
+            ],
+        }
+        with mock.patch.object(runner_control, "runner_instances", return_value=[instance]):
+            result = runner_control.launch(event)
+        self.assertEqual(result["instance_id"], "i-existing")
+        self.assertEqual(result["runner_name"], "reaveros-123-2-unit-tests-amd64")
+        clients["ec2"].run_instances.assert_not_called()
+        clients["ssm"].put_parameter.assert_not_called()
+
+        invalid = {
+            **instance,
+            "Tags": [*instance["Tags"], {"Key": "ReaverProjectCacheTrust", "Value": "trusted"}],
+        }
+        with (
+            mock.patch.object(runner_control, "runner_instances", return_value=[invalid]),
+            self.assertRaisesRegex(ValueError, "differs from the request"),
+        ):
+            runner_control.launch(event)
+        with (
+            mock.patch.object(
+                runner_control, "runner_instances", return_value=[instance, instance]
+            ),
+            self.assertRaisesRegex(RuntimeError, "multiple runners"),
+        ):
+            runner_control.launch(event)
+        with (
+            mock.patch.object(
+                runner_control,
+                "runner_instances",
+                return_value=[{**instance, "State": {"Name": "stopping"}}],
+            ),
+            self.assertRaisesRegex(RuntimeError, "shutting down"),
+        ):
+            runner_control.launch(event)
+
+    def test_queued_webhook_revalidates_github_before_launch(self):
+        job = {
+            "action": "queued",
+            "repository": "reaver-project/reaveros",
+            "repository_id": 5,
+            "installation_id": 17,
+            "job_id": 456,
+            "run_id": 123,
+            "run_attempt": 2,
+            "head_branch": "pull-request/17",
+            "head_sha": "a" * 40,
+            "job_name": "Unit tests (amd64) / Run AWS unit-tests amd64",
+            "runner_key": "unit-tests-amd64",
+            "runner_name": "reaveros-123-2-unit-tests-amd64",
+        }
+        fetched_job = {
+            "id": 456,
+            "run_id": 123,
+            "run_attempt": 2,
+            "head_sha": "a" * 40,
+            "head_branch": "pull-request/17",
+            "name": job["job_name"],
+            "workflow_name": "CI",
+            "labels": ["self-hosted", "reaveros-aws", job["runner_name"]],
+            "runner_group_id": None,
+            "status": "queued",
+        }
+        run = {
+            "id": 123,
+            "run_attempt": 2,
+            "head_sha": "a" * 40,
+            "head_branch": "pull-request/17",
+            "name": "CI",
+            "path": ".github/workflows/ci.yml",
+            "repository": {"full_name": "reaver-project/reaveros", "id": 5},
+            "event": "push",
+            "status": "in_progress",
+        }
+        delivery = {"schema_version": 1, "job": job}
+        with (
+            mock.patch.object(runner_control, "github_token", return_value="token"),
+            mock.patch.object(
+                runner_control, "github_request", side_effect=[fetched_job, run]
+            ) as github_request,
+            mock.patch.object(
+                runner_control, "launch", return_value={"instance_id": "i-runner"}
+            ) as launch,
+        ):
+            result = runner_control.handler(
+                {"Records": [{"eventSource": "aws:sqs", "body": json.dumps(delivery)}]}, None
+            )
+        self.assertEqual(result, {"instance_id": "i-runner"})
+        self.assertEqual(launch.call_args.args[0]["runner_profile"], "validation")
+        self.assertEqual(launch.call_args.args[0]["runner_size"], "medium")
+        self.assertEqual(launch.call_args.args[0]["github_job_id"], 456)
+        self.assertEqual(github_request.call_count, 2)
+
+        with (
+            mock.patch.object(runner_control, "github_token", return_value="token"),
+            mock.patch.object(runner_control, "github_request", side_effect=[fetched_job, run]),
+            mock.patch.object(runner_control, "launch") as launch,
+        ):
+            with self.assertRaisesRegex(ValueError, "head_sha differs"):
+                runner_control.workflow_job(
+                    {"schema_version": 1, "job": {**job, "head_sha": "b" * 40}}
+                )
+            launch.assert_not_called()
+
+        with (
+            mock.patch.object(runner_control, "github_token", return_value="token"),
+            mock.patch.object(
+                runner_control,
+                "github_request",
+                side_effect=[{**fetched_job, "status": "completed"}, run],
+            ),
+            mock.patch.object(runner_control, "launch") as launch,
+        ):
+            self.assertEqual(
+                runner_control.workflow_job(delivery),
+                {"ignored": "workflow job is no longer queued"},
+            )
+            launch.assert_not_called()
+
+        with self.assertRaisesRegex(ValueError, "one record"):
+            runner_control.handler({"Records": []}, None)
+        with self.assertRaisesRegex(ValueError, "not from SQS"):
+            runner_control.handler({"Records": [{"eventSource": "other"}]}, None)
+
+        for invalid, message in (
+            ({"schema_version": 2, "job": job}, "schema"),
+            ({"schema_version": 1}, "job is missing"),
+            ({"schema_version": 1, "job": {**job, "job_id": True}}, "job_id"),
+            ({"schema_version": 1, "job": {**job, "action": "other"}}, "action"),
+        ):
+            with self.subTest(message=message), self.assertRaisesRegex(ValueError, message):
+                runner_control.workflow_job(invalid)
+
+    def test_sqs_worker_retries_capacity_without_reporting_an_error(self):
+        event = {
+            "Records": [
+                {
+                    "eventSource": "aws:sqs",
+                    "body": "{}",
+                    "messageId": "message-1",
+                    "receiptHandle": "receipt-1",
+                }
+            ]
+        }
+        with mock.patch.object(
+            runner_control,
+            "handler",
+            side_effect=RuntimeError("ephemeral ReaverOS runner limit reached"),
+        ):
+            self.assertEqual(
+                runner_control.sqs_handler(event, None),
+                {"batchItemFailures": [{"itemIdentifier": "message-1"}]},
+            )
+        clients["sqs"].change_message_visibility.assert_called_once_with(
+            QueueUrl="runner-queue", ReceiptHandle="receipt-1", VisibilityTimeout=30
+        )
+        clients["sqs"].send_message.assert_not_called()
+        with mock.patch.object(runner_control, "handler", return_value={}):
+            self.assertEqual(runner_control.sqs_handler(event, None), {"batchItemFailures": []})
+        clients["sqs"].change_message_visibility.reset_mock()
+        transient = github_app.GitHubRequestError("GET", "/jobs/1", 404, "not found")
+        with mock.patch.object(runner_control, "handler", side_effect=transient):
+            self.assertEqual(
+                runner_control.sqs_handler(event, None),
+                {"batchItemFailures": [{"itemIdentifier": "message-1"}]},
+            )
+        clients["sqs"].change_message_visibility.assert_called_once()
+        clients["sqs"].send_message.return_value = {"MessageId": "dead-1"}
+        with mock.patch.object(runner_control, "handler", side_effect=ValueError("invalid job")):
+            self.assertEqual(runner_control.sqs_handler(event, None), {"batchItemFailures": []})
+        dead_letter = clients["sqs"].send_message.call_args.kwargs
+        self.assertEqual(dead_letter["QueueUrl"], "runner-dead-letter")
+        self.assertEqual(dead_letter["MessageDeduplicationId"], "message-1")
+        self.assertEqual(json.loads(dead_letter["MessageBody"])["error"], "invalid job")
+
+        clients["sqs"].send_message.return_value = {}
+        with (
+            mock.patch.object(runner_control, "handler", side_effect=ValueError("invalid job")),
+            self.assertRaisesRegex(RuntimeError, "did not acknowledge"),
+        ):
+            runner_control.sqs_handler(event, None)
+
+        clients["sqs"].send_message.return_value = {"MessageId": "dead-1"}
+        denied = github_app.GitHubRequestError("GET", "/jobs/1", 403, "forbidden")
+        with mock.patch.object(runner_control, "handler", side_effect=denied):
+            self.assertEqual(runner_control.sqs_handler(event, None), {"batchItemFailures": []})
+
+        old_event = {
+            "Records": [{**event["Records"][0], "attributes": {"ApproximateReceiveCount": "20"}}]
+        }
+        with mock.patch.object(runner_control, "handler", side_effect=transient):
+            self.assertEqual(runner_control.sqs_handler(old_event, None), {"batchItemFailures": []})
+        with self.assertRaisesRegex(ValueError, "one record"):
+            runner_control.sqs_handler({"Records": []}, None)
+
+    def test_completed_webhook_terminates_only_matching_job_instance(self):
+        job = {
+            "action": "completed",
+            "repository": "reaver-project/reaveros",
+            "repository_id": 5,
+            "installation_id": 17,
+            "job_id": 456,
+            "run_id": 123,
+            "run_attempt": 2,
+            "head_branch": "main",
+            "head_sha": "a" * 40,
+            "job_name": "Prepare build environment (medium) / Run AWS prepare",
+            "runner_key": "prepare-medium",
+            "runner_name": "reaveros-123-2-prepare-medium",
+        }
+        fetched_job = {
+            "id": 456,
+            "run_id": 123,
+            "run_attempt": 2,
+            "head_sha": "a" * 40,
+            "head_branch": "main",
+            "name": job["job_name"],
+            "workflow_name": "CI",
+            "labels": ["self-hosted", "reaveros-aws", job["runner_name"]],
+            "runner_group_id": 7,
+            "status": "completed",
+        }
+        run = {
+            "id": 123,
+            "run_attempt": 2,
+            "head_sha": "a" * 40,
+            "head_branch": "main",
+            "name": "CI",
+            "path": ".github/workflows/ci.yml",
+            "repository": {"full_name": "reaver-project/reaveros", "id": 5},
+            "event": "push",
+        }
+        instance = {
+            "InstanceId": "i-abc123",
+            "State": {"Name": "running"},
+            "Tags": [
+                {"Key": "GitHubJobId", "Value": "456"},
+                {"Key": "GitHubRepository", "Value": "reaver-project/reaveros"},
+                {"Key": "GitHubRunId", "Value": "123"},
+                {"Key": "GitHubSourceRef", "Value": "refs/heads/main"},
+                {"Key": "GitHubRunnerName", "Value": "reaveros-123-2-prepare-medium"},
+                {"Key": "ReaverProjectCacheTrust", "Value": "trusted"},
+            ],
+        }
+        with (
+            mock.patch.dict(os.environ, {"CACHE_TRUST_CLASS": "trusted"}),
+            mock.patch.object(runner_control, "github_token", return_value="token"),
+            mock.patch.object(runner_control, "github_request", side_effect=[fetched_job, run]),
+            mock.patch.object(runner_control, "runner_instances", return_value=[instance]),
+            mock.patch.object(
+                runner_control, "terminate", return_value={"instance_id": "i-abc123"}
+            ) as terminate,
+        ):
+            self.assertEqual(
+                runner_control.workflow_job({"schema_version": 1, "job": job}),
+                {"instance_id": "i-abc123"},
+            )
+            terminate.assert_called_once_with({"instance_id": "i-abc123"})
+
+        with (
+            mock.patch.dict(os.environ, {"CACHE_TRUST_CLASS": "trusted"}),
+            mock.patch.object(runner_control, "github_token", return_value="token"),
+            mock.patch.object(runner_control, "github_request", side_effect=[fetched_job, run]),
+            mock.patch.object(runner_control, "runner_instances", return_value=[]),
+        ):
+            self.assertEqual(
+                runner_control.workflow_job({"schema_version": 1, "job": job}),
+                {"ignored": "workflow job has no active runner"},
+            )
+
+        for instances, message in (
+            ([{**instance, "State": {"Name": "terminated"}}], "no active runner"),
+            ([{**instance, "Tags": []}], "no active runner"),
+            (
+                [{**instance, "Tags": [*instance["Tags"], {"Key": "GitHubRunId", "Value": "42"}]}],
+                "tags differ",
+            ),
+            ([instance, instance], "multiple runners"),
+        ):
+            with (
+                self.subTest(message=message),
+                mock.patch.dict(os.environ, {"CACHE_TRUST_CLASS": "trusted"}),
+                mock.patch.object(runner_control, "github_token", return_value="token"),
+                mock.patch.object(runner_control, "github_request", side_effect=[fetched_job, run]),
+                mock.patch.object(runner_control, "runner_instances", return_value=instances),
+            ):
+                if message == "no active runner":
+                    self.assertEqual(
+                        runner_control.workflow_job({"schema_version": 1, "job": job}),
+                        {"ignored": "workflow job has no active runner"},
+                    )
+                else:
+                    with self.assertRaisesRegex((ValueError, RuntimeError), message):
+                        runner_control.workflow_job({"schema_version": 1, "job": job})
+
+        with (
+            mock.patch.dict(os.environ, {"CACHE_TRUST_CLASS": "trusted"}),
+            mock.patch.object(runner_control, "github_token", return_value="token"),
+            mock.patch.object(
+                runner_control,
+                "github_request",
+                side_effect=[{**fetched_job, "status": "in_progress"}, run],
+            ),
+            self.assertRaisesRegex(RuntimeError, "not yet visible"),
+        ):
+            runner_control.workflow_job({"schema_version": 1, "job": job})
+
     def test_trusted_controller_uses_only_the_trusted_builder_profile(self):
         clients["ec2"].run_instances.return_value = {
             "Instances": [{"InstanceId": "i-trusted"}],
@@ -1054,6 +1466,64 @@ class RunnerControlIndexTests(unittest.TestCase):
             self.assertEqual(runner_control.reap({}), {"terminated": []})
         prune.assert_called_once_with("reaver-project/reaveros", ["refs/heads/pull-request/17"])
         self.assertIn("temporary lookup failure", print_message.call_args.args[0])
+
+    def test_reap_reconciles_completed_webhook_jobs_independently_of_the_queue(self):
+        instance = {
+            "InstanceId": "i-completed",
+            "LaunchTime": datetime.datetime.now(datetime.UTC),
+            "State": {"Name": "running"},
+            "Tags": [
+                {"Key": "GitHubJobId", "Value": "456"},
+                {"Key": "GitHubRepository", "Value": "reaver-project/reaveros"},
+                {"Key": "GitHubSourceRef", "Value": "refs/heads/pull-request/17"},
+            ],
+        }
+        with (
+            mock.patch.object(runner_control, "runner_instances", return_value=[instance]),
+            mock.patch.object(runner_control, "github_token", return_value="token"),
+            mock.patch.object(
+                runner_control, "github_request", return_value={"status": "completed"}
+            ),
+            mock.patch.object(runner_control, "terminate") as terminate,
+            mock.patch.object(runner_control, "prune_workflow_access") as prune,
+        ):
+            self.assertEqual(runner_control.reap({}), {"terminated": ["i-completed"]})
+        terminate.assert_called_once_with({"instance_id": "i-completed"})
+        prune.assert_called_once_with("reaver-project/reaveros", [])
+
+        with (
+            mock.patch.object(runner_control, "runner_instances", return_value=[instance]),
+            mock.patch.object(runner_control, "github_token", return_value="token"),
+            mock.patch.object(
+                runner_control, "github_request", return_value={"status": "in_progress"}
+            ),
+            mock.patch.object(runner_control, "terminate") as terminate,
+            mock.patch.object(runner_control, "prune_workflow_access"),
+        ):
+            self.assertEqual(runner_control.reap({}), {"terminated": []})
+            terminate.assert_not_called()
+
+        with (
+            mock.patch.object(runner_control, "runner_instances", return_value=[instance]),
+            mock.patch.object(runner_control, "github_token", return_value="token"),
+            mock.patch.object(
+                runner_control, "github_request", side_effect=ValueError("transient metadata error")
+            ),
+            mock.patch.object(runner_control, "prune_workflow_access"),
+            mock.patch("builtins.print") as print_message,
+        ):
+            self.assertEqual(runner_control.reap({}), {"terminated": []})
+        self.assertIn("transient metadata error", print_message.call_args.args[0])
+
+    def test_reaper_handler_accepts_only_reconciliation(self):
+        with mock.patch.object(runner_control, "reap", return_value={"terminated": []}) as reap:
+            self.assertEqual(
+                runner_control.reaper_handler({"action": "reap"}, None),
+                {"terminated": []},
+            )
+            reap.assert_called_once_with({"action": "reap"})
+        with self.assertRaisesRegex(ValueError, "unsupported runner reconciliation"):
+            runner_control.reaper_handler({"action": "launch"}, None)
 
     def test_reap_reports_cleanup_failure_after_terminating_runner(self):
         old_runner = {

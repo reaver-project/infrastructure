@@ -1,0 +1,38 @@
+#!/usr/bin/env bash
+
+set -euo pipefail
+
+if [[ ! ${AWS_REGION:-} =~ ^[a-z]{2}(-[a-z]+)+-[0-9]+$ ||
+    ! ${AWS_RUNNER_STACK_NAME:-} =~ ^[A-Za-z][-A-Za-z0-9]*$ ]]; then
+    printf 'AWS_REGION and AWS_RUNNER_STACK_NAME must be configured.\n' >&2
+    exit 2
+fi
+
+function_name=$(aws cloudformation describe-stacks \
+    --region "${AWS_REGION}" \
+    --stack-name "${AWS_RUNNER_STACK_NAME}" \
+    --query 'Stacks[0].Outputs[?OutputKey==`TrustedRunnerControlFunctionName`].OutputValue | [0]' \
+    --output text)
+if [[ ${function_name} != "${AWS_RUNNER_STACK_NAME}-trusted-runner-control" ]]; then
+    printf 'The trusted runner controller output is invalid.\n' >&2
+    exit 1
+fi
+
+result_file=$(mktemp)
+trap 'rm -f -- "${result_file}"' EXIT
+invocation=$(aws lambda invoke \
+    --region "${AWS_REGION}" \
+    --function-name "${function_name}" \
+    --cli-binary-format raw-in-base64-out \
+    --payload '{"action":"configure_webhook"}' \
+    "${result_file}" \
+    --output json)
+if ! jq --exit-status \
+    '.StatusCode == 200 and (has("FunctionError") | not)' \
+    <<< "${invocation}" > /dev/null ||
+    ! jq --exit-status '.configured == true' "${result_file}" > /dev/null; then
+    printf 'Runner App webhook configuration failed.\n' >&2
+    exit 1
+fi
+
+printf 'Configured the runner App webhook through %s.\n' "${function_name}"

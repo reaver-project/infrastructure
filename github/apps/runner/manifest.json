@@ -1,10 +1,13 @@
 {
     "name": "Reaver Project runner manager",
     "url": "https://github.com/reaver-project/infrastructure",
-    "description": "Registers and removes ephemeral organization-level GitHub Actions runners.",
+    "description": "Scales ephemeral organization-level GitHub Actions runners from workflow job events.",
     "public": false,
     "default_permissions": {
+        "actions": "read",
         "organization_self_hosted_runners": "write"
     },
-    "default_events": []
+    "default_events": [
+        "workflow_job"
+    ]
 }

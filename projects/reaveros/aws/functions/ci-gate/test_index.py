@@ -1,6 +1,7 @@
 import hashlib
 import hmac
 import importlib.util
+import io
 import json
 import os
 import pathlib
@@ -9,7 +10,7 @@ import types
 import unittest
 from unittest import mock
 
-clients = {"secretsmanager": mock.Mock(), "sqs": mock.Mock()}
+clients = {"lambda": mock.Mock(), "secretsmanager": mock.Mock(), "sqs": mock.Mock()}
 boto3 = types.ModuleType("boto3")
 boto3.client = lambda name: clients[name]
 primitives = types.ModuleType("cryptography.hazmat.primitives")
@@ -39,6 +40,7 @@ def load_module(name, path):
 
 
 github_app = load_module("github_app", module_directory.parent / "github_app.py")
+webhook = load_module("webhook", module_directory.parent / "webhook.py")
 lib = load_module("lib", module_directory / "lib.py")
 ci_gate = load_module("ci_gate_index", module_directory / "index.py")
 
@@ -103,6 +105,11 @@ class CiGateIndexTests(unittest.TestCase):
     def setUp(self):
         clients["secretsmanager"].reset_mock(return_value=True, side_effect=True)
         clients["sqs"].reset_mock(return_value=True, side_effect=True)
+        clients["lambda"].reset_mock(return_value=True, side_effect=True)
+        clients["lambda"].invoke.side_effect = lambda **_arguments: {
+            "StatusCode": 200,
+            "Payload": io.BytesIO(b'{"admitted":true}'),
+        }
         clients["sqs"].send_message.return_value = {"MessageId": "queued"}
         ci_gate.cached_credentials = None
         self.environment = mock.patch.dict(
@@ -111,6 +118,7 @@ class CiGateIndexTests(unittest.TestCase):
                 "ALLOWED_REPOSITORIES": repository,
                 "AUTOMATIC_ACTORS": "griwes,reaver-project-maintenance[bot]",
                 "CI_GATE_QUEUE_URL": "https://sqs.example/ci-gate-events.fifo",
+                "RUNNER_WORKFLOW_ADMISSION_FUNCTION": "workflow-admission",
                 "GITHUB_APP_SECRET_ID": "ci-gate-secret",
             },
         )
@@ -312,6 +320,30 @@ class CiGateIndexTests(unittest.TestCase):
                 ),
             ],
         )
+        self.assertEqual(clients["lambda"].invoke.call_count, 4)
+        admission = clients["lambda"].invoke.call_args_list[0].kwargs
+        self.assertEqual(admission["FunctionName"], "workflow-admission")
+        self.assertEqual(
+            json.loads(admission["Payload"]),
+            {
+                "action": "admit_workflow",
+                "repository": repository,
+                "source_ref": "refs/heads/pull-request/12",
+            },
+        )
+
+    def test_copied_ref_is_not_published_if_runner_group_admission_fails(self):
+        clients["lambda"].invoke.side_effect = lambda **_arguments: {
+            "StatusCode": 200,
+            "FunctionError": "Unhandled",
+            "Payload": io.BytesIO(b'{"admitted":false}'),
+        }
+        with (
+            mock.patch.object(ci_gate, "github_request") as github_request,
+            self.assertRaisesRegex(RuntimeError, "did not admit"),
+        ):
+            ci_gate.set_copied_revision("token", repository, 12, full_sha)
+        github_request.assert_not_called()
 
     def test_does_not_republish_an_identical_copy_ref(self):
         with mock.patch.object(

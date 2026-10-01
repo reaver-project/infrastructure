@@ -214,12 +214,24 @@ Resources:
                     Action: secretsmanager:GetSecretValue
                     Resource: !Sub arn:${AWS::Partition}:secretsmanager:${AWS::Region}:${AWS::AccountId}:secret:${RunnerStackName}/github-*-app-*
                   - Effect: Allow
+                    Action: secretsmanager:GetSecretValue
+                    Resource: !Sub arn:${AWS::Partition}:secretsmanager:${AWS::Region}:${AWS::AccountId}:secret:${RunnerStackName}/github-runner-webhook-*
+                  - Effect: Allow
                     Action:
+                      - sqs:ChangeMessageVisibility
                       - sqs:DeleteMessage
                       - sqs:GetQueueAttributes
                       - sqs:ReceiveMessage
                       - sqs:SendMessage
-                    Resource: !Sub arn:${AWS::Partition}:sqs:${AWS::Region}:${AWS::AccountId}:${RunnerStackName}-ci-gate-events.fifo
+                    Resource:
+                      - !Sub arn:${AWS::Partition}:sqs:${AWS::Region}:${AWS::AccountId}:${RunnerStackName}-ci-gate-events.fifo
+                      - !Sub arn:${AWS::Partition}:sqs:${AWS::Region}:${AWS::AccountId}:${RunnerStackName}-runner-candidate-events.fifo
+                      - !Sub arn:${AWS::Partition}:sqs:${AWS::Region}:${AWS::AccountId}:${RunnerStackName}-runner-trusted-events.fifo
+                  - Effect: Allow
+                    Action: sqs:SendMessage
+                    Resource:
+                      - !Sub arn:${AWS::Partition}:sqs:${AWS::Region}:${AWS::AccountId}:${RunnerStackName}-runner-candidate-dead-letter.fifo
+                      - !Sub arn:${AWS::Partition}:sqs:${AWS::Region}:${AWS::AccountId}:${RunnerStackName}-runner-trusted-dead-letter.fifo
                   - Effect: Allow
                     Action: cloudformation:DescribeStacks
                     Resource: !Sub arn:${AWS::Partition}:cloudformation:${AWS::Region}:${AWS::AccountId}:stack/${RunnerStackName}/*
@@ -342,6 +354,20 @@ Resources:
                         Resource: !Sub arn:${AWS::Partition}:secretsmanager:${AWS::Region}:${AWS::AccountId}:secret:${RunnerStackName}/github-*-app-*
                       - Effect: Allow
                         Action:
+                          - secretsmanager:CreateSecret
+                          - secretsmanager:DeleteSecret
+                          - secretsmanager:DescribeSecret
+                          - secretsmanager:GetSecretValue
+                          - secretsmanager:ListSecretVersionIds
+                          - secretsmanager:PutSecretValue
+                          - secretsmanager:RestoreSecret
+                          - secretsmanager:TagResource
+                          - secretsmanager:UntagResource
+                          - secretsmanager:UpdateSecret
+                          - secretsmanager:UpdateSecretVersionStage
+                        Resource: !Sub arn:${AWS::Partition}:secretsmanager:${AWS::Region}:${AWS::AccountId}:secret:${RunnerStackName}/github-runner-webhook-*
+                      - Effect: Allow
+                        Action:
                           - iam:AttachRolePolicy
                           - iam:DeleteRole
                           - iam:DeleteRolePolicy
@@ -426,7 +452,10 @@ Resources:
                         Resource: '*'
                         Condition:
                             ArnEquals:
-                                lambda:FunctionArn: !Sub arn:${AWS::Partition}:lambda:${AWS::Region}:${AWS::AccountId}:function:${RunnerStackName}-ci-gate-worker
+                                lambda:FunctionArn:
+                                  - !Sub arn:${AWS::Partition}:lambda:${AWS::Region}:${AWS::AccountId}:function:${RunnerStackName}-ci-gate-worker
+                                  - !Sub arn:${AWS::Partition}:lambda:${AWS::Region}:${AWS::AccountId}:function:${RunnerStackName}-runner-candidate-worker
+                                  - !Sub arn:${AWS::Partition}:lambda:${AWS::Region}:${AWS::AccountId}:function:${RunnerStackName}-runner-trusted-worker
                       - Effect: Allow
                         Action:
                           - lambda:DeleteEventSourceMapping
@@ -434,7 +463,10 @@ Resources:
                         Resource: !Sub arn:${AWS::Partition}:lambda:${AWS::Region}:${AWS::AccountId}:event-source-mapping:*
                         Condition:
                             ArnEquals:
-                                lambda:FunctionArn: !Sub arn:${AWS::Partition}:lambda:${AWS::Region}:${AWS::AccountId}:function:${RunnerStackName}-ci-gate-worker
+                                lambda:FunctionArn:
+                                  - !Sub arn:${AWS::Partition}:lambda:${AWS::Region}:${AWS::AccountId}:function:${RunnerStackName}-ci-gate-worker
+                                  - !Sub arn:${AWS::Partition}:lambda:${AWS::Region}:${AWS::AccountId}:function:${RunnerStackName}-runner-candidate-worker
+                                  - !Sub arn:${AWS::Partition}:lambda:${AWS::Region}:${AWS::AccountId}:function:${RunnerStackName}-runner-trusted-worker
                       - Effect: Allow
                         Action:
                           - lambda:GetEventSourceMapping
@@ -468,6 +500,10 @@ Resources:
                         Resource:
                           - !Sub arn:${AWS::Partition}:sqs:${AWS::Region}:${AWS::AccountId}:${RunnerStackName}-ci-gate-events.fifo
                           - !Sub arn:${AWS::Partition}:sqs:${AWS::Region}:${AWS::AccountId}:${RunnerStackName}-ci-gate-dead-letter.fifo
+                          - !Sub arn:${AWS::Partition}:sqs:${AWS::Region}:${AWS::AccountId}:${RunnerStackName}-runner-candidate-events.fifo
+                          - !Sub arn:${AWS::Partition}:sqs:${AWS::Region}:${AWS::AccountId}:${RunnerStackName}-runner-trusted-events.fifo
+                          - !Sub arn:${AWS::Partition}:sqs:${AWS::Region}:${AWS::AccountId}:${RunnerStackName}-runner-candidate-dead-letter.fifo
+                          - !Sub arn:${AWS::Partition}:sqs:${AWS::Region}:${AWS::AccountId}:${RunnerStackName}-runner-trusted-dead-letter.fifo
                       - Effect: Allow
                         Action: sqs:ListQueues
                         Resource: '*'
@@ -980,6 +1016,9 @@ Resources:
                           - cloudformation:ExecuteChangeSet
                           - cloudformation:UpdateTerminationProtection
                         Resource: !Sub arn:${AWS::Partition}:cloudformation:${AWS::Region}:${AWS::AccountId}:stack/${RunnerStackName}/*
+                      - Effect: Allow
+                        Action: lambda:InvokeFunction
+                        Resource: !Sub arn:${AWS::Partition}:lambda:${AWS::Region}:${AWS::AccountId}:function:${RunnerStackName}-trusted-runner-control
             Tags:
               - Key: Project
                 Value: ReaverProjectInfrastructure

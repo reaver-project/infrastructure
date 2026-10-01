@@ -20,8 +20,10 @@ from lib import (
     validate_repository,
     workflow_reference,
 )
+from workflow_job import validate_fetched_job
 
 ec2 = boto3.client("ec2")
+sqs = boto3.client("sqs")
 ssm = boto3.client("ssm")
 secrets = boto3.client("secretsmanager")
 cached_github_token = None
@@ -60,6 +62,55 @@ def github_token():
         )
     )
     return cached_github_token
+
+
+def configure_webhook(_event):
+    if os.environ.get("CACHE_TRUST_CLASS") != "trusted":
+        raise ValueError("only the trusted controller can configure the runner App webhook")
+    credentials = json.loads(
+        secrets.get_secret_value(SecretId=os.environ["GITHUB_APP_SECRET_ID"])["SecretString"]
+    )
+    webhook_secret = secrets.get_secret_value(SecretId=os.environ["RUNNER_WEBHOOK_SECRET_ID"])[
+        "SecretString"
+    ]
+    webhook_url = os.environ["RUNNER_WEBHOOK_URL"]
+    if not isinstance(webhook_secret, str) or len(webhook_secret) < 32:
+        raise ValueError("runner webhook secret is invalid")
+    parsed_url = urllib.parse.urlparse(webhook_url)
+    if (
+        parsed_url.scheme != "https"
+        or not parsed_url.hostname
+        or not parsed_url.hostname.endswith(f".lambda-url.{os.environ['AWS_REGION']}.on.aws")
+        or parsed_url.path != "/"
+        or parsed_url.query
+        or parsed_url.fragment
+    ):
+        raise ValueError("runner webhook URL is invalid")
+    config = github_request(
+        "/app/hook/config",
+        create_app_jwt(credentials),
+        "PATCH",
+        {"url": webhook_url, "content_type": "json", "secret": webhook_secret},
+    )
+    if not isinstance(config, dict) or config.get("url") != webhook_url:
+        raise RuntimeError("GitHub did not retain the runner webhook URL")
+    return {"configured": True}
+
+
+def admit_workflow(event):
+    if os.environ.get("CACHE_TRUST_CLASS") != "candidate":
+        raise ValueError("only the candidate controller can admit copied workflows")
+    repository = event.get("repository")
+    validate_repository(repository, set(os.environ["ALLOWED_REPOSITORIES"].split(",")))
+    source_ref = event.get("source_ref")
+    required = workflow_reference(repository, source_ref)
+    if not source_ref.startswith("refs/heads/pull-request/"):
+        raise ValueError("only copied pull-request workflows can be admitted")
+    token = github_token()
+    path, selected = restricted_workflows(token, repository)
+    if required not in selected:
+        set_restricted_workflows(path, token, selected | {required})
+    return {"admitted": True}
 
 
 def parameter_expiration_policy(maximum_age_minutes, now=None):
@@ -248,6 +299,34 @@ def launch(event):
     live_runners = [
         instance for instance in runner_instances() if instance["State"]["Name"] in live_states
     ]
+    if "job_id" in identity:
+        matching = []
+        for instance in live_runners:
+            tags = {tag["Key"]: tag["Value"] for tag in instance.get("Tags", [])}
+            if tags.get("GitHubJobId") == identity["job_id"]:
+                matching.append((instance, tags))
+        if len(matching) > 1:
+            raise RuntimeError("multiple runners exist for one workflow job")
+        if matching:
+            instance, tags = matching[0]
+            expected = {
+                "GitHubRepository": repository,
+                "GitHubSourceRef": source_ref,
+                "GitHubRunId": identity["run_id"],
+                "GitHubRunnerName": identity["runner_name"],
+                "ReaverOSRunnerProfile": runner_profile,
+                "ReaverOSRunnerSize": runner_size,
+                "ReaverProjectCacheTrust": cache_trust,
+            }
+            if any(tags.get(key) != value for key, value in expected.items()):
+                raise ValueError("existing workflow job runner differs from the request")
+            if instance["State"]["Name"] not in {"pending", "running"}:
+                raise RuntimeError("existing workflow job runner is shutting down")
+            return {
+                "instance_id": instance["InstanceId"],
+                "labels": ["self-hosted", "reaveros-aws", identity["runner_name"]],
+                "runner_name": identity["runner_name"],
+            }
     # The candidate and trusted functions can each admit one runner at once.
     # Reserve the other in-flight launch before checking the global limit.
     admission_limit = (
@@ -456,6 +535,32 @@ def reap(_event):
         terminated.append(runner["instance_id"])
     if terminated:
         ec2.terminate_instances(InstanceIds=terminated)
+    for instance in owned_instances:
+        if instance["InstanceId"] in terminated or instance["State"]["Name"] not in {
+            "pending",
+            "running",
+        }:
+            continue
+        tags = {tag["Key"]: tag["Value"] for tag in instance.get("Tags", [])}
+        job_id = tags.get("GitHubJobId")
+        repository = tags.get("GitHubRepository")
+        if job_id is None:
+            continue
+        try:
+            require_match(job_id, r"[1-9][0-9]*", "job ID")
+            validate_repository(repository, set(os.environ["ALLOWED_REPOSITORIES"].split(",")))
+            job = github_request(f"/repos/{repository}/actions/jobs/{job_id}", github_token())
+            if job.get("status") == "completed":
+                terminate({"instance_id": instance["InstanceId"]})
+                terminated.append(instance["InstanceId"])
+        except (
+            BotoCoreError,
+            ClientError,
+            GitHubRequestError,
+            RuntimeError,
+            ValueError,
+        ) as error:
+            print(f"Could not reconcile runner job {job_id}: {error}")
     if os.environ["CACHE_TRUST_CLASS"] == "candidate":
         for repository in os.environ["ALLOWED_REPOSITORIES"].split(","):
             protected_refs = []
@@ -481,8 +586,80 @@ def reap(_event):
     return {"terminated": terminated}
 
 
+def workflow_job(event):
+    if event.get("schema_version") != 1:
+        raise ValueError("unsupported runner webhook schema")
+    job = event.get("job")
+    if not isinstance(job, dict):
+        raise ValueError("runner webhook job is missing")
+    repository = job.get("repository")
+    validate_repository(repository, set(os.environ["ALLOWED_REPOSITORIES"].split(",")))
+    for name in ("job_id", "run_id", "run_attempt", "repository_id", "installation_id"):
+        if type(job.get(name)) is not int or job[name] < 1:
+            raise ValueError(f"invalid runner webhook {name}")
+    action = job.get("action")
+    if action not in {"queued", "completed"}:
+        raise ValueError("invalid runner webhook action")
+    job["runner_group_id"] = int(os.environ["GITHUB_RUNNER_GROUP_ID"])
+
+    token = github_token()
+    fetched_job = github_request(f"/repos/{repository}/actions/jobs/{job['job_id']}", token)
+    run = github_request(f"/repos/{repository}/actions/runs/{job['run_id']}", token)
+    specification = validate_fetched_job(job, fetched_job, run, os.environ["CACHE_TRUST_CLASS"])
+    if action == "queued":
+        if fetched_job.get("status") != "queued" or run.get("status") == "completed":
+            return {"ignored": "workflow job is no longer queued"}
+        return launch(
+            {
+                "repository": repository,
+                "source_ref": specification["source_ref"],
+                "github_run_id": job["run_id"],
+                "github_run_attempt": job["run_attempt"],
+                "github_job_id": job["job_id"],
+                "runner_key": job["runner_key"],
+                "runner_size": specification["runner_size"],
+                "runner_profile": specification["runner_profile"],
+            }
+        )
+    if fetched_job.get("status") != "completed":
+        raise RuntimeError("completed workflow job is not yet visible from GitHub")
+    live_states = {"pending", "running", "stopping", "stopped"}
+    matches = []
+    for instance in runner_instances():
+        if instance["State"]["Name"] not in live_states:
+            continue
+        tags = {tag["Key"]: tag["Value"] for tag in instance.get("Tags", [])}
+        if tags.get("GitHubJobId") != str(job["job_id"]):
+            continue
+        if (
+            tags.get("GitHubRepository") != repository
+            or tags.get("GitHubRunId") != str(job["run_id"])
+            or tags.get("GitHubSourceRef") != specification["source_ref"]
+            or tags.get("GitHubRunnerName") != job["runner_name"]
+            or tags.get("ReaverProjectCacheTrust") != os.environ["CACHE_TRUST_CLASS"]
+        ):
+            raise ValueError("workflow job runner tags differ from the webhook")
+        matches.append(instance)
+    if len(matches) > 1:
+        raise RuntimeError("multiple runners exist for one workflow job")
+    if not matches:
+        return {"ignored": "workflow job has no active runner"}
+    return terminate({"instance_id": matches[0]["InstanceId"]})
+
+
 def handler(event, _context):
+    if "Records" in event:
+        records = event["Records"]
+        if not isinstance(records, list) or len(records) != 1:
+            raise ValueError("runner webhook batch must contain one record")
+        record = records[0]
+        if not isinstance(record, dict) or record.get("eventSource") != "aws:sqs":
+            raise ValueError("runner webhook record is not from SQS")
+        delivery = json.loads(record["body"])
+        return workflow_job(delivery)
     actions = {
+        "admit_workflow": admit_workflow,
+        "configure_webhook": configure_webhook,
         "launch": launch,
         "reap": reap,
         "status": status,
@@ -492,3 +669,50 @@ def handler(event, _context):
     if action not in actions:
         raise ValueError("unsupported runner control action")
     return actions[action](event)
+
+
+def sqs_handler(event, context):
+    records = event.get("Records")
+    if not isinstance(records, list) or len(records) != 1:
+        raise ValueError("runner webhook batch must contain one record")
+    record = records[0]
+    try:
+        handler(event, context)
+    except Exception as error:
+        retryable_github_statuses = {404, 429, 500, 502, 503, 504, "network error"}
+        capacity_wait = str(error) == "ephemeral ReaverOS runner limit reached"
+        transient = isinstance(error, (BotoCoreError, ClientError)) or (
+            isinstance(error, GitHubRequestError) and error.status in retryable_github_statuses
+        )
+        receive_count = int(record.get("attributes", {}).get("ApproximateReceiveCount", "1"))
+        if capacity_wait or (transient and receive_count < 20):
+            sqs.change_message_visibility(
+                QueueUrl=os.environ["RUNNER_QUEUE_URL"],
+                ReceiptHandle=record["receiptHandle"],
+                VisibilityTimeout=30,
+            )
+            return {"batchItemFailures": [{"itemIdentifier": record["messageId"]}]}
+        response = sqs.send_message(
+            QueueUrl=os.environ["RUNNER_DEAD_LETTER_QUEUE_URL"],
+            MessageBody=json.dumps(
+                {"error": str(error), "original": record["body"]},
+                separators=(",", ":"),
+            ),
+            MessageGroupId="terminal-runner-job",
+            MessageDeduplicationId=record["messageId"],
+        )
+        if not isinstance(response.get("MessageId"), str) or not response["MessageId"]:
+            raise RuntimeError("SQS did not acknowledge terminal runner job") from error
+    return {"batchItemFailures": []}
+
+
+def admission_handler(event, _context):
+    if not isinstance(event, dict) or event.get("action") != "admit_workflow":
+        raise ValueError("unsupported runner workflow admission action")
+    return admit_workflow(event)
+
+
+def reaper_handler(event, _context):
+    if not isinstance(event, dict) or event.get("action") != "reap":
+        raise ValueError("unsupported runner reconciliation action")
+    return reap(event)

@@ -49,6 +49,41 @@ class RunnerControlTests(unittest.TestCase):
             },
         )
 
+    def test_binds_webhook_runner_identity_to_one_job(self):
+        identity = runner_control.runner_identity(
+            {
+                "github_run_attempt": 2,
+                "github_run_id": 123,
+                "github_job_id": 456,
+                "runner_key": "unit-tests-amd64",
+            },
+            "/jit/",
+            "0123456789abcdef0123456789abcdef",
+        )
+        self.assertEqual(identity["job_id"], "456")
+        tags = runner_control.runner_tag_specifications(
+            {**identity, "runner_id": 42},
+            "reaver-project/reaveros",
+            "refs/heads/pull-request/17",
+            "medium",
+            "validation",
+            "candidate",
+            "reaveros-github-runners-runner",
+        )[0]["Tags"]
+        self.assertIn({"Key": "GitHubJobId", "Value": "456"}, tags)
+
+        for invalid in (True, 0, -1, "not-a-job"):
+            with self.subTest(invalid=invalid), self.assertRaisesRegex(ValueError, "job ID"):
+                runner_control.runner_identity(
+                    {
+                        "github_run_attempt": 2,
+                        "github_run_id": 123,
+                        "github_job_id": invalid,
+                        "runner_key": "unit-tests-amd64",
+                    },
+                    "/jit/",
+                )
+
     def test_owns_instance_and_volume_tags_at_launch(self):
         self.assertEqual(
             runner_control.runner_tag_specifications(

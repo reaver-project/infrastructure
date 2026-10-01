@@ -3,7 +3,6 @@
 set -euo pipefail
 
 self_dir=$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)
-shared_webhook=$(realpath "${self_dir}/../webhook.py")
 coverage_directory=$(mktemp -d)
 
 cleanup()
@@ -15,7 +14,7 @@ trap cleanup EXIT
 export COVERAGE_FILE="${coverage_directory}/coverage"
 python3 -m coverage run \
     --branch \
-    --include="${self_dir}/*.py,${shared_webhook}" \
+    --source="${self_dir}" \
     --omit="${self_dir}/test*.py" \
     -m unittest discover \
     --start-directory "${self_dir}" \

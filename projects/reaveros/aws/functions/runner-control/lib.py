@@ -36,13 +36,19 @@ def runner_identity(event, parameter_prefix, parameter_nonce=None):
     if parameter_nonce is None:
         parameter_nonce = secrets.token_hex(16)
     require_match(parameter_nonce, r"[0-9a-f]{32}", "parameter nonce")
-    return {
+    identity = {
         "jit_parameter": (
             f"{parameter_prefix}{run_id}-{run_attempt}-{runner_key}-{parameter_nonce}"
         ),
         "run_id": run_id,
         "runner_name": f"reaveros-{run_id}-{run_attempt}-{runner_key}",
     }
+    job_id = event.get("github_job_id")
+    if job_id is not None:
+        if isinstance(job_id, bool):
+            raise ValueError("invalid job ID")
+        identity["job_id"] = require_match(str(job_id), r"[1-9][0-9]*", "job ID")
+    return identity
 
 
 def runner_tag_specifications(
@@ -67,6 +73,11 @@ def runner_tag_specifications(
                 {"Key": "GitHubRepository", "Value": repository},
                 {"Key": "GitHubSourceRef", "Value": source_ref},
                 {"Key": "GitHubRunId", "Value": identity["run_id"]},
+                *(
+                    [{"Key": "GitHubJobId", "Value": identity["job_id"]}]
+                    if "job_id" in identity
+                    else []
+                ),
                 {"Key": "GitHubRunnerId", "Value": str(identity["runner_id"])},
                 {"Key": "GitHubRunnerName", "Value": identity["runner_name"]},
                 {

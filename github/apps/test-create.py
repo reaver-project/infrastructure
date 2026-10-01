@@ -49,6 +49,16 @@ def decrypt(path, passphrase):
 
 
 class CreateAppTests(unittest.TestCase):
+    def test_runner_manifest_subscribes_only_to_workflow_jobs(self):
+        manifest_path = Path(__file__).with_name("runner") / "manifest.json"
+        manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
+
+        self.assertEqual(manifest["default_events"], ["workflow_job"])
+        self.assertEqual(
+            manifest["default_permissions"],
+            {"actions": "read", "organization_self_hosted_runners": "write"},
+        )
+
     def test_ci_gate_manifest_keeps_issue_comment_subscription(self):
         manifest_path = Path(__file__).with_name("ci-gate") / "manifest.json"
         manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
