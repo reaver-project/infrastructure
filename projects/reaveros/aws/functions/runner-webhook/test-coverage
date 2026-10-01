@@ -1,0 +1,24 @@
+#!/usr/bin/env bash
+
+set -euo pipefail
+
+self_dir=$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)
+coverage_directory=$(mktemp -d)
+
+cleanup()
+{
+    rm -r "${coverage_directory}"
+}
+trap cleanup EXIT
+
+export COVERAGE_FILE="${coverage_directory}/coverage"
+python3 -m coverage run \
+    --branch \
+    --source="${self_dir}" \
+    --omit="${self_dir}/test*.py" \
+    -m unittest discover \
+    --start-directory "${self_dir}" \
+    --pattern 'test*.py'
+python3 -m coverage report \
+    --fail-under=95 \
+    --show-missing

@@ -97,6 +97,29 @@ class RunnerWebhookValidationTests(unittest.TestCase):
         with self.assertRaisesRegex(ValueError, "repository ID"):
             lib.normalize_job_event(event, allowed)
 
+    def test_rejects_missing_or_malformed_job_fields(self):
+        cases = (
+            (lambda event: event.pop("repository"), "repository is missing"),
+            (
+                lambda event: event["repository"].update(full_name="invalid/name/extra"),
+                "repository name is invalid",
+            ),
+            (lambda event: event.pop("workflow_job"), "workflow job is missing"),
+            (
+                lambda event: event["workflow_job"].update(labels="reaveros-aws"),
+                "workflow job labels are invalid",
+            ),
+            (
+                lambda event: event["workflow_job"].update(name=""),
+                "workflow job name is invalid",
+            ),
+        )
+        for corrupt, message in cases:
+            event = job_event()
+            corrupt(event)
+            with self.subTest(message=message), self.assertRaisesRegex(ValueError, message):
+                lib.normalize_job_event(event, allowed)
+
 
 if __name__ == "__main__":
     unittest.main()

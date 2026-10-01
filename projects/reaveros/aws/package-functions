@@ -58,11 +58,22 @@ python3 -m pip install \
     --target "${staging_directory}/ci-gate" \
     > /dev/null
 
-rm -f "${output_directory}/ci-gate.zip" "${output_directory}/runner-reaper.zip"
+install -d "${staging_directory}/runner-webhook"
+install \
+    "${self_dir}/functions/webhook.py" \
+    "${self_dir}/functions/runner-webhook/index.py" \
+    "${self_dir}/functions/runner-webhook/lib.py" \
+    "${staging_directory}/runner-webhook/"
+
+rm -f "${output_directory}/ci-gate.zip" "${output_directory}/runner-reaper.zip" \
+    "${output_directory}/runner-webhook.zip"
 "${self_dir}/create-function-archive" \
     "${staging_directory}/ci-gate" \
     "${output_directory}/ci-gate.zip"
 "${self_dir}/create-function-archive" \
     "${staging_directory}/runner-control" \
     "${output_directory}/runner-control.zip"
+"${self_dir}/create-function-archive" \
+    "${staging_directory}/runner-webhook" \
+    "${output_directory}/runner-webhook.zip"
 printf 'Packaged ReaverOS Lambda functions in %s.\n' "${output_directory}"
