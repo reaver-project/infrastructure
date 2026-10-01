@@ -380,6 +380,20 @@ Resources:
               - Key: Project
                 Value: ReaverOS
 
+    RunnerWebhookSecret:
+        Type: AWS::SecretsManager::Secret
+        DeletionPolicy: RetainExceptOnCreate
+        UpdateReplacePolicy: Retain
+        Properties:
+            Name: !Sub ${AWS::StackName}/github-runner-webhook
+            Description: HMAC secret for runner App workflow job deliveries
+            GenerateSecretString:
+                PasswordLength: 64
+                ExcludePunctuation: true
+            Tags:
+              - Key: Project
+                Value: ReaverOS
+
     CiGateAppSecret:
         Type: AWS::SecretsManager::Secret
         DeletionPolicy: RetainExceptOnCreate
@@ -419,6 +433,68 @@ Resources:
             RedrivePolicy:
                 deadLetterTargetArn: !GetAtt CiGateDeadLetterQueue.Arn
                 maxReceiveCount: 5
+            Tags:
+              - Key: Project
+                Value: ReaverOS
+
+    CandidateRunnerDeadLetterQueue:
+        Type: AWS::SQS::Queue
+        DeletionPolicy: Retain
+        UpdateReplacePolicy: Retain
+        Properties:
+            QueueName: !Sub ${AWS::StackName}-runner-candidate-dead-letter.fifo
+            FifoQueue: true
+            SqsManagedSseEnabled: true
+            MessageRetentionPeriod: 1209600
+            Tags:
+              - Key: Project
+                Value: ReaverOS
+
+    TrustedRunnerDeadLetterQueue:
+        Type: AWS::SQS::Queue
+        DeletionPolicy: Retain
+        UpdateReplacePolicy: Retain
+        Properties:
+            QueueName: !Sub ${AWS::StackName}-runner-trusted-dead-letter.fifo
+            FifoQueue: true
+            SqsManagedSseEnabled: true
+            MessageRetentionPeriod: 1209600
+            Tags:
+              - Key: Project
+                Value: ReaverOS
+
+    CandidateRunnerWebhookQueue:
+        Type: AWS::SQS::Queue
+        DeletionPolicy: Retain
+        UpdateReplacePolicy: Retain
+        Properties:
+            QueueName: !Sub ${AWS::StackName}-runner-candidate-events.fifo
+            FifoQueue: true
+            SqsManagedSseEnabled: true
+            VisibilityTimeout: 360
+            MessageRetentionPeriod: 345600
+            ReceiveMessageWaitTimeSeconds: 20
+            RedrivePolicy:
+                deadLetterTargetArn: !GetAtt CandidateRunnerDeadLetterQueue.Arn
+                maxReceiveCount: 1000
+            Tags:
+              - Key: Project
+                Value: ReaverOS
+
+    TrustedRunnerWebhookQueue:
+        Type: AWS::SQS::Queue
+        DeletionPolicy: Retain
+        UpdateReplacePolicy: Retain
+        Properties:
+            QueueName: !Sub ${AWS::StackName}-runner-trusted-events.fifo
+            FifoQueue: true
+            SqsManagedSseEnabled: true
+            VisibilityTimeout: 360
+            MessageRetentionPeriod: 345600
+            ReceiveMessageWaitTimeSeconds: 20
+            RedrivePolicy:
+                deadLetterTargetArn: !GetAtt TrustedRunnerDeadLetterQueue.Arn
+                maxReceiveCount: 1000
             Tags:
               - Key: Project
                 Value: ReaverOS
@@ -720,6 +796,13 @@ Resources:
                         Resource: !Ref RunnerAppSecret
                       - Effect: Allow
                         Action:
+                          - sqs:ChangeMessageVisibility
+                          - sqs:DeleteMessage
+                          - sqs:GetQueueAttributes
+                          - sqs:ReceiveMessage
+                        Resource: !GetAtt CandidateRunnerWebhookQueue.Arn
+                      - Effect: Allow
+                        Action:
                           - ssm:DeleteParameter
                           - ssm:PutParameter
                         Resource: !Sub arn:${AWS::Partition}:ssm:${AWS::Region}:${AWS::AccountId}:parameter/reaveros/github-runners/jit/*
@@ -784,6 +867,16 @@ Resources:
                         Resource: !Ref RunnerAppSecret
                       - Effect: Allow
                         Action:
+                          - sqs:ChangeMessageVisibility
+                          - sqs:DeleteMessage
+                          - sqs:GetQueueAttributes
+                          - sqs:ReceiveMessage
+                        Resource: !GetAtt TrustedRunnerWebhookQueue.Arn
+                      - Effect: Allow
+                        Action: secretsmanager:GetSecretValue
+                        Resource: !Ref RunnerWebhookSecret
+                      - Effect: Allow
+                        Action:
                           - ssm:DeleteParameter
                           - ssm:PutParameter
                         Resource: !Sub arn:${AWS::Partition}:ssm:${AWS::Region}:${AWS::AccountId}:parameter/reaveros/github-runners/jit/*
@@ -846,8 +939,100 @@ Resources:
                     MAXIMUM_AGE_MINUTES: !Ref RunnerMaximumAgeMinutes
                     MEDIUM_INSTANCE_TYPE: !Ref MediumRunnerInstanceType
                     RUNNER_INSTANCE_NAME: !Sub ${AWS::StackName}-runner
+                    RUNNER_WEBHOOK_SECRET_ID: !Ref RunnerWebhookSecret
+                    RUNNER_WEBHOOK_URL: !GetAtt RunnerWebhookFunctionUrl.FunctionUrl
                     VALIDATION_PROFILE_ARN: !GetAtt RunnerInstanceProfile.Arn
             Code: ../../../build/reaveros-lambda/runner-control.zip
+            Tags:
+              - Key: Project
+                Value: ReaverOS
+
+    CandidateRunnerWebhookWorker:
+        Type: AWS::Lambda::Function
+        Properties:
+            FunctionName: !Sub ${AWS::StackName}-runner-candidate-worker
+            Runtime: python3.13
+            Handler: index.sqs_handler
+            Role: !GetAtt RunnerControlRole.Arn
+            Timeout: 60
+            ReservedConcurrentExecutions: 1
+            Environment:
+                Variables:
+                    ALLOWED_REPOSITORIES: !Join [',', !Ref GitHubAllowedRepositories]
+                    BUILDER_PROFILE_ARN: !GetAtt BuilderRunnerInstanceProfile.Arn
+                    CACHE_TRUST_CLASS: candidate
+                    GITHUB_APP_SECRET_ID: !Ref RunnerAppSecret
+                    GITHUB_ORGANIZATION: !Ref GitHubOrganization
+                    GITHUB_RUNNER_GROUP_ID: !Ref GitHubRunnerGroupId
+                    JIT_PARAMETER_PREFIX: /reaveros/github-runners/jit/
+                    LARGE_INSTANCE_TYPE: !Ref LargeRunnerInstanceType
+                    LAUNCH_TEMPLATE_ID: !Ref RunnerLaunchTemplate
+                    MAXIMUM_CONCURRENT_RUNNERS: !Ref MaximumConcurrentRunners
+                    MAXIMUM_PARALLEL_CONTROLLER_LAUNCHES: 2
+                    MAXIMUM_AGE_MINUTES: !Ref RunnerMaximumAgeMinutes
+                    MEDIUM_INSTANCE_TYPE: !Ref MediumRunnerInstanceType
+                    RUNNER_INSTANCE_NAME: !Sub ${AWS::StackName}-runner
+                    RUNNER_QUEUE_URL: !Ref CandidateRunnerWebhookQueue
+                    VALIDATION_PROFILE_ARN: !GetAtt RunnerInstanceProfile.Arn
+            Code: ../../../build/reaveros-lambda/runner-control.zip
+            Tags:
+              - Key: Project
+                Value: ReaverOS
+
+    TrustedRunnerWebhookWorker:
+        Type: AWS::Lambda::Function
+        Properties:
+            FunctionName: !Sub ${AWS::StackName}-runner-trusted-worker
+            Runtime: python3.13
+            Handler: index.sqs_handler
+            Role: !GetAtt TrustedRunnerControlRole.Arn
+            Timeout: 60
+            ReservedConcurrentExecutions: 1
+            Environment:
+                Variables:
+                    ALLOWED_REPOSITORIES: !Join [',', !Ref GitHubAllowedRepositories]
+                    BUILDER_PROFILE_ARN: !GetAtt TrustedBuilderRunnerInstanceProfile.Arn
+                    CACHE_TRUST_CLASS: trusted
+                    GITHUB_APP_SECRET_ID: !Ref RunnerAppSecret
+                    GITHUB_ORGANIZATION: !Ref GitHubOrganization
+                    GITHUB_RUNNER_GROUP_ID: !Ref GitHubRunnerGroupId
+                    JIT_PARAMETER_PREFIX: /reaveros/github-runners/jit/
+                    LARGE_INSTANCE_TYPE: !Ref LargeRunnerInstanceType
+                    LAUNCH_TEMPLATE_ID: !Ref RunnerLaunchTemplate
+                    MAXIMUM_CONCURRENT_RUNNERS: !Ref MaximumConcurrentRunners
+                    MAXIMUM_PARALLEL_CONTROLLER_LAUNCHES: 2
+                    MAXIMUM_AGE_MINUTES: !Ref RunnerMaximumAgeMinutes
+                    MEDIUM_INSTANCE_TYPE: !Ref MediumRunnerInstanceType
+                    RUNNER_INSTANCE_NAME: !Sub ${AWS::StackName}-runner
+                    RUNNER_QUEUE_URL: !Ref TrustedRunnerWebhookQueue
+                    VALIDATION_PROFILE_ARN: !GetAtt RunnerInstanceProfile.Arn
+            Code: ../../../build/reaveros-lambda/runner-control.zip
+            Tags:
+              - Key: Project
+                Value: ReaverOS
+
+    CandidateRunnerWebhookEventSource:
+        Type: AWS::Lambda::EventSourceMapping
+        Properties:
+            EventSourceArn: !GetAtt CandidateRunnerWebhookQueue.Arn
+            FunctionName: !GetAtt CandidateRunnerWebhookWorker.Arn
+            BatchSize: 1
+            FunctionResponseTypes:
+              - ReportBatchItemFailures
+            Enabled: true
+            Tags:
+              - Key: Project
+                Value: ReaverOS
+
+    TrustedRunnerWebhookEventSource:
+        Type: AWS::Lambda::EventSourceMapping
+        Properties:
+            EventSourceArn: !GetAtt TrustedRunnerWebhookQueue.Arn
+            FunctionName: !GetAtt TrustedRunnerWebhookWorker.Arn
+            BatchSize: 1
+            FunctionResponseTypes:
+              - ReportBatchItemFailures
+            Enabled: true
             Tags:
               - Key: Project
                 Value: ReaverOS
@@ -865,6 +1050,106 @@ Resources:
         Type: AWS::Logs::LogGroup
         Properties:
             LogGroupName: !Sub /aws/lambda/${TrustedRunnerControlFunction}
+            RetentionInDays: 30
+            Tags:
+              - Key: Project
+                Value: ReaverOS
+
+    CandidateRunnerWebhookWorkerLogGroup:
+        Type: AWS::Logs::LogGroup
+        Properties:
+            LogGroupName: !Sub /aws/lambda/${CandidateRunnerWebhookWorker}
+            RetentionInDays: 30
+            Tags:
+              - Key: Project
+                Value: ReaverOS
+
+    TrustedRunnerWebhookWorkerLogGroup:
+        Type: AWS::Logs::LogGroup
+        Properties:
+            LogGroupName: !Sub /aws/lambda/${TrustedRunnerWebhookWorker}
+            RetentionInDays: 30
+            Tags:
+              - Key: Project
+                Value: ReaverOS
+
+    RunnerWebhookRole:
+        Type: AWS::IAM::Role
+        Properties:
+            PermissionsBoundary: !Ref RunnerRolePermissionsBoundaryArn
+            AssumeRolePolicyDocument:
+                Version: '2012-10-17'
+                Statement:
+                  - Effect: Allow
+                    Principal:
+                        Service: lambda.amazonaws.com
+                    Action: sts:AssumeRole
+            ManagedPolicyArns:
+              - !Sub arn:${AWS::Partition}:iam::aws:policy/service-role/AWSLambdaBasicExecutionRole
+            Policies:
+              - PolicyName: VerifyRunnerWebhooks
+                PolicyDocument:
+                    Version: '2012-10-17'
+                    Statement:
+                      - Effect: Allow
+                        Action: secretsmanager:GetSecretValue
+                        Resource: !Ref RunnerWebhookSecret
+                      - Effect: Allow
+                        Action: sqs:SendMessage
+                        Resource:
+                          - !GetAtt CandidateRunnerWebhookQueue.Arn
+                          - !GetAtt TrustedRunnerWebhookQueue.Arn
+            Tags:
+              - Key: Project
+                Value: ReaverOS
+
+    RunnerWebhookFunction:
+        Type: AWS::Lambda::Function
+        Properties:
+            FunctionName: !Sub ${AWS::StackName}-runner-webhook
+            Runtime: python3.13
+            Handler: index.handler
+            Role: !GetAtt RunnerWebhookRole.Arn
+            Timeout: 15
+            ReservedConcurrentExecutions: 8
+            Environment:
+                Variables:
+                    ALLOWED_REPOSITORIES: !Join [',', !Ref GitHubAllowedRepositories]
+                    CANDIDATE_RUNNER_QUEUE_URL: !Ref CandidateRunnerWebhookQueue
+                    TRUSTED_RUNNER_QUEUE_URL: !Ref TrustedRunnerWebhookQueue
+                    RUNNER_WEBHOOK_SECRET_ID: !Ref RunnerWebhookSecret
+            Code: ../../../build/reaveros-lambda/runner-webhook.zip
+            Tags:
+              - Key: Project
+                Value: ReaverOS
+
+    RunnerWebhookFunctionUrl:
+        Type: AWS::Lambda::Url
+        Properties:
+            AuthType: NONE
+            InvokeMode: BUFFERED
+            TargetFunctionArn: !GetAtt RunnerWebhookFunction.Arn
+
+    RunnerWebhookFunctionUrlPermission:
+        Type: AWS::Lambda::Permission
+        Properties:
+            Action: lambda:InvokeFunctionUrl
+            FunctionName: !Ref RunnerWebhookFunction
+            FunctionUrlAuthType: NONE
+            Principal: '*'
+
+    RunnerWebhookFunctionInvokePermission:
+        Type: AWS::Lambda::Permission
+        Properties:
+            Action: lambda:InvokeFunction
+            FunctionName: !Ref RunnerWebhookFunction
+            InvokedViaFunctionUrl: true
+            Principal: '*'
+
+    RunnerWebhookLogGroup:
+        Type: AWS::Logs::LogGroup
+        Properties:
+            LogGroupName: !Sub /aws/lambda/${RunnerWebhookFunction}
             RetentionInDays: 30
             Tags:
               - Key: Project
@@ -1031,7 +1316,7 @@ Resources:
         Type: AWS::Events::Rule
         Properties:
             Description: Terminate orphaned ReaverOS GitHub Actions runners
-            ScheduleExpression: rate(15 minutes)
+            ScheduleExpression: rate(1 minute)
             State: ENABLED
             Tags:
               - Key: Project
@@ -1224,6 +1509,167 @@ Resources:
             EvaluationPeriods: 1
             DatapointsToAlarm: 1
             Threshold: 1
+            ComparisonOperator: GreaterThanOrEqualToThreshold
+            TreatMissingData: notBreaching
+            AlarmActions:
+              - !Ref RunnerOperationsTopic
+            Tags:
+              - Key: Project
+                Value: ReaverOS
+
+    RunnerWebhookErrorsAlarm:
+        Type: AWS::CloudWatch::Alarm
+        Properties:
+            AlarmName: !Sub ${AWS::StackName}-runner-webhook-errors
+            AlarmDescription: Runner webhook ingress invocation failures
+            Namespace: AWS/Lambda
+            MetricName: Errors
+            Dimensions:
+              - Name: FunctionName
+                Value: !Ref RunnerWebhookFunction
+            Statistic: Sum
+            Period: 300
+            EvaluationPeriods: 1
+            DatapointsToAlarm: 1
+            Threshold: 1
+            ComparisonOperator: GreaterThanOrEqualToThreshold
+            TreatMissingData: notBreaching
+            AlarmActions:
+              - !Ref RunnerOperationsTopic
+            Tags:
+              - Key: Project
+                Value: ReaverOS
+
+    CandidateRunnerWebhookWorkerErrorsAlarm:
+        Type: AWS::CloudWatch::Alarm
+        Properties:
+            AlarmName: !Sub ${AWS::StackName}-runner-candidate-worker-errors
+            AlarmDescription: Candidate runner webhook processing failed
+            Namespace: AWS/Lambda
+            MetricName: Errors
+            Dimensions:
+              - Name: FunctionName
+                Value: !Ref CandidateRunnerWebhookWorker
+            Statistic: Sum
+            Period: 300
+            EvaluationPeriods: 1
+            DatapointsToAlarm: 1
+            Threshold: 1
+            ComparisonOperator: GreaterThanOrEqualToThreshold
+            TreatMissingData: notBreaching
+            AlarmActions:
+              - !Ref RunnerOperationsTopic
+            Tags:
+              - Key: Project
+                Value: ReaverOS
+
+    TrustedRunnerWebhookWorkerErrorsAlarm:
+        Type: AWS::CloudWatch::Alarm
+        Properties:
+            AlarmName: !Sub ${AWS::StackName}-runner-trusted-worker-errors
+            AlarmDescription: Trusted runner webhook processing failed
+            Namespace: AWS/Lambda
+            MetricName: Errors
+            Dimensions:
+              - Name: FunctionName
+                Value: !Ref TrustedRunnerWebhookWorker
+            Statistic: Sum
+            Period: 300
+            EvaluationPeriods: 1
+            DatapointsToAlarm: 1
+            Threshold: 1
+            ComparisonOperator: GreaterThanOrEqualToThreshold
+            TreatMissingData: notBreaching
+            AlarmActions:
+              - !Ref RunnerOperationsTopic
+            Tags:
+              - Key: Project
+                Value: ReaverOS
+
+    CandidateRunnerWebhookDeadLetterAlarm:
+        Type: AWS::CloudWatch::Alarm
+        Properties:
+            AlarmName: !Sub ${AWS::StackName}-runner-candidate-dead-letter
+            AlarmDescription: Candidate runner webhook exhausted its retries
+            Namespace: AWS/SQS
+            MetricName: ApproximateNumberOfMessagesVisible
+            Dimensions:
+              - Name: QueueName
+                Value: !GetAtt CandidateRunnerDeadLetterQueue.QueueName
+            Statistic: Maximum
+            Period: 60
+            EvaluationPeriods: 1
+            DatapointsToAlarm: 1
+            Threshold: 1
+            ComparisonOperator: GreaterThanOrEqualToThreshold
+            TreatMissingData: notBreaching
+            AlarmActions:
+              - !Ref RunnerOperationsTopic
+            Tags:
+              - Key: Project
+                Value: ReaverOS
+
+    TrustedRunnerWebhookDeadLetterAlarm:
+        Type: AWS::CloudWatch::Alarm
+        Properties:
+            AlarmName: !Sub ${AWS::StackName}-runner-trusted-dead-letter
+            AlarmDescription: Trusted runner webhook exhausted its retries
+            Namespace: AWS/SQS
+            MetricName: ApproximateNumberOfMessagesVisible
+            Dimensions:
+              - Name: QueueName
+                Value: !GetAtt TrustedRunnerDeadLetterQueue.QueueName
+            Statistic: Maximum
+            Period: 60
+            EvaluationPeriods: 1
+            DatapointsToAlarm: 1
+            Threshold: 1
+            ComparisonOperator: GreaterThanOrEqualToThreshold
+            TreatMissingData: notBreaching
+            AlarmActions:
+              - !Ref RunnerOperationsTopic
+            Tags:
+              - Key: Project
+                Value: ReaverOS
+
+    CandidateRunnerWebhookQueueAgeAlarm:
+        Type: AWS::CloudWatch::Alarm
+        Properties:
+            AlarmName: !Sub ${AWS::StackName}-runner-candidate-queue-age
+            AlarmDescription: Candidate runner jobs have waited over thirty minutes
+            Namespace: AWS/SQS
+            MetricName: ApproximateAgeOfOldestMessage
+            Dimensions:
+              - Name: QueueName
+                Value: !GetAtt CandidateRunnerWebhookQueue.QueueName
+            Statistic: Maximum
+            Period: 60
+            EvaluationPeriods: 2
+            DatapointsToAlarm: 2
+            Threshold: 1800
+            ComparisonOperator: GreaterThanOrEqualToThreshold
+            TreatMissingData: notBreaching
+            AlarmActions:
+              - !Ref RunnerOperationsTopic
+            Tags:
+              - Key: Project
+                Value: ReaverOS
+
+    TrustedRunnerWebhookQueueAgeAlarm:
+        Type: AWS::CloudWatch::Alarm
+        Properties:
+            AlarmName: !Sub ${AWS::StackName}-runner-trusted-queue-age
+            AlarmDescription: Trusted runner jobs have waited over thirty minutes
+            Namespace: AWS/SQS
+            MetricName: ApproximateAgeOfOldestMessage
+            Dimensions:
+              - Name: QueueName
+                Value: !GetAtt TrustedRunnerWebhookQueue.QueueName
+            Statistic: Maximum
+            Period: 60
+            EvaluationPeriods: 2
+            DatapointsToAlarm: 2
+            Threshold: 1800
             ComparisonOperator: GreaterThanOrEqualToThreshold
             TreatMissingData: notBreaching
             AlarmActions:
@@ -1550,6 +1996,10 @@ Outputs:
         Value: !GetAtt GhcrPublisherRole.Arn
     RunnerAppSecretId:
         Value: !Ref RunnerAppSecret
+    RunnerWebhookSecretId:
+        Value: !Ref RunnerWebhookSecret
+    RunnerWebhookUrl:
+        Value: !GetAtt RunnerWebhookFunctionUrl.FunctionUrl
     CiGateAppSecretId:
         Value: !Ref CiGateAppSecret
     CiGateWebhookUrl:
