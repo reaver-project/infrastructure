@@ -125,10 +125,18 @@ if "plan_run_id" in deploy_workflow or "plan_key" not in deploy_workflow:
     sys.exit("The deployment workflow does not consume the opaque plan key.")
 
 deployment_jobs = workflow_document("aws-infrastructure-deploy.yml")["jobs"]
+configure_job = deployment_jobs["configure-webhook"]
 publish_job = deployment_jobs["publish"]
 consumer_job = deployment_jobs["update-consumer"]
 if (
-    publish_job.get("needs") != "deploy"
+    configure_job.get("needs") != "deploy"
+    or configure_job.get("environment") != "aws-production"
+    or configure_job.get("permissions", {}).get("id-token") != "write"
+    or not any(
+        step.get("run") == "projects/reaveros/aws/configure-runner-webhook"
+        for step in configure_job["steps"]
+    )
+    or set(publish_job.get("needs", [])) != {"deploy", "configure-webhook"}
     or publish_job.get("environment") != "github-production"
     or set(consumer_job.get("needs", [])) != {"deploy", "publish"}
     or consumer_job.get("environment") != "github-production"
@@ -282,7 +290,12 @@ credentialed_jobs = {
     "aws-control-plane.yml": ["plan"],
     "aws-control-plane-deploy.yml": ["deploy", "publish"],
     "aws-infrastructure.yml": ["plan"],
-    "aws-infrastructure-deploy.yml": ["deploy", "publish", "update-consumer"],
+    "aws-infrastructure-deploy.yml": [
+        "deploy",
+        "configure-webhook",
+        "publish",
+        "update-consumer",
+    ],
     "github-configuration.yml": ["deploy", "reaveros"],
     "maintenance-signing-probe.yml": ["probe"],
     "reaveros-ghcr-publisher.yml": ["reserve", "publish"],
