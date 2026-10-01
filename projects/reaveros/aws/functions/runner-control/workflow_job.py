@@ -3,13 +3,13 @@ import re
 
 def expected_job(job):
     runner_key = job["runner_key"]
-    if runner_key == "prepare":
+    if runner_key in {"prepare-medium", "prepare-large"}:
         names = {
             "Prepare build environment (medium) / Run AWS prepare": "medium",
             "Rebuild build environment (large) / Run AWS prepare": "large",
         }
         size = names.get(job["job_name"])
-        if size is not None:
+        if size == runner_key.removeprefix("prepare-"):
             return {"runner_size": size, "runner_profile": "builder"}
         raise ValueError("unexpected preparation job")
 

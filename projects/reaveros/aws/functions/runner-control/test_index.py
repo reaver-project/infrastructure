@@ -950,8 +950,8 @@ class RunnerControlIndexTests(unittest.TestCase):
             "head_branch": "main",
             "head_sha": "a" * 40,
             "job_name": "Prepare build environment (medium) / Run AWS prepare",
-            "runner_key": "prepare",
-            "runner_name": "reaveros-123-2-prepare",
+            "runner_key": "prepare-medium",
+            "runner_name": "reaveros-123-2-prepare-medium",
         }
         fetched_job = {
             "id": 456,
@@ -983,7 +983,7 @@ class RunnerControlIndexTests(unittest.TestCase):
                 {"Key": "GitHubRepository", "Value": "reaver-project/reaveros"},
                 {"Key": "GitHubRunId", "Value": "123"},
                 {"Key": "GitHubSourceRef", "Value": "refs/heads/main"},
-                {"Key": "GitHubRunnerName", "Value": "reaveros-123-2-prepare"},
+                {"Key": "GitHubRunnerName", "Value": "reaveros-123-2-prepare-medium"},
                 {"Key": "ReaverProjectCacheTrust", "Value": "trusted"},
             ],
         }

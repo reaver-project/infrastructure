@@ -6,14 +6,14 @@ from workflow_job import expected_job, validate_fetched_job
 class WorkflowJobTests(unittest.TestCase):
     def setUp(self):
         self.job = {
-            "runner_key": "prepare",
+            "runner_key": "prepare-medium",
             "job_name": "Prepare build environment (medium) / Run AWS prepare",
             "job_id": 3,
             "run_id": 2,
             "run_attempt": 1,
             "head_sha": "a" * 40,
             "head_branch": "main",
-            "runner_name": "reaveros-2-1-prepare",
+            "runner_name": "reaveros-2-1-prepare-medium",
             "runner_group_id": 7,
             "repository": "reaver-project/reaveros",
             "repository_id": 5,
@@ -26,7 +26,7 @@ class WorkflowJobTests(unittest.TestCase):
             "head_branch": "main",
             "name": self.job["job_name"],
             "workflow_name": "CI",
-            "labels": ["self-hosted", "reaveros-aws", "reaveros-2-1-prepare"],
+            "labels": ["self-hosted", "reaveros-aws", "reaveros-2-1-prepare-medium"],
             "runner_group_id": None,
         }
         self.run = {
@@ -51,7 +51,11 @@ class WorkflowJobTests(unittest.TestCase):
             )["source_ref"],
             "refs/heads/main",
         )
-        large = {**self.job, "job_name": "Rebuild build environment (large) / Run AWS prepare"}
+        large = {
+            **self.job,
+            "runner_key": "prepare-large",
+            "job_name": "Rebuild build environment (large) / Run AWS prepare",
+        }
         self.assertEqual(expected_job(large)["runner_size"], "large")
         for task, name, target in (
             ("build-dependencies", "Check build-system dependencies", "amd64"),
@@ -71,6 +75,8 @@ class WorkflowJobTests(unittest.TestCase):
             expected_job(
                 {**self.job, "job_name": "Prepare build environment (medium) / Run prepare"}
             )
+        with self.assertRaisesRegex(ValueError, "unexpected preparation job"):
+            expected_job({**large, "runner_key": "prepare-medium"})
         with self.assertRaisesRegex(ValueError, "unexpected validation job"):
             expected_job(
                 {**self.job, "runner_key": "unit-tests-amd64", "job_name": "Unrecognized job"}
