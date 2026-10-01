@@ -45,10 +45,11 @@ def validate_fetched_job(job, fetched_job, run, trust):
         ("head_sha", job["head_sha"]),
         ("head_branch", branch),
         ("name", job["job_name"]),
-        ("workflow_name", "CI"),
     ):
         if fetched_job.get(name) != value:
             raise ValueError(f"GitHub workflow job {name} differs from the webhook")
+    if fetched_job.get("workflow_name") not in {None, "CI"}:
+        raise ValueError("GitHub workflow job name differs from the webhook")
     labels = fetched_job.get("labels")
     if (
         not isinstance(labels, list)

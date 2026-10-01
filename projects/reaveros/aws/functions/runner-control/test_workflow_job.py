@@ -45,6 +45,12 @@ class WorkflowJobTests(unittest.TestCase):
             validate_fetched_job(self.job, self.fetched, self.run, "trusted"),
             {"runner_size": "medium", "runner_profile": "builder", "source_ref": "refs/heads/main"},
         )
+        self.assertEqual(
+            validate_fetched_job(
+                self.job, {**self.fetched, "workflow_name": None}, self.run, "trusted"
+            )["source_ref"],
+            "refs/heads/main",
+        )
         large = {**self.job, "job_name": "Rebuild build environment (large) / Run AWS prepare"}
         self.assertEqual(expected_job(large)["runner_size"], "large")
         for task, name, target in (

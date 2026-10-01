@@ -51,7 +51,8 @@ def normalize_job_event(payload, allowed_repositories):
     job_name = job.get("name")
     if not isinstance(job_name, str) or not 1 <= len(job_name) <= 256:
         raise ValueError("workflow job name is invalid")
-    if job.get("status") != action:
+    accepted_statuses = {"queued", "waiting"} if action == "queued" else {"completed"}
+    if job.get("status") not in accepted_statuses:
         raise ValueError("workflow job status does not match webhook action")
 
     runner_prefix = f"reaveros-{run_id}-{run_attempt}-"

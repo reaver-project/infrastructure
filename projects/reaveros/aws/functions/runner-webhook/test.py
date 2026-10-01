@@ -38,6 +38,9 @@ class RunnerWebhookValidationTests(unittest.TestCase):
         self.assertEqual(task["run_attempt"], 2)
         self.assertEqual(task["runner_key"], "unit-tests-amd64")
         self.assertEqual(task["runner_name"], "reaveros-456-2-unit-tests-amd64")
+        waiting = job_event()
+        waiting["workflow_job"]["status"] = "waiting"
+        self.assertEqual(lib.normalize_job_event(waiting, allowed)[1]["action"], "queued")
 
     def test_routes_copied_pr_job_to_candidate_controller(self):
         trust, task = lib.normalize_job_event(job_event(branch="pull-request/247"), allowed)
