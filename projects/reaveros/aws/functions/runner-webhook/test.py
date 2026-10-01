@@ -22,7 +22,7 @@ def job_event(action="queued", branch="main", key="unit-tests-amd64"):
             "run_attempt": 2,
             "head_branch": branch,
             "head_sha": sha,
-            "name": "Unit tests (amd64) / Run unit-tests amd64",
+            "name": "Unit tests (amd64) / Run AWS unit-tests amd64",
             "status": action,
             "labels": ["self-hosted", "reaveros-aws", f"reaveros-456-2-{key}"],
         },
@@ -60,6 +60,9 @@ class RunnerWebhookValidationTests(unittest.TestCase):
         other_runner = job_event()
         other_runner["workflow_job"]["labels"] = ["ubuntu-latest"]
         self.assertIsNone(lib.normalize_job_event(other_runner, allowed))
+        old_workflow = job_event()
+        old_workflow["workflow_job"]["name"] = "Unit tests (amd64) / Run unit-tests amd64"
+        self.assertIsNone(lib.normalize_job_event(old_workflow, allowed))
 
     def test_ignores_unadmitted_branches_and_rejects_mismatched_status(self):
         self.assertIsNone(lib.normalize_job_event(job_event(branch="feature/unreviewed"), allowed))

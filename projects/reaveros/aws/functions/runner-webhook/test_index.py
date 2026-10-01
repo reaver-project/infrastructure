@@ -53,7 +53,7 @@ def job_event(*, branch="main", action="queued", labels=None):
             "run_attempt": 2,
             "head_branch": branch,
             "head_sha": sha,
-            "name": "Unit tests (amd64) / Run unit-tests amd64",
+            "name": "Unit tests (amd64) / Run AWS unit-tests amd64",
             "status": action,
             "labels": labels,
         },
@@ -118,6 +118,11 @@ class RunnerWebhookIngressTests(unittest.TestCase):
         self.assertEqual(other_event["statusCode"], 200)
         unrelated = runner_webhook.handler(signed_event(job_event(labels=["ubuntu-latest"])), None)
         self.assertEqual(unrelated["statusCode"], 200)
+        old_workflow = job_event()
+        old_workflow["workflow_job"]["name"] = "Unit tests (amd64) / Run unit-tests amd64"
+        self.assertEqual(
+            runner_webhook.handler(signed_event(old_workflow), None)["statusCode"], 200
+        )
         clients["sqs"].send_message.assert_not_called()
 
     def test_rejects_malformed_delivery_and_job(self):
