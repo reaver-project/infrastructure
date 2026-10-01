@@ -103,10 +103,13 @@ def admit_workflow(event):
     repository = event.get("repository")
     validate_repository(repository, set(os.environ["ALLOWED_REPOSITORIES"].split(",")))
     source_ref = event.get("source_ref")
-    workflow_reference(repository, source_ref)
+    required = workflow_reference(repository, source_ref)
     if not source_ref.startswith("refs/heads/pull-request/"):
         raise ValueError("only copied pull-request workflows can be admitted")
-    ensure_workflow_access(github_token(), repository, source_ref)
+    token = github_token()
+    path, selected = restricted_workflows(token, repository)
+    if required not in selected:
+        set_restricted_workflows(path, token, selected | {required})
     return {"admitted": True}
 
 

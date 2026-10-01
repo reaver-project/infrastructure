@@ -192,22 +192,27 @@ class RunnerControlIndexTests(unittest.TestCase):
             "repository": "reaver-project/reaveros",
             "source_ref": "refs/heads/pull-request/17",
         }
+        required = (
+            "reaver-project/reaveros/.github/workflows/aws-runner.yml@refs/heads/pull-request/17"
+        )
         with (
             mock.patch.object(runner_control, "github_token", return_value="token"),
-            mock.patch.object(runner_control, "ensure_workflow_access") as admit,
+            mock.patch.object(
+                runner_control,
+                "restricted_workflows",
+                side_effect=[("path", set()), ("path", {required})],
+            ) as group,
+            mock.patch.object(runner_control, "set_restricted_workflows") as admit,
         ):
             self.assertEqual(runner_control.admit_workflow(event), {"admitted": True})
             self.assertEqual(
                 runner_control.admission_handler({"action": "admit_workflow", **event}, None),
                 {"admitted": True},
             )
-            self.assertEqual(
-                admit.call_args_list,
-                [mock.call("token", "reaver-project/reaveros", "refs/heads/pull-request/17")] * 2,
-            )
+            admit.assert_called_once_with("path", "token", {required})
             with self.assertRaisesRegex(ValueError, "only copied"):
                 runner_control.admit_workflow({**event, "source_ref": "refs/heads/main"})
-            self.assertEqual(admit.call_count, 2)
+            self.assertEqual(group.call_count, 2)
         with (
             mock.patch.dict(os.environ, {"CACHE_TRUST_CLASS": "trusted"}),
             self.assertRaisesRegex(ValueError, "only the candidate controller"),
