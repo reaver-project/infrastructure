@@ -25,6 +25,7 @@ class ClientError(Exception):
 clients = {
     "ec2": mock.Mock(),
     "secretsmanager": mock.Mock(),
+    "sqs": mock.Mock(),
     "ssm": mock.Mock(),
 }
 boto3 = types.ModuleType("boto3")
@@ -95,6 +96,7 @@ class RunnerControlIndexTests(unittest.TestCase):
             os.environ,
             {
                 "ALLOWED_REPOSITORIES": "reaver-project/reaveros",
+                "AWS_REGION": "us-west-2",
                 "BUILDER_PROFILE_ARN": "arn:builder",
                 "CACHE_TRUST_CLASS": "candidate",
                 "GITHUB_ORGANIZATION": "reaver-project",
@@ -108,6 +110,9 @@ class RunnerControlIndexTests(unittest.TestCase):
                 "MAXIMUM_AGE_MINUTES": "180",
                 "MEDIUM_INSTANCE_TYPE": "c8i.4xlarge",
                 "RUNNER_INSTANCE_NAME": "reaveros-runner",
+                "RUNNER_QUEUE_URL": "runner-queue",
+                "RUNNER_WEBHOOK_SECRET_ID": "runner-webhook-secret",
+                "RUNNER_WEBHOOK_URL": "https://example.lambda-url.us-west-2.on.aws/",
                 "VALIDATION_PROFILE_ARN": "arn:validation",
             },
         )
@@ -145,6 +150,42 @@ class RunnerControlIndexTests(unittest.TestCase):
             password=None,
         )
         private_key.sign.assert_called_once()
+
+    def test_trusted_controller_configures_the_app_webhook_without_exposing_secrets(self):
+        url = "https://example.lambda-url.us-west-2.on.aws/"
+        clients["secretsmanager"].get_secret_value.side_effect = [
+            {"SecretString": json.dumps({"app_id": 1234, "private_key": "key"})},
+            {"SecretString": "a" * 64},
+        ]
+        with (
+            mock.patch.dict(os.environ, {"CACHE_TRUST_CLASS": "trusted"}),
+            mock.patch.object(runner_control, "create_app_jwt", return_value="app-jwt"),
+            mock.patch.object(
+                runner_control, "github_request", return_value={"url": url}
+            ) as github_request,
+        ):
+            self.assertEqual(runner_control.configure_webhook({}), {"configured": True})
+        self.assertEqual(
+            github_request.call_args.args,
+            (
+                "/app/hook/config",
+                "app-jwt",
+                "PATCH",
+                {"url": url, "content_type": "json", "secret": "a" * 64},
+            ),
+        )
+        with self.assertRaisesRegex(ValueError, "only the trusted controller"):
+            runner_control.configure_webhook({})
+
+        clients["secretsmanager"].get_secret_value.side_effect = [
+            {"SecretString": json.dumps({"app_id": 1234, "private_key": "key"})},
+            {"SecretString": "too short"},
+        ]
+        with (
+            mock.patch.dict(os.environ, {"CACHE_TRUST_CLASS": "trusted"}),
+            self.assertRaisesRegex(ValueError, "secret is invalid"),
+        ):
+            runner_control.configure_webhook({})
 
     def test_github_request_handles_json_empty_and_error_responses(self):
         json_response = mock.MagicMock()
@@ -815,6 +856,39 @@ class RunnerControlIndexTests(unittest.TestCase):
         ):
             with self.subTest(message=message), self.assertRaisesRegex(ValueError, message):
                 runner_control.workflow_job(invalid)
+
+    def test_sqs_worker_retries_capacity_without_reporting_an_error(self):
+        event = {
+            "Records": [
+                {
+                    "eventSource": "aws:sqs",
+                    "body": "{}",
+                    "messageId": "message-1",
+                    "receiptHandle": "receipt-1",
+                }
+            ]
+        }
+        with mock.patch.object(
+            runner_control,
+            "handler",
+            side_effect=RuntimeError("ephemeral ReaverOS runner limit reached"),
+        ):
+            self.assertEqual(
+                runner_control.sqs_handler(event, None),
+                {"batchItemFailures": [{"itemIdentifier": "message-1"}]},
+            )
+        clients["sqs"].change_message_visibility.assert_called_once_with(
+            QueueUrl="runner-queue", ReceiptHandle="receipt-1", VisibilityTimeout=30
+        )
+        with mock.patch.object(runner_control, "handler", return_value={}):
+            self.assertEqual(runner_control.sqs_handler(event, None), {"batchItemFailures": []})
+        with (
+            mock.patch.object(runner_control, "handler", side_effect=RuntimeError("unrelated")),
+            self.assertRaisesRegex(RuntimeError, "unrelated"),
+        ):
+            runner_control.sqs_handler(event, None)
+        with self.assertRaisesRegex(ValueError, "one record"):
+            runner_control.sqs_handler({"Records": []}, None)
 
     def test_completed_webhook_terminates_only_matching_job_instance(self):
         job = {

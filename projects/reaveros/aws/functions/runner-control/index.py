@@ -23,6 +23,7 @@ from lib import (
 from workflow_job import validate_fetched_job
 
 ec2 = boto3.client("ec2")
+sqs = boto3.client("sqs")
 ssm = boto3.client("ssm")
 secrets = boto3.client("secretsmanager")
 cached_github_token = None
@@ -61,6 +62,39 @@ def github_token():
         )
     )
     return cached_github_token
+
+
+def configure_webhook(_event):
+    if os.environ.get("CACHE_TRUST_CLASS") != "trusted":
+        raise ValueError("only the trusted controller can configure the runner App webhook")
+    credentials = json.loads(
+        secrets.get_secret_value(SecretId=os.environ["GITHUB_APP_SECRET_ID"])["SecretString"]
+    )
+    webhook_secret = secrets.get_secret_value(SecretId=os.environ["RUNNER_WEBHOOK_SECRET_ID"])[
+        "SecretString"
+    ]
+    webhook_url = os.environ["RUNNER_WEBHOOK_URL"]
+    if not isinstance(webhook_secret, str) or len(webhook_secret) < 32:
+        raise ValueError("runner webhook secret is invalid")
+    parsed_url = urllib.parse.urlparse(webhook_url)
+    if (
+        parsed_url.scheme != "https"
+        or not parsed_url.hostname
+        or not parsed_url.hostname.endswith(f".lambda-url.{os.environ['AWS_REGION']}.on.aws")
+        or parsed_url.path != "/"
+        or parsed_url.query
+        or parsed_url.fragment
+    ):
+        raise ValueError("runner webhook URL is invalid")
+    config = github_request(
+        "/app/hook/config",
+        create_app_jwt(credentials),
+        "PATCH",
+        {"url": webhook_url, "content_type": "json", "secret": webhook_secret},
+    )
+    if not isinstance(config, dict) or config.get("url") != webhook_url:
+        raise RuntimeError("GitHub did not retain the runner webhook URL")
+    return {"configured": True}
 
 
 def parameter_expiration_policy(maximum_age_minutes, now=None):
@@ -608,6 +642,7 @@ def handler(event, _context):
         delivery = json.loads(record["body"])
         return workflow_job(delivery)
     actions = {
+        "configure_webhook": configure_webhook,
         "launch": launch,
         "reap": reap,
         "status": status,
@@ -617,3 +652,22 @@ def handler(event, _context):
     if action not in actions:
         raise ValueError("unsupported runner control action")
     return actions[action](event)
+
+
+def sqs_handler(event, context):
+    records = event.get("Records")
+    if not isinstance(records, list) or len(records) != 1:
+        raise ValueError("runner webhook batch must contain one record")
+    try:
+        handler(event, context)
+    except RuntimeError as error:
+        if str(error) != "ephemeral ReaverOS runner limit reached":
+            raise
+        record = records[0]
+        sqs.change_message_visibility(
+            QueueUrl=os.environ["RUNNER_QUEUE_URL"],
+            ReceiptHandle=record["receiptHandle"],
+            VisibilityTimeout=30,
+        )
+        return {"batchItemFailures": [{"itemIdentifier": record["messageId"]}]}
+    return {"batchItemFailures": []}
