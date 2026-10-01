@@ -471,7 +471,7 @@ Resources:
             QueueName: !Sub ${AWS::StackName}-runner-candidate-events.fifo
             FifoQueue: true
             SqsManagedSseEnabled: true
-            VisibilityTimeout: 360
+            VisibilityTimeout: 1800
             MessageRetentionPeriod: 345600
             ReceiveMessageWaitTimeSeconds: 20
             RedrivePolicy:
@@ -489,7 +489,7 @@ Resources:
             QueueName: !Sub ${AWS::StackName}-runner-trusted-events.fifo
             FifoQueue: true
             SqsManagedSseEnabled: true
-            VisibilityTimeout: 360
+            VisibilityTimeout: 1800
             MessageRetentionPeriod: 345600
             ReceiveMessageWaitTimeSeconds: 20
             RedrivePolicy:
@@ -1012,7 +1012,7 @@ Resources:
             Runtime: python3.13
             Handler: index.sqs_handler
             Role: !GetAtt RunnerControlRole.Arn
-            Timeout: 60
+            Timeout: 300
             ReservedConcurrentExecutions: 1
             Environment:
                 Variables:
@@ -1044,7 +1044,7 @@ Resources:
             Runtime: python3.13
             Handler: index.sqs_handler
             Role: !GetAtt TrustedRunnerControlRole.Arn
-            Timeout: 60
+            Timeout: 300
             ReservedConcurrentExecutions: 1
             Environment:
                 Variables:
