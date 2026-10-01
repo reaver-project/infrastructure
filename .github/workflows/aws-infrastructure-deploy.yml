@@ -75,12 +75,48 @@ jobs:
             id: stack
             run: projects/reaveros/aws/read-deployed-contract
 
+    configure-webhook:
+        name: Configure the runner App webhook
+        needs: deploy
+        runs-on: ubuntu-latest
+        timeout-minutes: 10
+        environment: aws-production
+        permissions:
+            contents: read
+            id-token: write
+        env:
+            AWS_REGION: ${{ vars.AWS_REGION }}
+            AWS_RUNNER_STACK_NAME: ${{ vars.AWS_RUNNER_STACK_NAME }}
+
+        steps:
+          - name: Harden the runner
+            uses: step-security/harden-runner@05e31511f85b41b11d1cf0ef85d0992719546e2c # v2.21.0
+            with:
+                egress-policy: audit
+
+          - name: Check out infrastructure
+            uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
+            with:
+                persist-credentials: false
+
+          - name: Authenticate to AWS for webhook configuration
+            uses: aws-actions/configure-aws-credentials@e6de054238d6b7531b4efff3b6587d9aade6a06c # v6.2.3
+            with:
+                aws-region: ${{ env.AWS_REGION }}
+                role-to-assume: ${{ vars.AWS_INFRASTRUCTURE_DEPLOY_ROLE_ARN }}
+                role-session-name: runner-webhook-config-${{ github.run_id }}
+
+          - name: Verify the deployed ReaverOS contract
+            run: projects/reaveros/aws/read-deployed-contract
+
           - name: Configure the runner App webhook
             run: projects/reaveros/aws/configure-runner-webhook
 
     publish:
         name: Publish the deployed ReaverOS contract
-        needs: deploy
+        needs:
+          - deploy
+          - configure-webhook
         runs-on: ubuntu-latest
         timeout-minutes: 15
         environment: github-production
