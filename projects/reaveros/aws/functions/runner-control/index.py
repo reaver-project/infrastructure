@@ -97,6 +97,19 @@ def configure_webhook(_event):
     return {"configured": True}
 
 
+def admit_workflow(event):
+    if os.environ.get("CACHE_TRUST_CLASS") != "candidate":
+        raise ValueError("only the candidate controller can admit copied workflows")
+    repository = event.get("repository")
+    validate_repository(repository, set(os.environ["ALLOWED_REPOSITORIES"].split(",")))
+    source_ref = event.get("source_ref")
+    workflow_reference(repository, source_ref)
+    if not source_ref.startswith("refs/heads/pull-request/"):
+        raise ValueError("only copied pull-request workflows can be admitted")
+    ensure_workflow_access(github_token(), repository, source_ref)
+    return {"admitted": True}
+
+
 def parameter_expiration_policy(maximum_age_minutes, now=None):
     if now is None:
         now = datetime.datetime.now(datetime.UTC)
@@ -642,6 +655,7 @@ def handler(event, _context):
         delivery = json.loads(record["body"])
         return workflow_job(delivery)
     actions = {
+        "admit_workflow": admit_workflow,
         "configure_webhook": configure_webhook,
         "launch": launch,
         "reap": reap,
@@ -671,3 +685,9 @@ def sqs_handler(event, context):
         )
         return {"batchItemFailures": [{"itemIdentifier": record["messageId"]}]}
     return {"batchItemFailures": []}
+
+
+def admission_handler(event, _context):
+    if not isinstance(event, dict) or event.get("action") != "admit_workflow":
+        raise ValueError("unsupported runner workflow admission action")
+    return admit_workflow(event)

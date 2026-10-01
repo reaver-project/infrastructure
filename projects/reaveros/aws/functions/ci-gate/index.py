@@ -20,6 +20,7 @@ from webhook import event_body, event_header, parse_payload, verify_signature
 
 secrets = boto3.client("secretsmanager")
 sqs = boto3.client("sqs")
+lambda_client = boto3.client("lambda")
 cached_credentials = None
 logger = logging.getLogger(__name__)
 logger.setLevel(logging.INFO)
@@ -184,8 +185,32 @@ def resolve_revision(token, repository, revision):
     return sha
 
 
+def admit_copied_workflow(repository, branch):
+    response = lambda_client.invoke(
+        FunctionName=os.environ["RUNNER_WORKFLOW_ADMISSION_FUNCTION"],
+        InvocationType="RequestResponse",
+        Payload=json.dumps(
+            {
+                "action": "admit_workflow",
+                "repository": repository,
+                "source_ref": f"refs/heads/{branch}",
+            },
+            separators=(",", ":"),
+        ).encode(),
+    )
+    result = json.loads(response["Payload"].read())
+    if (
+        response.get("StatusCode") != 200
+        or response.get("FunctionError")
+        or not isinstance(result, dict)
+        or result.get("admitted") is not True
+    ):
+        raise RuntimeError("runner App did not admit the copied workflow")
+
+
 def set_copied_revision(token, repository, number, sha):
     branch = copied_branch(number)
+    admit_copied_workflow(repository, branch)
     get_path = f"/repos/{repository}/git/ref/heads/{branch}"
     update_path = f"/repos/{repository}/git/refs/heads/{branch}"
     try:
@@ -199,6 +224,7 @@ def set_copied_revision(token, repository, number, sha):
             "POST",
             {"ref": f"refs/heads/{branch}", "sha": sha},
         )
+        admit_copied_workflow(repository, branch)
         return
 
     current_object = current.get("object") if isinstance(current, dict) else None
@@ -207,6 +233,7 @@ def set_copied_revision(token, repository, number, sha):
         raise ValueError("GitHub returned an invalid copied ref")
     if current_sha != sha:
         github_request(update_path, token, "PATCH", {"sha": sha, "force": True})
+    admit_copied_workflow(repository, branch)
 
 
 def github_error_message(error):

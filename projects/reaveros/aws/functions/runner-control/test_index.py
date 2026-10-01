@@ -187,6 +187,35 @@ class RunnerControlIndexTests(unittest.TestCase):
         ):
             runner_control.configure_webhook({})
 
+    def test_candidate_controller_admits_only_a_copied_workflow_ref(self):
+        event = {
+            "repository": "reaver-project/reaveros",
+            "source_ref": "refs/heads/pull-request/17",
+        }
+        with (
+            mock.patch.object(runner_control, "github_token", return_value="token"),
+            mock.patch.object(runner_control, "ensure_workflow_access") as admit,
+        ):
+            self.assertEqual(runner_control.admit_workflow(event), {"admitted": True})
+            self.assertEqual(
+                runner_control.admission_handler({"action": "admit_workflow", **event}, None),
+                {"admitted": True},
+            )
+            self.assertEqual(
+                admit.call_args_list,
+                [mock.call("token", "reaver-project/reaveros", "refs/heads/pull-request/17")] * 2,
+            )
+            with self.assertRaisesRegex(ValueError, "only copied"):
+                runner_control.admit_workflow({**event, "source_ref": "refs/heads/main"})
+            self.assertEqual(admit.call_count, 2)
+        with (
+            mock.patch.dict(os.environ, {"CACHE_TRUST_CLASS": "trusted"}),
+            self.assertRaisesRegex(ValueError, "only the candidate controller"),
+        ):
+            runner_control.admit_workflow(event)
+        with self.assertRaisesRegex(ValueError, "unsupported runner workflow admission"):
+            runner_control.admission_handler({"action": "launch"}, None)
+
     def test_github_request_handles_json_empty_and_error_responses(self):
         json_response = mock.MagicMock()
         json_response.status = 200
