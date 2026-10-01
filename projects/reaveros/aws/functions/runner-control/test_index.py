@@ -67,6 +67,13 @@ lib_specification = importlib.util.spec_from_file_location(
 lib = importlib.util.module_from_spec(lib_specification)
 lib_specification.loader.exec_module(lib)
 sys.modules["lib"] = lib
+workflow_job_specification = importlib.util.spec_from_file_location(
+    "workflow_job",
+    module_directory / "workflow_job.py",
+)
+workflow_job_module = importlib.util.module_from_spec(workflow_job_specification)
+workflow_job_specification.loader.exec_module(workflow_job_module)
+sys.modules["workflow_job"] = workflow_job_module
 index_specification = importlib.util.spec_from_file_location(
     "runner_control_index",
     module_directory / "index.py",
@@ -712,6 +719,215 @@ class RunnerControlIndexTests(unittest.TestCase):
         ):
             runner_control.launch(event)
 
+    def test_queued_webhook_revalidates_github_before_launch(self):
+        job = {
+            "action": "queued",
+            "repository": "reaver-project/reaveros",
+            "repository_id": 5,
+            "installation_id": 17,
+            "job_id": 456,
+            "run_id": 123,
+            "run_attempt": 2,
+            "head_branch": "pull-request/17",
+            "head_sha": "a" * 40,
+            "job_name": "Unit tests (amd64) / Run AWS unit-tests amd64",
+            "runner_key": "unit-tests-amd64",
+            "runner_name": "reaveros-123-2-unit-tests-amd64",
+        }
+        fetched_job = {
+            "id": 456,
+            "run_id": 123,
+            "run_attempt": 2,
+            "head_sha": "a" * 40,
+            "head_branch": "pull-request/17",
+            "name": job["job_name"],
+            "workflow_name": "CI",
+            "labels": ["self-hosted", "reaveros-aws", job["runner_name"]],
+            "runner_group_id": None,
+            "status": "queued",
+        }
+        run = {
+            "id": 123,
+            "run_attempt": 2,
+            "head_sha": "a" * 40,
+            "head_branch": "pull-request/17",
+            "name": "CI",
+            "path": ".github/workflows/ci.yml",
+            "repository": {"full_name": "reaver-project/reaveros", "id": 5},
+            "event": "push",
+            "status": "in_progress",
+        }
+        delivery = {"schema_version": 1, "job": job}
+        with (
+            mock.patch.object(runner_control, "github_token", return_value="token"),
+            mock.patch.object(
+                runner_control, "github_request", side_effect=[fetched_job, run]
+            ) as github_request,
+            mock.patch.object(
+                runner_control, "launch", return_value={"instance_id": "i-runner"}
+            ) as launch,
+        ):
+            result = runner_control.handler(
+                {"Records": [{"eventSource": "aws:sqs", "body": json.dumps(delivery)}]}, None
+            )
+        self.assertEqual(result, {"instance_id": "i-runner"})
+        self.assertEqual(launch.call_args.args[0]["runner_profile"], "validation")
+        self.assertEqual(launch.call_args.args[0]["runner_size"], "medium")
+        self.assertEqual(launch.call_args.args[0]["github_job_id"], 456)
+        self.assertEqual(github_request.call_count, 2)
+
+        with (
+            mock.patch.object(runner_control, "github_token", return_value="token"),
+            mock.patch.object(runner_control, "github_request", side_effect=[fetched_job, run]),
+            mock.patch.object(runner_control, "launch") as launch,
+        ):
+            with self.assertRaisesRegex(ValueError, "head_sha differs"):
+                runner_control.workflow_job(
+                    {"schema_version": 1, "job": {**job, "head_sha": "b" * 40}}
+                )
+            launch.assert_not_called()
+
+        with (
+            mock.patch.object(runner_control, "github_token", return_value="token"),
+            mock.patch.object(
+                runner_control,
+                "github_request",
+                side_effect=[{**fetched_job, "status": "completed"}, run],
+            ),
+            mock.patch.object(runner_control, "launch") as launch,
+        ):
+            self.assertEqual(
+                runner_control.workflow_job(delivery),
+                {"ignored": "workflow job is no longer queued"},
+            )
+            launch.assert_not_called()
+
+        with self.assertRaisesRegex(ValueError, "one record"):
+            runner_control.handler({"Records": []}, None)
+        with self.assertRaisesRegex(ValueError, "not from SQS"):
+            runner_control.handler({"Records": [{"eventSource": "other"}]}, None)
+
+        for invalid, message in (
+            ({"schema_version": 2, "job": job}, "schema"),
+            ({"schema_version": 1}, "job is missing"),
+            ({"schema_version": 1, "job": {**job, "job_id": True}}, "job_id"),
+            ({"schema_version": 1, "job": {**job, "action": "other"}}, "action"),
+        ):
+            with self.subTest(message=message), self.assertRaisesRegex(ValueError, message):
+                runner_control.workflow_job(invalid)
+
+    def test_completed_webhook_terminates_only_matching_job_instance(self):
+        job = {
+            "action": "completed",
+            "repository": "reaver-project/reaveros",
+            "repository_id": 5,
+            "installation_id": 17,
+            "job_id": 456,
+            "run_id": 123,
+            "run_attempt": 2,
+            "head_branch": "main",
+            "head_sha": "a" * 40,
+            "job_name": "Prepare build environment (medium) / Run AWS prepare",
+            "runner_key": "prepare",
+            "runner_name": "reaveros-123-2-prepare",
+        }
+        fetched_job = {
+            "id": 456,
+            "run_id": 123,
+            "run_attempt": 2,
+            "head_sha": "a" * 40,
+            "head_branch": "main",
+            "name": job["job_name"],
+            "workflow_name": "CI",
+            "labels": ["self-hosted", "reaveros-aws", job["runner_name"]],
+            "runner_group_id": 7,
+            "status": "completed",
+        }
+        run = {
+            "id": 123,
+            "run_attempt": 2,
+            "head_sha": "a" * 40,
+            "head_branch": "main",
+            "name": "CI",
+            "path": ".github/workflows/ci.yml",
+            "repository": {"full_name": "reaver-project/reaveros", "id": 5},
+            "event": "push",
+        }
+        instance = {
+            "InstanceId": "i-abc123",
+            "State": {"Name": "running"},
+            "Tags": [
+                {"Key": "GitHubJobId", "Value": "456"},
+                {"Key": "GitHubRepository", "Value": "reaver-project/reaveros"},
+                {"Key": "GitHubRunId", "Value": "123"},
+                {"Key": "GitHubSourceRef", "Value": "refs/heads/main"},
+                {"Key": "GitHubRunnerName", "Value": "reaveros-123-2-prepare"},
+                {"Key": "ReaverProjectCacheTrust", "Value": "trusted"},
+            ],
+        }
+        with (
+            mock.patch.dict(os.environ, {"CACHE_TRUST_CLASS": "trusted"}),
+            mock.patch.object(runner_control, "github_token", return_value="token"),
+            mock.patch.object(runner_control, "github_request", side_effect=[fetched_job, run]),
+            mock.patch.object(runner_control, "runner_instances", return_value=[instance]),
+            mock.patch.object(
+                runner_control, "terminate", return_value={"instance_id": "i-abc123"}
+            ) as terminate,
+        ):
+            self.assertEqual(
+                runner_control.workflow_job({"schema_version": 1, "job": job}),
+                {"instance_id": "i-abc123"},
+            )
+            terminate.assert_called_once_with({"instance_id": "i-abc123"})
+
+        with (
+            mock.patch.dict(os.environ, {"CACHE_TRUST_CLASS": "trusted"}),
+            mock.patch.object(runner_control, "github_token", return_value="token"),
+            mock.patch.object(runner_control, "github_request", side_effect=[fetched_job, run]),
+            mock.patch.object(runner_control, "runner_instances", return_value=[]),
+        ):
+            self.assertEqual(
+                runner_control.workflow_job({"schema_version": 1, "job": job}),
+                {"ignored": "workflow job has no active runner"},
+            )
+
+        for instances, message in (
+            ([{**instance, "State": {"Name": "terminated"}}], "no active runner"),
+            ([{**instance, "Tags": []}], "no active runner"),
+            (
+                [{**instance, "Tags": [*instance["Tags"], {"Key": "GitHubRunId", "Value": "42"}]}],
+                "tags differ",
+            ),
+            ([instance, instance], "multiple runners"),
+        ):
+            with (
+                self.subTest(message=message),
+                mock.patch.dict(os.environ, {"CACHE_TRUST_CLASS": "trusted"}),
+                mock.patch.object(runner_control, "github_token", return_value="token"),
+                mock.patch.object(runner_control, "github_request", side_effect=[fetched_job, run]),
+                mock.patch.object(runner_control, "runner_instances", return_value=instances),
+            ):
+                if message == "no active runner":
+                    self.assertEqual(
+                        runner_control.workflow_job({"schema_version": 1, "job": job}),
+                        {"ignored": "workflow job has no active runner"},
+                    )
+                else:
+                    with self.assertRaisesRegex((ValueError, RuntimeError), message):
+                        runner_control.workflow_job({"schema_version": 1, "job": job})
+
+        with (
+            mock.patch.dict(os.environ, {"CACHE_TRUST_CLASS": "trusted"}),
+            mock.patch.object(runner_control, "github_token", return_value="token"),
+            mock.patch.object(
+                runner_control,
+                "github_request",
+                side_effect=[{**fetched_job, "status": "in_progress"}, run],
+            ),
+            self.assertRaisesRegex(RuntimeError, "not yet visible"),
+        ):
+            runner_control.workflow_job({"schema_version": 1, "job": job})
+
     def test_trusted_controller_uses_only_the_trusted_builder_profile(self):
         clients["ec2"].run_instances.return_value = {
             "Instances": [{"InstanceId": "i-trusted"}],
@@ -1112,6 +1328,54 @@ class RunnerControlIndexTests(unittest.TestCase):
             self.assertEqual(runner_control.reap({}), {"terminated": []})
         prune.assert_called_once_with("reaver-project/reaveros", ["refs/heads/pull-request/17"])
         self.assertIn("temporary lookup failure", print_message.call_args.args[0])
+
+    def test_reap_reconciles_completed_webhook_jobs_independently_of_the_queue(self):
+        instance = {
+            "InstanceId": "i-completed",
+            "LaunchTime": datetime.datetime.now(datetime.UTC),
+            "State": {"Name": "running"},
+            "Tags": [
+                {"Key": "GitHubJobId", "Value": "456"},
+                {"Key": "GitHubRepository", "Value": "reaver-project/reaveros"},
+                {"Key": "GitHubSourceRef", "Value": "refs/heads/pull-request/17"},
+            ],
+        }
+        with (
+            mock.patch.object(runner_control, "runner_instances", return_value=[instance]),
+            mock.patch.object(runner_control, "github_token", return_value="token"),
+            mock.patch.object(
+                runner_control, "github_request", return_value={"status": "completed"}
+            ),
+            mock.patch.object(runner_control, "terminate") as terminate,
+            mock.patch.object(runner_control, "prune_workflow_access") as prune,
+        ):
+            self.assertEqual(runner_control.reap({}), {"terminated": ["i-completed"]})
+        terminate.assert_called_once_with({"instance_id": "i-completed"})
+        prune.assert_called_once_with("reaver-project/reaveros", [])
+
+        with (
+            mock.patch.object(runner_control, "runner_instances", return_value=[instance]),
+            mock.patch.object(runner_control, "github_token", return_value="token"),
+            mock.patch.object(
+                runner_control, "github_request", return_value={"status": "in_progress"}
+            ),
+            mock.patch.object(runner_control, "terminate") as terminate,
+            mock.patch.object(runner_control, "prune_workflow_access"),
+        ):
+            self.assertEqual(runner_control.reap({}), {"terminated": []})
+            terminate.assert_not_called()
+
+        with (
+            mock.patch.object(runner_control, "runner_instances", return_value=[instance]),
+            mock.patch.object(runner_control, "github_token", return_value="token"),
+            mock.patch.object(
+                runner_control, "github_request", side_effect=ValueError("transient metadata error")
+            ),
+            mock.patch.object(runner_control, "prune_workflow_access"),
+            mock.patch("builtins.print") as print_message,
+        ):
+            self.assertEqual(runner_control.reap({}), {"terminated": []})
+        self.assertIn("transient metadata error", print_message.call_args.args[0])
 
     def test_reap_reports_cleanup_failure_after_terminating_runner(self):
         old_runner = {

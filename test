@@ -114,8 +114,10 @@ python3 -m py_compile \
     projects/reaveros/aws/functions/runner-webhook/test_index.py \
     projects/reaveros/aws/functions/runner-control/index.py \
     projects/reaveros/aws/functions/runner-control/lib.py \
+    projects/reaveros/aws/functions/runner-control/workflow_job.py \
     projects/reaveros/aws/functions/runner-control/test.py \
-    projects/reaveros/aws/functions/runner-control/test_index.py
+    projects/reaveros/aws/functions/runner-control/test_index.py \
+    projects/reaveros/aws/functions/runner-control/test_workflow_job.py
 python3 test-runtime-boundaries.py
 node --check github/apps/configure-runner-group
 node --check github/apps/test-configure-runner-group.js
@@ -147,6 +149,7 @@ projects/reaveros/ghcr/test-select-run
 projects/reaveros/test-contract
 python3 projects/reaveros/aws/functions/runner-control/test.py
 python3 projects/reaveros/aws/functions/runner-control/test_index.py
+python3 projects/reaveros/aws/functions/runner-control/test_workflow_job.py
 python3 projects/reaveros/aws/functions/ci-gate/test.py
 python3 projects/reaveros/aws/functions/ci-gate/test_index.py
 python3 projects/reaveros/aws/functions/runner-webhook/test.py

@@ -24,6 +24,7 @@ install \
     "${self_dir}/functions/github_app.py" \
     "${self_dir}/functions/runner-control/index.py" \
     "${self_dir}/functions/runner-control/lib.py" \
+    "${self_dir}/functions/runner-control/workflow_job.py" \
     "${staging_directory}/runner-control/"
 python3 -m pip install \
     --disable-pip-version-check \

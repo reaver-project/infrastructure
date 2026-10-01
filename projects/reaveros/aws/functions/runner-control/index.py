@@ -20,6 +20,7 @@ from lib import (
     validate_repository,
     workflow_reference,
 )
+from workflow_job import validate_fetched_job
 
 ec2 = boto3.client("ec2")
 ssm = boto3.client("ssm")
@@ -484,6 +485,32 @@ def reap(_event):
         terminated.append(runner["instance_id"])
     if terminated:
         ec2.terminate_instances(InstanceIds=terminated)
+    for instance in owned_instances:
+        if instance["InstanceId"] in terminated or instance["State"]["Name"] not in {
+            "pending",
+            "running",
+        }:
+            continue
+        tags = {tag["Key"]: tag["Value"] for tag in instance.get("Tags", [])}
+        job_id = tags.get("GitHubJobId")
+        repository = tags.get("GitHubRepository")
+        if job_id is None:
+            continue
+        try:
+            require_match(job_id, r"[1-9][0-9]*", "job ID")
+            validate_repository(repository, set(os.environ["ALLOWED_REPOSITORIES"].split(",")))
+            job = github_request(f"/repos/{repository}/actions/jobs/{job_id}", github_token())
+            if job.get("status") == "completed":
+                terminate({"instance_id": instance["InstanceId"]})
+                terminated.append(instance["InstanceId"])
+        except (
+            BotoCoreError,
+            ClientError,
+            GitHubRequestError,
+            RuntimeError,
+            ValueError,
+        ) as error:
+            print(f"Could not reconcile runner job {job_id}: {error}")
     if os.environ["CACHE_TRUST_CLASS"] == "candidate":
         for repository in os.environ["ALLOWED_REPOSITORIES"].split(","):
             protected_refs = []
@@ -509,7 +536,77 @@ def reap(_event):
     return {"terminated": terminated}
 
 
+def workflow_job(event):
+    if event.get("schema_version") != 1:
+        raise ValueError("unsupported runner webhook schema")
+    job = event.get("job")
+    if not isinstance(job, dict):
+        raise ValueError("runner webhook job is missing")
+    repository = job.get("repository")
+    validate_repository(repository, set(os.environ["ALLOWED_REPOSITORIES"].split(",")))
+    for name in ("job_id", "run_id", "run_attempt", "repository_id", "installation_id"):
+        if type(job.get(name)) is not int or job[name] < 1:
+            raise ValueError(f"invalid runner webhook {name}")
+    action = job.get("action")
+    if action not in {"queued", "completed"}:
+        raise ValueError("invalid runner webhook action")
+    job["runner_group_id"] = int(os.environ["GITHUB_RUNNER_GROUP_ID"])
+
+    token = github_token()
+    fetched_job = github_request(f"/repos/{repository}/actions/jobs/{job['job_id']}", token)
+    run = github_request(f"/repos/{repository}/actions/runs/{job['run_id']}", token)
+    specification = validate_fetched_job(job, fetched_job, run, os.environ["CACHE_TRUST_CLASS"])
+    if action == "queued":
+        if fetched_job.get("status") != "queued" or run.get("status") == "completed":
+            return {"ignored": "workflow job is no longer queued"}
+        return launch(
+            {
+                "repository": repository,
+                "source_ref": specification["source_ref"],
+                "github_run_id": job["run_id"],
+                "github_run_attempt": job["run_attempt"],
+                "github_job_id": job["job_id"],
+                "runner_key": job["runner_key"],
+                "runner_size": specification["runner_size"],
+                "runner_profile": specification["runner_profile"],
+            }
+        )
+    if fetched_job.get("status") != "completed":
+        raise RuntimeError("completed workflow job is not yet visible from GitHub")
+    live_states = {"pending", "running", "stopping", "stopped"}
+    matches = []
+    for instance in runner_instances():
+        if instance["State"]["Name"] not in live_states:
+            continue
+        tags = {tag["Key"]: tag["Value"] for tag in instance.get("Tags", [])}
+        if tags.get("GitHubJobId") != str(job["job_id"]):
+            continue
+        if (
+            tags.get("GitHubRepository") != repository
+            or tags.get("GitHubRunId") != str(job["run_id"])
+            or tags.get("GitHubSourceRef") != specification["source_ref"]
+            or tags.get("GitHubRunnerName") != job["runner_name"]
+            or tags.get("ReaverProjectCacheTrust") != os.environ["CACHE_TRUST_CLASS"]
+        ):
+            raise ValueError("workflow job runner tags differ from the webhook")
+        matches.append(instance)
+    if len(matches) > 1:
+        raise RuntimeError("multiple runners exist for one workflow job")
+    if not matches:
+        return {"ignored": "workflow job has no active runner"}
+    return terminate({"instance_id": matches[0]["InstanceId"]})
+
+
 def handler(event, _context):
+    if "Records" in event:
+        records = event["Records"]
+        if not isinstance(records, list) or len(records) != 1:
+            raise ValueError("runner webhook batch must contain one record")
+        record = records[0]
+        if not isinstance(record, dict) or record.get("eventSource") != "aws:sqs":
+            raise ValueError("runner webhook record is not from SQS")
+        delivery = json.loads(record["body"])
+        return workflow_job(delivery)
     actions = {
         "launch": launch,
         "reap": reap,
