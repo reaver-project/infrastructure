@@ -75,6 +75,9 @@ jobs:
             id: stack
             run: projects/reaveros/aws/read-deployed-contract
 
+          - name: Configure the runner App webhook
+            run: projects/reaveros/aws/configure-runner-webhook
+
     publish:
         name: Publish the deployed ReaverOS contract
         needs: deploy

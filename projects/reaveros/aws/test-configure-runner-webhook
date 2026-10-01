@@ -1,0 +1,40 @@
+#!/usr/bin/env bash
+
+set -euo pipefail
+
+if [[ $(basename -- "$0") == aws ]]; then
+    if [[ $1 == cloudformation && $2 == describe-stacks ]]; then
+        printf 'reaveros-github-runners-trusted-runner-control\n'
+        exit
+    fi
+    if [[ $1 == lambda && $2 == invoke ]]; then
+        [[ $* == *'--function-name reaveros-github-runners-trusted-runner-control'* ]]
+        [[ $* == *'--payload {"action":"configure_webhook"}'* ]]
+        result_file=
+        previous=
+        for argument in "$@"; do
+            if [[ ${argument} == --output ]]; then
+                result_file=${previous}
+                break
+            fi
+            previous=${argument}
+        done
+        [[ -n ${result_file} ]]
+        printf '{"configured":true}\n' > "${result_file}"
+        printf '{"StatusCode":200}\n'
+        exit
+    fi
+    printf 'Unexpected AWS operation: %s\n' "$*" >&2
+    exit 1
+fi
+
+self_dir=$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)
+test_directory=$(mktemp -d)
+trap 'rm -rf -- "${test_directory}"' EXIT
+mkdir "${test_directory}/bin"
+ln -s "${self_dir}/test-configure-runner-webhook" "${test_directory}/bin/aws"
+export PATH="${test_directory}/bin:${PATH}"
+export AWS_REGION=us-west-2
+export AWS_RUNNER_STACK_NAME=reaveros-github-runners
+"${self_dir}/configure-runner-webhook" > /dev/null
+printf 'Runner App webhook configuration tests passed.\n'

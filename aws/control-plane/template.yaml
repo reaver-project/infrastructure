@@ -1011,6 +1011,9 @@ Resources:
                           - cloudformation:ExecuteChangeSet
                           - cloudformation:UpdateTerminationProtection
                         Resource: !Sub arn:${AWS::Partition}:cloudformation:${AWS::Region}:${AWS::AccountId}:stack/${RunnerStackName}/*
+                      - Effect: Allow
+                        Action: lambda:InvokeFunction
+                        Resource: !Sub arn:${AWS::Partition}:lambda:${AWS::Region}:${AWS::AccountId}:function:${RunnerStackName}-trusted-runner-control
             Tags:
               - Key: Project
                 Value: ReaverProjectInfrastructure

@@ -142,6 +142,7 @@ node github/apps/test-configure-runner-group.js
 projects/reaveros/aws/test-infrastructure
 projects/reaveros/aws/test-read-deployed-contract
 projects/reaveros/aws/test-configure-runner-app
+projects/reaveros/aws/test-configure-runner-webhook
 projects/reaveros/aws/test-validate-policies
 projects/reaveros/test-configure-ci
 projects/reaveros/test-configure-ghcr-publisher
