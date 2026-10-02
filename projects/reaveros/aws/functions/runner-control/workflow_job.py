@@ -48,15 +48,20 @@ def validate_fetched_job(job, fetched_job, run, trust):
         or set(labels) != expected_labels
     ):
         raise ValueError("GitHub workflow job requests unexpected labels")
-    unassigned_cancellation = (
-        fetched_job.get("status") == "completed"
-        and fetched_job.get("conclusion") == "cancelled"
-        and fetched_job.get("runner_id") == 0
+    unassigned_job = (
+        fetched_job.get("runner_id") == 0
         and fetched_job.get("runner_group_id") == 0
+        and (
+            fetched_job.get("status") == "queued"
+            or (
+                fetched_job.get("status") == "completed"
+                and fetched_job.get("conclusion") == "cancelled"
+            )
+        )
     )
     if (
         fetched_job.get("runner_group_id") not in {None, int(job["runner_group_id"])}
-        and not unassigned_cancellation
+        and not unassigned_job
     ):
         raise ValueError("GitHub workflow job uses an unexpected runner group")
     for name, value in (
