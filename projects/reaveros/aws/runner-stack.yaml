@@ -2010,6 +2010,16 @@ Resources:
                         Resource:
                           - !GetAtt CandidateBuildEnvironmentRepository.Arn
                           - !GetAtt CandidateUnprunedBuildEnvironmentRepository.Arn
+                      - Effect: Allow
+                        Action:
+                          - ecr:BatchCheckLayerAvailability
+                          - ecr:CompleteLayerUpload
+                          - ecr:InitiateLayerUpload
+                          - ecr:PutImage
+                          - ecr:UploadLayerPart
+                        Resource:
+                          - !GetAtt StagingBuildEnvironmentRepository.Arn
+                          - !GetAtt StagingUnprunedBuildEnvironmentRepository.Arn
             Tags:
               - Key: Project
                 Value: ReaverOS
