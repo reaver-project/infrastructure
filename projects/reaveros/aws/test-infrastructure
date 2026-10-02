@@ -354,11 +354,13 @@ if ! awk '
         if (role == "shared") shared_production_write = 1
         if (role == "production") production_role_write = 1
     }
+    role == "shared" && write && /- !GetAtt StagingBuildEnvironmentRepository\.Arn$/ { staging_write = 1 }
+    role == "shared" && write && /- !GetAtt StagingUnprunedBuildEnvironmentRepository\.Arn$/ { staging_unpruned_write = 1 }
     END {
-        exit shared_production_write || !production_role_write || !shared_scan || !production_scan
+        exit shared_production_write || !production_role_write || !shared_scan || !production_scan || !staging_write || !staging_unpruned_write
     }
 ' "${self_dir}/runner-stack.yaml"; then
-    printf 'Production ECR writes must be isolated from the PR-capable role.\n' >&2
+    printf 'The PR-capable role must write only candidate and staging images, not production.\n' >&2
     exit 1
 fi
 
