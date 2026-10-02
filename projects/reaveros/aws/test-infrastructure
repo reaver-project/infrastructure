@@ -324,6 +324,13 @@ if ! grep --fixed-strings --quiet \
     exit 1
 fi
 
+if ! grep --fixed-strings --line-regexp --quiet \
+    'LABEL org.opencontainers.image.source="https://github.com/reaver-project/reaveros"' \
+    "${self_dir}/../ghcr/reservation.Dockerfile"; then
+    printf 'The reserved GHCR packages must identify ReaverOS as their source.\n' >&2
+    exit 1
+fi
+
 if ! awk '
     /^    GhcrPublisherRole:$/ { in_role = 1; next }
     in_role && /^    [A-Za-z][A-Za-z0-9]*:$/ { exit }
