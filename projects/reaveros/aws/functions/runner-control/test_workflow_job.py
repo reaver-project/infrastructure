@@ -107,6 +107,30 @@ class WorkflowJobTests(unittest.TestCase):
                 "trusted",
             )
 
+    def test_allows_only_canceled_unassigned_jobs_without_a_runner_group(self):
+        canceled = {
+            **self.fetched,
+            "status": "completed",
+            "conclusion": "cancelled",
+            "runner_id": 0,
+            "runner_group_id": 0,
+        }
+        self.assertEqual(
+            validate_fetched_job(self.job, canceled, self.run, "trusted")["runner_profile"],
+            "builder",
+        )
+        for change in (
+            {"status": "queued"},
+            {"conclusion": "success"},
+            {"runner_id": 9},
+            {"runner_group_id": 99},
+        ):
+            with (
+                self.subTest(change=change),
+                self.assertRaisesRegex(ValueError, "unexpected runner group"),
+            ):
+                validate_fetched_job(self.job, {**canceled, **change}, self.run, "trusted")
+
     def test_rejects_metadata_changes(self):
         for name, value in (
             ("id", 4),
