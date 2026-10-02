@@ -898,6 +898,21 @@ class RunnerControlIndexTests(unittest.TestCase):
 
         with (
             mock.patch.object(runner_control, "github_token", return_value="token"),
+            mock.patch.object(
+                runner_control,
+                "github_request",
+                side_effect=[
+                    {**fetched_job, "runner_group_id": 0, "runner_id": 0},
+                    run,
+                ],
+            ),
+            mock.patch.object(runner_control, "launch") as unassigned_launch,
+        ):
+            runner_control.workflow_job(delivery)
+            unassigned_launch.assert_called_once()
+
+        with (
+            mock.patch.object(runner_control, "github_token", return_value="token"),
             mock.patch.object(runner_control, "github_request", side_effect=[fetched_job, run]),
             mock.patch.object(runner_control, "launch") as launch,
         ):
