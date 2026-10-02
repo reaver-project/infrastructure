@@ -912,6 +912,30 @@ class RunnerControlIndexTests(unittest.TestCase):
             mock.patch.object(
                 runner_control,
                 "github_request",
+                side_effect=[
+                    {
+                        **fetched_job,
+                        "status": "completed",
+                        "conclusion": "cancelled",
+                        "runner_id": 0,
+                        "runner_group_id": 0,
+                    },
+                    run,
+                ],
+            ),
+            mock.patch.object(runner_control, "launch") as launch,
+        ):
+            self.assertEqual(
+                runner_control.workflow_job(delivery),
+                {"ignored": "workflow job is no longer queued"},
+            )
+            launch.assert_not_called()
+
+        with (
+            mock.patch.object(runner_control, "github_token", return_value="token"),
+            mock.patch.object(
+                runner_control,
+                "github_request",
                 side_effect=[{**fetched_job, "status": "completed"}, run],
             ),
             mock.patch.object(runner_control, "launch") as launch,
@@ -1066,6 +1090,29 @@ class RunnerControlIndexTests(unittest.TestCase):
             mock.patch.dict(os.environ, {"CACHE_TRUST_CLASS": "trusted"}),
             mock.patch.object(runner_control, "github_token", return_value="token"),
             mock.patch.object(runner_control, "github_request", side_effect=[fetched_job, run]),
+            mock.patch.object(runner_control, "runner_instances", return_value=[]),
+        ):
+            self.assertEqual(
+                runner_control.workflow_job({"schema_version": 1, "job": job}),
+                {"ignored": "workflow job has no active runner"},
+            )
+
+        with (
+            mock.patch.dict(os.environ, {"CACHE_TRUST_CLASS": "trusted"}),
+            mock.patch.object(runner_control, "github_token", return_value="token"),
+            mock.patch.object(
+                runner_control,
+                "github_request",
+                side_effect=[
+                    {
+                        **fetched_job,
+                        "conclusion": "cancelled",
+                        "runner_id": 0,
+                        "runner_group_id": 0,
+                    },
+                    run,
+                ],
+            ),
             mock.patch.object(runner_control, "runner_instances", return_value=[]),
         ):
             self.assertEqual(
