@@ -17,7 +17,7 @@ ci:
 
 repos:
   - repo: https://github.com/pre-commit/pre-commit-hooks
-    rev: 3e8a8703264a2f4a69428a0aa4dcb512790b2c8c  # v6.0.0
+    rev: v3.4.0  # v6.0.0
     hooks:
       - id: check-added-large-files
       - id: check-json
@@ -223,7 +223,7 @@ repos:
         entry: projects/reaveros/aws/functions/runner-control/test-coverage
         language: python
         additional_dependencies:
-          - coverage==7.15.4
+          - coverage==7.17.0
         files: ^projects/reaveros/aws/functions/runner-control/.*\.py$
         pass_filenames: false
       - id: ci-gate-coverage
@@ -231,7 +231,7 @@ repos:
         entry: projects/reaveros/aws/functions/ci-gate/test-coverage
         language: python
         additional_dependencies:
-          - coverage==7.15.4
+          - coverage==7.17.0
         files: ^projects/reaveros/aws/functions/(ci-gate/.*\.py|github_app\.py|webhook\.py)$
         pass_filenames: false
       - id: runner-webhook-coverage
@@ -239,7 +239,7 @@ repos:
         entry: projects/reaveros/aws/functions/runner-webhook/test-coverage
         language: python
         additional_dependencies:
-          - coverage==7.15.4
+          - coverage==7.17.0
         files: ^projects/reaveros/aws/functions/runner-webhook/.*\.py$
         pass_filenames: false
       - id: infrastructure-tests
