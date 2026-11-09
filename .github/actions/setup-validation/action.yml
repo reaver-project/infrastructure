@@ -27,4 +27,4 @@ runs:
 
       - name: Install pre-commit
         shell: bash
-        run: python3 -m pip install pre-commit==4.6.1
+        run: python3 -m pip install pre-commit==4.7.0
