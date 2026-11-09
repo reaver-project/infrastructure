@@ -46,7 +46,7 @@ jobs:
 
         steps:
           - name: Harden the runner
-            uses: step-security/harden-runner@05e31511f85b41b11d1cf0ef85d0992719546e2c # v2.21.0
+            uses: step-security/harden-runner@46b06cea07f9e64621fdf066ba77ac6915163d43 # v2.22.3
             with:
                 egress-policy: audit
 
@@ -56,7 +56,7 @@ jobs:
                 persist-credentials: false
 
           - name: Authenticate to AWS for deployment
-            uses: aws-actions/configure-aws-credentials@e6de054238d6b7531b4efff3b6587d9aade6a06c # v6.2.3
+            uses: aws-actions/configure-aws-credentials@e1253824e5c10ff9df46874f81ed3ec929e19cfd # v6.3.0
             with:
                 aws-region: ${{ env.AWS_REGION }}
                 role-to-assume: ${{ vars.AWS_INFRASTRUCTURE_DEPLOY_ROLE_ARN }}
@@ -90,7 +90,7 @@ jobs:
 
         steps:
           - name: Harden the runner
-            uses: step-security/harden-runner@05e31511f85b41b11d1cf0ef85d0992719546e2c # v2.21.0
+            uses: step-security/harden-runner@46b06cea07f9e64621fdf066ba77ac6915163d43 # v2.22.3
             with:
                 egress-policy: audit
 
@@ -100,7 +100,7 @@ jobs:
                 persist-credentials: false
 
           - name: Authenticate to AWS for webhook configuration
-            uses: aws-actions/configure-aws-credentials@e6de054238d6b7531b4efff3b6587d9aade6a06c # v6.2.3
+            uses: aws-actions/configure-aws-credentials@e1253824e5c10ff9df46874f81ed3ec929e19cfd # v6.3.0
             with:
                 aws-region: ${{ env.AWS_REGION }}
                 role-to-assume: ${{ vars.AWS_INFRASTRUCTURE_DEPLOY_ROLE_ARN }}
@@ -136,7 +136,7 @@ jobs:
 
         steps:
           - name: Harden the runner
-            uses: step-security/harden-runner@05e31511f85b41b11d1cf0ef85d0992719546e2c # v2.21.0
+            uses: step-security/harden-runner@46b06cea07f9e64621fdf066ba77ac6915163d43 # v2.22.3
             with:
                 egress-policy: audit
 
@@ -202,7 +202,7 @@ jobs:
 
         steps:
           - name: Harden the runner
-            uses: step-security/harden-runner@05e31511f85b41b11d1cf0ef85d0992719546e2c # v2.21.0
+            uses: step-security/harden-runner@46b06cea07f9e64621fdf066ba77ac6915163d43 # v2.22.3
             with:
                 egress-policy: audit
 
@@ -213,7 +213,7 @@ jobs:
 
           - name: Create a ReaverOS-scoped maintenance App token
             id: app
-            uses: actions/create-github-app-token@bcd2ba49218906704ab6c1aa796996da409d3eb1 # v3.2.0
+            uses: actions/create-github-app-token@64ab729a6294000f5aa4a4bc0b73d1f32bc45510 # v3.3.0
             with:
                 client-id: ${{ vars.MAINTENANCE_APP_CLIENT_ID }}
                 private-key: ${{ secrets.MAINTENANCE_APP_PRIVATE_KEY }}
